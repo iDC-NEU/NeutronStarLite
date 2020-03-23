@@ -1,0 +1,853 @@
+/*
+Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+ */
+#include <vector>
+#include <stdio.h>
+#include <stdlib.h>
+#include <vector>
+#include <map>
+#include "core/graph.hpp"
+#include <unistd.h>
+#include <math.h>
+#include "torch/torch.h"
+#include "torch/csrc/autograd/generated/variable_factories.h"
+#include "torch/nn/module.h"
+#include "comm/Network.hpp"
+const double d = (double) 0.8;
+#define VECTOR_LENGTH 4
+#define WEIGHT_ROW 4
+#define WEIGHT_COL 4
+//class Network;
+class GnnUnit;
+typedef struct factor {
+    float data[VECTOR_LENGTH];
+} nodeVector;
+
+typedef struct factor2 {
+    float weight[WEIGHT_ROW][WEIGHT_COL];
+} weightVector;
+
+
+struct GnnUnit : torch::nn::Module {
+    torch::Tensor W;
+    float *W_from;
+
+    GnnUnit(size_t w, size_t h) {
+        //        at::TensorOptions *opt=new at::TensorOptions;
+        //       opt->requires_grad(true);
+        //  torch::randn
+        //     A=torch::randn(torch::randn({w,h},opt));
+        W = register_parameter("W", torch::randn({w, h}));
+        W_from=new float[w*h];
+
+    }
+    void resetW(size_t w,size_t h,float* buffer){
+        memcpy(W_from, buffer,sizeof(float)*w*h);
+        torch::Tensor new_weight_tensor = torch::from_blob(W_from,{w, h});
+        W.set_data(new_weight_tensor);
+    }
+    
+    void learn(torch::Tensor from, float learning_rate){
+        torch::Tensor a=(W-(from*0.05));
+        int r=0,c=0;
+        r=a.size(0);
+        c=a.size(1);
+        memcpy(W_from, a.accessor<float,2>().data(),sizeof(float)*r*c);
+        torch::Tensor new_weight_tensor = torch::from_blob(W_from,{r, c});
+        W.set_data(new_weight_tensor);
+    }
+    
+    torch::Tensor forward(torch::Tensor x) {
+
+       // auto tmp_acc_c = W.accessor<float, 2>();
+        x = x.mm(W);
+        x = torch::log_softmax(x,1);
+        //x=torch::relu(x);
+        return x;
+    }
+
+    torch::Tensor forward2(torch::Tensor x) {
+    //    auto tmp_acc_c = W.accessor<float, 2>();
+     //   x = x.mm(W);
+        return torch::sigmoid(x);
+    }
+};
+
+template <typename T_v, typename T_l>
+class Embeddings {
+public:
+
+    Embeddings() {
+
+    }
+    T_v* start_v = NULL;
+//    T_v* next_v = NULL;
+    T_v** local_next= NULL;
+    T_v** partial_grad=NULL;
+    GnnUnit *Gnn_v1 = NULL;
+    GnnUnit *Gnn_v2 =NULL;
+    T_l *label = NULL;
+  //  weightVector * Weight = NULL;
+    T_v* local_grad=NULL;
+    T_v* aggre_grad=NULL;
+    
+
+    nodeVector * curr = NULL;
+    nodeVector * next = NULL;
+    
+    int rownum;
+    int start;
+
+    void init(Graph<Empty>* graph) {
+        start_v = new float [graph->vertices*VECTOR_LENGTH];//graph->alloc_vertex_array<float>(VECTOR_LENGTH);
+ //       next_v = graph->alloc_vertex_array<float>(VECTOR_LENGTH);
+        partial_grad=new T_v*[2];
+        //partial_grad[0]= graph->alloc_vertex_array<float>(VECTOR_LENGTH);
+     //   Weight = new weightVector(); // reuse
+        label = graph->alloc_vertex_array<T_l>();
+        //curr = graph->alloc_vertex_array<nodeVector>();
+        //next = graph->alloc_vertex_array<nodeVector>();
+        Gnn_v1 = new GnnUnit(WEIGHT_ROW, WEIGHT_COL);
+        Gnn_v2 =new GnnUnit(WEIGHT_ROW, WEIGHT_COL);
+       /* new Next_v2 for GNN*/
+        local_next=new float*[2];
+        //local_next[0]=graph->alloc_vertex_array<float>(VECTOR_LENGTH);
+        //local_next[1]=graph->alloc_vertex_array<float>(VECTOR_LENGTH);
+        local_grad=new float[WEIGHT_ROW*WEIGHT_COL];
+        rownum = (graph->partition_offset[graph->partition_id + 1] - graph->partition_offset[graph->partition_id]);
+        start = VECTOR_LENGTH * (graph->partition_offset[graph->partition_id]);
+        aggre_grad=new float[VECTOR_LENGTH*VECTOR_LENGTH];
+        
+    }
+    void cpToPartialGradVFrom(int layer,int index, float* from) {
+        memcpy(partial_grad[layer] + index*VECTOR_LENGTH, from, VECTOR_LENGTH * sizeof (float));
+        //  memcpy(curr[index].data,from,VECTOR_LENGTH*sizeof(float));
+
+    }
+    void initPartialGradWith(int layer, int index, float with) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            *(partial_grad[layer] + index * VECTOR_LENGTH + i) = with;
+            //   curr[index].data[i] = (float)with;
+        }
+    }
+    
+    void initCurrWith(int index, float with) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            //   *(curr_v+index*VECTOR_LENGTH+i)=with;
+            curr[index].data[i] = (float) with;
+        }
+    }
+
+    void initNextWith(int index, float with) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            //   *(curr_v+index*VECTOR_LENGTH+i)=with;
+            next[index].data[i] = (float) with;
+        }
+    }
+
+    void initLocalNextWith(int layer, int index, float with) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            *(local_next[layer] + index * VECTOR_LENGTH + i) = with;
+            //   curr[index].data[i] = (float)with;
+        }
+    }
+    void initStartWith( int index, float with) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            *(start_v + index * VECTOR_LENGTH + i) = with;
+            //   curr[index].data[i] = (float)with;
+        }
+    }
+
+    void cpToCurrFrom(int index, float* from) {
+        // memcpy(curr_v+index*VECTOR_LENGTH,from,VECTOR_LENGTH*sizeof(float));
+        memcpy(curr[index].data, from, VECTOR_LENGTH * sizeof (float));
+
+    }
+
+    void cpToNextFrom(int index, float* from) {
+        // memcpy(curr_v+index*VECTOR_LENGTH,from,VECTOR_LENGTH*sizeof(float));
+        memcpy(next[index].data, from, VECTOR_LENGTH * sizeof (float));
+
+    }
+
+    void cpToLocalNextFrom(int layer,int index, float* from) {
+        memcpy(local_next[layer] + index*VECTOR_LENGTH, from, VECTOR_LENGTH * sizeof (float));
+        //  memcpy(curr[index].data,from,VECTOR_LENGTH*sizeof(float));
+
+    }
+
+    void addToLocalNextFrom(int layer,int index, float* from) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            local_next[layer][index * VECTOR_LENGTH + i] += from[i];
+        }
+    }
+
+    void addToNextFrom(int index, float* from) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            next[index].data[i] += from[i];
+        }
+    }
+
+    void addToCurrFrom(int index, float* from) {
+        for (int i = 0; i < VECTOR_LENGTH; i++) {
+            curr[index].data[i] += from[i];
+        }
+    }
+
+    nodeVector getCurr(int idx) {
+        return curr[idx];
+    }
+
+    void readlabel(Graph<Empty>* graph) {
+        graph->fill_vertex_array(label, (long) 1);
+    }
+    void readEmbedding(Graph<Empty>* graph){
+        ;
+    }
+
+    void wrtPartialGrad2localgrad( T_v * buffer_){
+        memcpy(local_grad,buffer_,sizeof(T_v)*WEIGHT_ROW*WEIGHT_COL);
+    }
+    void aggregateGrad(int layer,Graph<Empty> * graph){
+        memset(aggre_grad, 0,sizeof(float)*VECTOR_LENGTH*VECTOR_LENGTH);
+
+            for(int i=start/VECTOR_LENGTH;i<start/VECTOR_LENGTH+rownum;i++){
+                for(int j=0;j<VECTOR_LENGTH;j++){
+                    aggre_grad[j]+=partial_grad[layer][i*VECTOR_LENGTH+j];
+                }
+            }
+                for(int i=0;i<VECTOR_LENGTH;i++){
+                    aggre_grad[i]/=graph->owned_vertices;
+ 
+                }
+
+            for(int i=VECTOR_LENGTH;i<VECTOR_LENGTH*VECTOR_LENGTH;i++){
+                aggre_grad[i]=aggre_grad[i%VECTOR_LENGTH];
+            }
+    }
+      void aggregateGradto(int layer, Graph<Empty> * graph,float* buffer){
+        memset(buffer, 0,sizeof(float)*VECTOR_LENGTH*VECTOR_LENGTH);
+
+            for(int i=start/VECTOR_LENGTH;i<start/VECTOR_LENGTH+rownum;i++){
+                for(int j=0;j<VECTOR_LENGTH;j++){
+                    buffer[j]+=partial_grad[layer][i*VECTOR_LENGTH+j];
+                }
+            }
+                for(int i=0;i<VECTOR_LENGTH;i++){
+                    buffer[i]/=graph->owned_vertices;
+ 
+                }
+
+            for(int i=VECTOR_LENGTH;i<VECTOR_LENGTH*VECTOR_LENGTH;i++){
+                buffer[i]=buffer[i%VECTOR_LENGTH];
+            }
+    }
+};
+class tensorSet{
+public:  
+    std::vector<torch::optim::SGD> optimizers;
+    std::vector<torch::Tensor> x;// after graph engine;
+    std::vector<torch::Tensor> y;
+    std::vector<torch::Tensor> localGrad;
+    std::vector<torch::Tensor> backwardGrad;
+    torch::Tensor target; //read label
+    torch::Tensor loss;
+    torch::Tensor in_degree;
+    torch::Tensor out_degree;
+    
+    int layers=0;
+    tensorSet(int layers_){
+        for(int i=0;i<layers_;i++){
+        x.push_back(torch::tensor(0.0));
+        y.push_back(torch::tensor(0.0));
+        localGrad.push_back(torch::tensor(0.0));
+        backwardGrad.push_back(torch::tensor(0.0));
+        layers=layers_;
+        }
+        
+    }
+    void registOptimizer(torch::optim::SGD opt){
+        opt.zero_grad();
+        optimizers.push_back(opt);     
+    }
+template <typename T_v>  
+    void updateX(int layer_,T_v* x_,int h,int w){
+        x[layer_]=torch::from_blob(x_,{h,w});
+    }
+
+    void updateX(int layer_,torch::Tensor src){
+        if(src.accessor<float,2>().size(1)==VECTOR_LENGTH){
+             printf("??????");
+            x[layer_]=src;    
+        }
+    }
+
+template <typename T_l>   
+    void registLabel(T_l* label, int start, int rownum){
+        //opt.zero_grad();
+        target=torch::from_blob(label+start, rownum,torch::kLong);     
+    }
+};
+
+void init_parameter(Network<float> * comm,Graph<Empty> * graph,GnnUnit* gnn,Embeddings<float,long>* embedding){
+    
+     int r,c;
+     r=gnn->W.accessor<float,2>().size(0);
+     c=gnn->W.accessor<float,2>().size(1);
+    if(graph->partition_id==0){//first layer
+     //   embedding->wrtPara2W(graph,gnn);//write para to temp Weight 
+    //    comm->wrtWtoBuff(embedding->Weight); //write para to send buffer
+    //    comm->wrtBuffertoBuff(gnn->)
+        std::cout<<"size\n"<<gnn->W<<std::endl;
+       comm->wrtBuffertoBuff(gnn->W.accessor<float,2>().data(),r, c);
+      //  comm->wrtBuffertoBuff(gnn->W.accessor<float,2>().data());
+    }
+     if(graph->partition_id==0){
+     printf("test 111%d %d\n",r,c);
+     }
+     comm->broadcastW(gnn->W.accessor<float,2>().data(),r,c);// comm buffer
+     
+     gnn->resetW(r,c,comm->buffer);
+}
+template<typename t_v>
+torch::Tensor unified_parameter(Network<float> *comm,torch::Tensor res){
+    
+    //torch::Tensor s;
+    int r=res.accessor<float,2>().size(0);
+    int c=res.accessor<float,2>().size(1);
+        comm->wrtBuffertoBuff(res.accessor<float,2>().data(),r,c); //write para to send buffer
+        comm->gatherW(r,c);// gather from others to recvbuffer
+        comm->computeW(r,c);// compute new para on recvbuffer
+        comm->broadcastW(comm->recv_buffer,r,c);
+        return torch::from_blob(comm->buffer,{r,c});
+}
+template<typename t_v>
+void unified_parameter(Network<float> *comm, t_v* buffer, int r,int c){
+    
+    //torch::Tensor s;
+        comm->wrtBuffertoBuff(buffer,r,c); //write para to send buffer
+        comm->gatherW(r,c);// gather from others to recvbuffer
+        comm->computeW(r,c);// compute new para on recvbuffer
+        comm->broadcastW(comm->recv_buffer,r,c);
+}
+
+
+
+
+template<typename t_v,typename t_l>
+class GTensor{
+    
+public:
+    Graph<Empty> *graph_;
+    Embeddings<t_v,t_l> *embedding_;
+    torch::Tensor pre_value;
+    torch::Tensor value;  
+    torch::Tensor pre_grad;
+    torch::Tensor grad;
+    
+    
+    
+    t_v** value_buffer;
+    t_v** grad_buffer;
+    std::vector<torch::Tensor> value_local;
+    std::vector<torch::Tensor> grad_local;
+    
+    
+    nodeVector *curr_local;
+    nodeVector *next_local;
+    
+    
+    int start_;
+    int rownum_;
+    int layer_;
+    int current_layer;
+    VertexSubset *active_;
+    t_v** partial_grad_buffer;
+    inline void zeroCurr(){
+        memset(curr_local, 0,sizeof(nodeVector)*rownum_);
+       ;// memcpy(array[v_i].data,value.data ,length*sizeof(T));
+    }
+    inline void zeroNext(){
+        memset(next_local, 0,sizeof(nodeVector)*rownum_);
+        ;
+    }
+    inline void cpToCurr(int vtx,t_v* src){
+        memcpy(curr_local[vtx-start_].data, src, sizeof(nodeVector));
+    }
+    inline void cpToNext(int vtx,t_v* src){
+        memcpy(next_local[vtx-start_].data, src, sizeof(nodeVector));
+    }
+    inline void addToNext(int vtx, t_v* src){
+        for(int i=0;i<VECTOR_LENGTH;i++){
+            next_local[vtx-start_].data[i]+=src[i];
+        }
+    }
+    inline void zeroValue(int layer){
+        memset(value_buffer[layer], 0,sizeof(nodeVector)*rownum_);
+        // memcpy(valuebuffer[vtx-start_].data, src, sizeof(nodeVector));
+    }
+    inline void zeroGrad(int layer){
+        memset(grad_buffer[layer], 0,sizeof(nodeVector)*rownum_);
+        // memcpy(valuebuffer[vtx-start_].data, src, sizeof(nodeVector));
+    }
+    GTensor(Graph<Empty> * graph,Embeddings<t_v,t_l>*embedding,VertexSubset * active, int layer){
+        graph_=graph;
+        embedding_=embedding;
+        active_=active;
+        start_=embedding_->start/VECTOR_LENGTH;
+        rownum_=embedding->rownum;
+        layer_=layer;
+        current_layer=-1;
+        
+        
+       // partial_grad_buffer=new t_v[VECTOR_LENGTH*VECTOR_LENGTH];
+        value_buffer=new t_v*[layer];
+        grad_buffer=new t_v*[layer];
+        partial_grad_buffer=new t_v*[layer];
+        curr_local=graph->alloc_vertex_array_local<nodeVector>();
+        next_local=graph->alloc_vertex_array_local<nodeVector>();
+        value_local.clear();
+        grad_local.clear();
+        for(int i=0;i<layer;i++){
+            torch::Tensor x1,x2;
+            value_local.push_back(x1);
+            grad_local.push_back(x2);
+            value_buffer[i]=graph->alloc_vertex_array_local<t_v>(VECTOR_LENGTH);
+            grad_buffer[i]=graph->alloc_vertex_array_local<t_v>(VECTOR_LENGTH);
+            partial_grad_buffer[i]=new t_v[VECTOR_LENGTH*VECTOR_LENGTH];
+        }
+    }
+    torch::Tensor Propagate(int local_layer){
+        zeroCurr();//local
+        zeroNext();//local   
+        zeroValue(local_layer);
+       //  printf("!!!!!alert%d   %d %d \n",pre_value.accessor<t_v,2>().size(0),pre_value.accessor<t_v,2>().size(1),rownum_);    
+    graph_->process_vertices<t_v>(//init  the vertex state.
+                [&](VertexId vtx) {
+                 //   embedding_->initCurrWith(vtx, (t_v) 0);//初始化current
+                 //   embedding_->initLocalNextWith(local_layer, vtx, (t_v) 0);//init LOCALNEXT 
+//                   if(vtx<start_+rownum_&&vtx>=start_){
+//                        embedding_->cpToCurrFrom(vtx, pre_value.accessor<t_v,2>().data()+(vtx-start_)*VECTOR_LENGTH);//init curr with the previous layer
+//                    }
+                    cpToCurr(vtx,pre_value.accessor<t_v,2>().data()+(vtx-start_)*VECTOR_LENGTH);//local
+               //     embedding_->initNextWith(vtx, (t_v) 0);
+                    return (float) 1;
+                }, active_ );   
+                
+            
+                
+    graph_->process_edges<int, nodeVector>(// For EACH Vertex Processing
+        [&](VertexId dst, VertexAdjList<Empty> incoming_adj) {//pull
+            nodeVector sum;
+            memset(sum.data,0,sizeof(float)*VECTOR_LENGTH);
+            for (AdjUnit<Empty> * ptr = incoming_adj.begin; ptr != incoming_adj.end; ptr++) {//pull model
+                VertexId src = ptr->neighbour;
+                for (int i = 0; i < VECTOR_LENGTH; i++) {
+                    sum.data[i] += curr_local[src-start_].data[i];//local
+               //    sum.data[i] += embedding_->curr[src].data[i];//
+                }
+            }
+            graph_->emit(dst, sum);
+        },
+        [&](VertexId dst, nodeVector msg) {
+       //     embedding_->addToNextFrom(dst, msg.data);
+            addToNext(dst,msg.data);//local
+//            memcpy(this->value_buffer[local_layer]+VECTOR_LENGTH*(dst-start_),
+//                      msg.data,sizeof(t_v)*VECTOR_LENGTH);
+            return 0;
+        }, active_);
+        
+        graph_->process_vertices<float>(//init the vertex state.
+                [&](VertexId vtx) {
+          //      embedding_->addToLocalNextFrom(local_layer,vtx, embedding_->next[vtx].data);
+                memcpy(this->value_buffer[local_layer]+VECTOR_LENGTH*(vtx-start_),
+                        next_local[vtx-start_].data,sizeof(t_v)*VECTOR_LENGTH);
+                //embedding_->local_next[local_layer]
+                return 0;
+                }, active_);
+        
+                value_local[local_layer]=torch::from_blob(value_buffer[local_layer],{rownum_,VECTOR_LENGTH});
+          //      value=torch::from_blob(embedding_->local_next[local_layer] + start_*VECTOR_LENGTH,{rownum_,VECTOR_LENGTH});
+        printf("DEBUG  TEST \n");
+//        for(int i=0;i<10;i++){
+//            printf("%f_%f_%d\t",embedding_->local_next[local_layer][(i+start_)*VECTOR_LENGTH],this->value_buffer[local_layer][VECTOR_LENGTH*i],graph_->in_degree[start_+i]);
+//        }
+        printf("\n");
+        value=value_local[local_layer];
+        current_layer=local_layer;
+        return value_local[local_layer];
+    }
+    void Propegate_backward(int local_layer){
+        zeroCurr();//local
+        zeroNext();//local    
+        zeroGrad(local_layer);//local
+      graph_->process_vertices<float>(//init  the vertex state.
+                [&](VertexId vtx) {
+                    cpToCurr(vtx,pre_grad.accessor<t_v,2>().data()+(vtx-start_)*VECTOR_LENGTH);//local
+            //        embedding_->cpToCurrFrom(vtx,pre_grad.accessor<t_v,2>().data()+(vtx-start_)*VECTOR_LENGTH);
+           //          embedding_->initNextWith(vtx,(float)0);
+             //        embedding_->initPartialGradWith(local_layer, vtx,(float)0);
+                     return 1;
+                }, active_ );  
+                
+                std::cout<<"???alert\n"<<std::endl;
+        //start graph engine.
+      graph_->process_edges_backward<int, nodeVector>(// For EACH Vertex Processing
+        [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {//pull
+            nodeVector sum;
+            memset(sum.data,0,sizeof(float)*VECTOR_LENGTH);
+            for (AdjUnit<Empty> * ptr = outgoing_adj.begin; ptr != outgoing_adj.end; ptr++) {//pull model
+                VertexId dst = ptr->neighbour;
+                for (int i = 0; i < VECTOR_LENGTH; i++) {
+                     sum.data[i] += curr_local[dst-start_].data[i];//local
+                   // sum.data[i] += embedding_->curr[dst].data[i];//
+                }
+
+            }
+            graph_->emit(src, sum);
+        },
+        [&](VertexId src, nodeVector msg) {
+          //  embedding_->addToNextFrom(src, msg.data);
+            addToNext(src,msg.data);
+            return 0;
+        }, active_ );    
+//3.3.4write partial gradient to local and update the gradient of W1
+    
+      graph_->process_vertices<float>(//init  the vertex state.
+                [&](VertexId vtx) {
+            //    embedding_->cpToPartialGradVFrom(0, vtx, embedding_->next[vtx].data);
+                memcpy(this->grad_buffer[local_layer]+VECTOR_LENGTH*(vtx-start_),
+                        next_local[vtx-start_].data,sizeof(t_v)*VECTOR_LENGTH);//local
+                
+                return 0;
+                }, active_);
+    //  embedding_->aggregateGradto(local_layer, graph_,partial_grad_buffer[local_layer]);//new
+      grad_local[local_layer]=torch::from_blob(grad_buffer[local_layer],{rownum_,VECTOR_LENGTH});//local
+      grad=torch::from_blob(partial_grad_buffer[local_layer],{VECTOR_LENGTH, VECTOR_LENGTH});//new
+      
+      
+      //        printf("DEBUG  TEST \n");
+//        for(int i=0;i<10;i++){
+//            printf("%f_%f\t",embedding_->local_next[local_layer][(i+start_)*VECTOR_LENGTH],this->value_buffer[local_layer][VECTOR_LENGTH*i]);
+//        }
+//        printf("\n");
+      
+      
+    }
+   void aggregateGrad(int local_layer){
+       memset(partial_grad_buffer[local_layer], 0,sizeof(float)*VECTOR_LENGTH*VECTOR_LENGTH);
+
+            for(int i=0;i<rownum_;i++){
+                for(int j=0;j<VECTOR_LENGTH;j++){
+                    partial_grad_buffer[local_layer][j]+=grad_buffer[local_layer][i*VECTOR_LENGTH+j];
+                }
+            }
+                for(int i=0;i<VECTOR_LENGTH;i++){
+                    partial_grad_buffer[local_layer][i]/=rownum_;
+ 
+                }
+
+            for(int i=VECTOR_LENGTH;i<VECTOR_LENGTH*VECTOR_LENGTH;i++){
+                partial_grad_buffer[local_layer][i]=partial_grad_buffer[local_layer][i%VECTOR_LENGTH];
+            }
+    }
+    
+    
+    torch::Tensor applyWeight(torch::Tensor w){
+        return value*w;
+    }
+    
+    torch::Tensor applyParameter(torch::Tensor para){
+        return value.mm(para);
+    }
+    void setValueFromTensor(torch::Tensor new_tensor){
+        pre_value=new_tensor;    
+    }
+    void setValueFromNative(t_v* data){
+        pre_value=torch::from_blob(data+start_*VECTOR_LENGTH,{rownum_,VECTOR_LENGTH});
+    }
+    void setValueFromNative(t_v* data,int offset){
+        pre_value=torch::from_blob(data+offset,{rownum_,VECTOR_LENGTH});
+    }
+    void setGradFromTensor(torch::Tensor new_tensor){
+        pre_grad=new_tensor;    
+    }
+    void setGradFromNative(t_v* data){
+        pre_grad=torch::from_blob(data+start_*VECTOR_LENGTH,{rownum_,VECTOR_LENGTH});
+    }
+    torch::Tensor v(int local_layer){
+        return value_local[local_layer];
+    }
+    torch::Tensor require_grad(){
+        return grad;
+    }
+
+};
+/*
+class backwardController{
+    std::vector<torch::Tensor*> inter_output_;
+    std::vector<torch::Tensor*> loss_;
+    std::vector<torch::Tensor*>partial_grad_;
+    std::vector<GTensor* >g_tensor_;
+    backwardController(){
+        
+    }
+    void set_loss(torch::Tensor &loss){
+        loss_.push_back(loss);
+    }
+    void set_inter_loss(torch::Tensor &inter_output){
+        inter_output_.push_back(inter_output);
+    }
+    void set_partial_grad(torch::Tensor &partial_grad){
+        partial_grad_.push_back(partial_grad);
+    }
+    void set_g_tensor(GTensor &gt){
+        g_tensor_.push_back(gt);
+    }
+    void backward(){
+        
+    }
+    
+};
+*/
+void compute(Graph<Empty> * graph, int iterations) {
+    
+    int rownum = (graph->partition_offset[graph->partition_id + 1] - graph->partition_offset[graph->partition_id]);
+    int start = VECTOR_LENGTH * (graph->partition_offset[graph->partition_id]);
+    Embeddings<float, long> *embedding = new Embeddings<float, long>();
+    embedding->init(graph);
+    embedding->readlabel(graph);
+    Network<float> *comm=new Network<float>(graph,WEIGHT_ROW,WEIGHT_COL);
+    Network<float>* comm1=new Network<float>(graph,WEIGHT_ROW,WEIGHT_COL);
+    comm->setWsize(WEIGHT_ROW,WEIGHT_COL);
+    comm1->setWsize(WEIGHT_ROW,WEIGHT_COL);
+    tensorSet *pytool=new tensorSet(2);
+    pytool->in_degree=torch::from_blob(graph->in_degree+graph->partition_offset[graph->partition_id],{embedding->rownum,1});
+    pytool->out_degree=torch::from_blob(graph->in_degree+graph->partition_offset[graph->partition_id],{embedding->rownum,1});
+/*1 INIT STAGE*/    
+   // GTensor<float,Empty> gt=new  GTensor(comm, graph);
+    pytool->registOptimizer(torch::optim::SGD(embedding->Gnn_v1->parameters(), 0.05));//new
+    pytool->registOptimizer(torch::optim::SGD(embedding->Gnn_v2->parameters(), 0.05));//new
+    pytool->registLabel<long>(embedding->label,embedding->start/VECTOR_LENGTH,embedding->rownum);//new
+
+/*init W with new */
+  
+    init_parameter(comm, graph,embedding->Gnn_v1, embedding);
+    init_parameter(comm1, graph,embedding->Gnn_v2, embedding);
+    VertexSubset * active = graph->alloc_vertex_subset();
+    active->fill();
+    GTensor<float,long> *gt=new GTensor<float, long>(graph,embedding,active,2);
+    //
+    
+    graph->process_vertices<float>(//init  the vertex state.
+            [&](VertexId vtx) {
+        //        embedding->initCurrWith(vtx, (float) 1);
+                embedding->initStartWith(vtx,1);
+                return (float) 1;
+            }, active );
+
+
+    gt->setValueFromNative(embedding->start_v,embedding->start);        
+    for (int i_i = 0; i_i < iterations; i_i++) {
+        std::cout<<"start one epoch"<<std::endl;
+/*2. FORWARD STAGE*/      
+//2.1.1 start the forward of the first layer
+                gt->Propagate(0);
+
+//2.1.2 compute tensor from the first layer                     
+        pytool->updateX(0,gt->value_local[0]);      
+        pytool->y[0]=embedding->Gnn_v1->forward(pytool->x[0]);//new
+        auto accs=pytool->y[0].accessor<float,2>();//new   
+//2.2.1 init the second layer       
+        gt->setValueFromTensor(pytool->y[0]); 
+////2.2.2 forward the second layer                     
+        gt->Propagate(1);             
+/*3 BACKWARD STAGE*/
+//3.1 compute the output of the second layer.
+        pytool->updateX(1,gt->value_local[1]);//new
+        pytool->x[1].set_requires_grad(true);
+        pytool->y[1]=embedding->Gnn_v2->forward(pytool->x[1]);//new
+        pytool->loss =torch::nll_loss(pytool->y[1],pytool->target);//new
+//3.2 compute the gradient of the second layer.  
+         pytool->loss.backward();//new
+         pytool->optimizers[1].step();//new        
+        torch::Tensor aggregate_grad2= unified_parameter<float>(comm1,embedding->Gnn_v2->W);
+         embedding->Gnn_v2->learn(aggregate_grad2,0.05);//reset from new 
+//*3.3.1  compute  W1's partial gradient in first layer   
+        pytool->y[0].backward();//new
+        pytool->localGrad[0]=embedding->Gnn_v1->W.grad();//new      
+//*3.3.2  balance W1's partial gradient in first layer                
+        torch::Tensor next_grad=unified_parameter<float>(comm,pytool->localGrad[0]);    
+        pytool->localGrad[0].set_data(next_grad);//new         
+//3.3.3 backward the partial gradient from 2-layer to 1-layer    torch::Tensor partial_grad_layer2=pytool->x[1].grad();         
+        gt->setGradFromTensor(pytool->x[1].grad());
+        gt->Propegate_backward(0);
+        gt->aggregateGrad(0);
+//3.3.4write partial gradient to local and update the gradient of W1
+     std::cout<<graph->partition_id<<"before\n"<<embedding->Gnn_v1->W<<std::endl;  
+     pytool->backwardGrad[0]=torch::from_blob(gt->partial_grad_buffer[0],{VECTOR_LENGTH, VECTOR_LENGTH});//new
+     torch::Tensor aggregate_grad = unified_parameter<float>(comm,(pytool->localGrad[0]*pytool->backwardGrad[0]));     
+     std::cout<<"aggregate_grad\n"<<aggregate_grad<<std::endl; 
+     embedding->Gnn_v1->learn(aggregate_grad,0.05); 
+       std::cout<<graph->partition_id<<"after\n"<<embedding->Gnn_v1->W<<std::endl;     
+ /*4 init the next time*/       
+            gt->setValueFromTensor(pytool->y[1]);
+
+    }
+     delete active;
+       
+}
+
+int main(int argc, char ** argv) {
+    MPI_Instance mpi(&argc, &argv);
+ printf("hello\n");
+    if (argc < 4) {
+        printf("pagerank [file] [vertices] [iterations]\n");
+        exit(-1);
+    }
+   
+ 
+//    Graph<Empty> * graph;
+//    graph = new Graph<Empty>();
+//    graph->load_directed(argv[1], std::atoi(argv[2]));
+//    if(graph->partition_id==0)
+//    graph->generate_partition_for_device();
+   // std::cout<<"partition_size"<<graph->csc_forward.size()<<"partition_size2"<<graph->csc_forward[0].size()<<std::endl;
+            
+ //test();
+// int size=4;
+//	int* s= new int[5];
+//	int* d= new int[6];
+//	float *f=new float[16];
+//	float *e=new float[24];
+//	float *result=new float[16];
+//	//s[0]=0;s[1]=3;s[2]=4;s[3]=5;s[4]=6;
+//	//d[0]=1;d[1]=2;d[2]=3;d[3]=1;d[4]=0;d[5]=0;
+//        
+//        s[0]=0;s[1]=1;s[2]=2;s[3]=3;s[4]=0;s[5]=1;
+//	d[0]=0;d[1]=1;d[2]=2;d[3]=3;d[4]=0;d[5]=1;
+//        
+//	for(int i=0;i<16;i++){
+//		f[i]=(float)i;
+//	}
+//	for(int i=0;i<24;i++){
+//		e[i]=(float)1;//(int)(i/4);
+//	}
+// gpu_processor *gp=new gpu_processor(4,6,4,PAIR);
+//        gp->setMetaInfo(0,4,0,4,6,0,4,4);
+//        //gp->load_data2GPU_csc(s, d, e, f);
+//        gp->load_data2GPU_pair(s, d, e, f);
+//        gp->debug_all_info();
+//        gp->run_sync();
+//        gp->debug_new_feature();
+//        gp->fetch_result_fromGPU(result);
+//        printf("cpu result:\n");
+//for(int i=0;i<16;i++){
+//	printf("%f\t",result[i]);
+//}printf("\n");
+        
+        
+    Graph<Empty> * graph;
+    graph = new Graph<Empty>();
+    graph->load_directed(argv[1], std::atoi(argv[2]));
+    int iterations = std::atoi(argv[3]);
+    printf("hello world\n");
+    double exec_time = 0;
+    exec_time -= get_time();
+    compute(graph, iterations);
+      exec_time += get_time();
+  if (graph->partition_id==1) {
+    printf("exec_time=%lf(s)\n", exec_time);
+  }
+//   graph->generate_backward_structure();  
+      
+    delete graph;
+    return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+     
+ //     float a1[6]={13.0,3.0,1.0,2.0,2.0,2.0};
+ //     float w1[4]={1.0,4.0,3.0,4.0};
+//      float w2[4]={2.0,3.0,5.0,7.0};
+//      float w3[2]={3.0,6.0};
+//      float y[4]={7,10,15,22};
+//      float w1w2[4]={18,36,38,76};
+      
+//      torch::Tensor x1=torch::from_blob(w1,{2,2});
+//      std::cout<<x1<<std::endl;
+//      memset(w1,1,sizeof(int)*4);
+//      std::cout<<x1<<std::endl;
+//      torch::Tensor x2=torch::from_blob(a1,{2,2});
+//      torch::Tensor x3=torch::from_blob(w3,{1,2});
+//      torch::Tensor w_1=torch::from_blob(w1,{2, 2});
+//      torch::Tensor w_3=torch::from_blob(w3,{2,1});
+//      w_1.set_requires_grad(true);
+//      w_3.set_requires_grad(true);
+//      x1.set_requires_grad(true);
+//      x2.set_requires_grad(true);
+//      torch::Tensor w_2=torch::from_blob(w2,{2, 2});
+//      torch::Tensor y1=torch::from_blob(y,{2, 2});
+//      w_2.set_requires_grad(true);
+//      y1.set_requires_grad(true);
+//      torch::Tensor s=w_1.mm(w_2);
+//      torch::Tensor y=x1*x3;
+      
+//      std::cout<<y<<std::endl;
+//      y1=torch::sigmoid(x1.mm(w_1));//.mm(w_3); //.mm(w_1)
+//      y1.backward();
+//      torch::Tensor grad1=w_1.grad();
+//      std::cout<<"grad1:\n"<<grad1<<std::endl;
+//      
+//      torch::Tensor y2=x2.mm(w_2).mm(w_3);//.mm(x2);
+//      y2.backward();
+//      std::cout<<y2<<std::endl;
+//      torch::Tensor grad2=x2.grad();
+//      std::cout<<"grad2:\n"<<grad2<<std::endl;
+      
+//      y1=torch::sigmoid(x1.mm(w_1)).mm(w_2).mm(w_3); //.mm(w_1)
+//      y1.backward();
+//      torch::Tensor grad2=w_1.grad();
+//      std::cout<<"gradall:\n"<<grad2<<std::endl;
+      
+      
+      
+   //   torch::Tensor y2=x2.mm(w_2);
+  //    y2.backward();
+    //  torch::Tensor grad_com=w_1.grad().mm(w_1.t());
+//      x2.set_data(y1);
+//      torch::Tensor y2=x2.mm(w_2);
+//      y2.backward();
+//      torch::Tensor grad2=x2.grad();
+   //   std::cout<<"grad_2:\n"<<grad_com<<std::endl;
+//      torch::Tensor all=grad2*grad1;
+//    std::cout<<"all:\n"<<all<<std::endl;
+      
+      
+//       torch::Tensor gad2=x1.grad();
+//       std::cout<<"grad_all:\n"<<gad2<<std::endl;
+//       torch::Tensor ga=gad.mm(gad1);
+//       std::cout<<"grad_compute\n"<<ga<<std::endl;
+       
+       
