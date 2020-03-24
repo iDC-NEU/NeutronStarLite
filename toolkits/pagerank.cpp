@@ -139,6 +139,7 @@ struct GnnUnit : torch::nn::Module {
         r=a.size(0);
         c=a.size(1);
         W.set_data(a);
+        //W=a;
     }
     torch::Tensor forward(torch::Tensor x) {
 
@@ -896,7 +897,9 @@ void compute_GPU(Graph<Empty> * graph, int iterations) {
     for(int i=0;i<graph->threads;i++){
     partial_new_combine_grad.push_back(new_combine_grad);
 }
-    
+     aggregate_engine  *ag_e=new aggregate_engine();
+    ag_e->reconfig_data(graph->vertices,SIZE_LAYER_2,graph->vertices,SIZE_LAYER_1,TENSOR_TYPE);
+    ag_e->init_intermediate_gradient();
     
     
     graph->process_vertices<ValueType>(//init  the vertex state.
@@ -973,26 +976,30 @@ void compute_GPU(Graph<Empty> * graph, int iterations) {
 torch::Tensor x0_gpu=pytool->x[0].cuda();
 torch::Tensor grad0_gpu=gt->grad_local[0].cuda();        
 
-//gp1->aggregate_grad(x0_gpu.packed_accessor<ValueType,2>().data(),
-//        pytool->localGrad[0].packed_accessor<ValueType,2>().data(),
-//        grad0_gpu.packed_accessor<ValueType,2>().data(),embedding->rownum);
-//new_combine_grad=torch::from_blob(gp1->get_grad(),{SIZE_LAYER_1,SIZE_LAYER_2}).cuda();
 
-    graph->process_vertices<ValueType>(//init  the vertex state.
-        [&](VertexId vtx){
-            int thread_id = omp_get_thread_num();
-           partial_new_combine_grad[thread_id]=partial_new_combine_grad[thread_id]+
-            x0_gpu[vtx].reshape({SIZE_LAYER_1,1}).mm(
-            pytool->localGrad[0][vtx].reshape({1,SIZE_LAYER_2})
-             *grad0_gpu[vtx].reshape({1,SIZE_LAYER_2}));
-                    
-            return (ValueType)1;
-        },
-    active
-    );
-    for(int i=0;i<graph->threads;i++){
-       new_combine_grad=new_combine_grad+partial_new_combine_grad[i];
-    }
+//    graph->process_vertices<ValueType>(//init  the vertex state.
+//        [&](VertexId vtx){
+//            int thread_id = omp_get_thread_num();
+//           partial_new_combine_grad[thread_id]=partial_new_combine_grad[thread_id]+
+//            x0_gpu[vtx].reshape({SIZE_LAYER_1,1}).mm(
+//            pytool->localGrad[0][vtx].reshape({1,SIZE_LAYER_2})
+//             *grad0_gpu[vtx].reshape({1,SIZE_LAYER_2}));
+//                    
+//            return (ValueType)1;
+//        },
+//    active
+//    );
+//    for(int i=0;i<graph->threads;i++){
+//       new_combine_grad=new_combine_grad+partial_new_combine_grad[i];
+//    }
+
+        new_combine_grad.zero_();
+        ag_e->redirect_input_output(grad0_gpu.packed_accessor<float,2>().data(),
+            pytool->localGrad[0].packed_accessor<float,2>().data(),
+                x0_gpu.packed_accessor<float,2>().data(),
+                    new_combine_grad.packed_accessor<float,2>().data());
+        ag_e->aggregate_grad();        
+
     //learn  
      torch::Tensor aggregate_grad = unified_parameter<ValueType>(comm,new_combine_grad.cpu());
      Gnn_v1->learn_gpu(aggregate_grad.cuda(),learn_rate); 
@@ -1081,7 +1088,6 @@ void compute_single_GPU(Graph<Empty> * graph, int iterations) {
     graph_engine *gr_e=new graph_engine();
     VertexId* incoming_adj_index=new VertexId[graph->vertices+1];
     VertexId* incoming_adj_index_backward=new VertexId[graph->vertices+1];
-    printf("edges:%d",graph->edges);
     ValueType* weight=new ValueType[graph->edges+1];
     ValueType*weight_backward=new ValueType[graph->edges+1];
      graph->process_vertices<ValueType>(//init  the vertex state.
@@ -1236,12 +1242,16 @@ void compute_single_GPU(Graph<Empty> * graph, int iterations) {
     // layer 1 local     
         Out0_gpu.backward();//new  
     // layer 1 combine
+        
+
+        
         new_combine_grad.zero_();
         ag_e->redirect_input_output(Y1_inv_gpu.packed_accessor<float,2>().data(),
             inter1_gpu.grad().packed_accessor<float,2>().data(),
                 Y0_gpu.packed_accessor<float,2>().data(),
                     new_combine_grad.packed_accessor<float,2>().data());
         ag_e->aggregate_grad();        
+        
         
 //learn  
 //     torch::Tensor aggregate_grad = unified_parameter<ValueType>(comm,new_combine_grad.cpu());

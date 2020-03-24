@@ -1,2 +1,2 @@
-/usr/bin/ar qc libcuda_propagate.a  CMakeFiles/cuda_propagate.dir/main.cpp.o CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o
+/usr/bin/ar qc libcuda_propagate.a  CMakeFiles/cuda_propagate.dir/main.cpp.o CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o
 /usr/bin/ranlib libcuda_propagate.a

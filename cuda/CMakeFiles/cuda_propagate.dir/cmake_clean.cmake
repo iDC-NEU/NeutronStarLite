@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o"
   "CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o"
   "CMakeFiles/cuda_propagate.dir/main.cpp.o"
   "libcuda_propagate.pdb"

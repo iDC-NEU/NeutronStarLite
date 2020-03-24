@@ -220,7 +220,7 @@ __global__ void processing_scalar_weight(T_l *src, T_l *dst, T_v* old_feature, T
 	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
 			int local_src=src[i_i];
 			atomicAdd(&new_feature[feature_size_*local_dst+rank],
-				old_feature[feature_size_*local_src+rank]/edge_data[local_src]);
+				old_feature[feature_size_*local_src+rank]/edge_data[i_i]);
 	 	}
 		
 	}
@@ -231,17 +231,17 @@ __global__ void processing_no_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* 
 	int large_size=blockDim.x;
 	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
 	//int rank=threadIdx.x;
-	if(threadId==0){
-		printf("in");
-		for(int j=0;j<10;j++){
-			printf("%f\t\n",new_feature[j*feature_size_]);
-		}	printf("\n%d %d %d\n",batch_size_,feature_size_,blockDim.x*gridDim.x);
-	// printf("%d\n",batch_size_);
-	// printf("%d\n??",src_s_);
-	// for(int j=0;j<10;j++){
-	// 		printf("%d\n",src[j]);
-	// 	}	printf("\n");
-	}
+	// if(threadId==0){
+	// 	printf("in");
+	// 	for(int j=0;j<10;j++){
+	// 		printf("%f\t\n",new_feature[j*feature_size_]);
+	// 	}	printf("\n%d %d %d\n",batch_size_,feature_size_,blockDim.x*gridDim.x);
+	// // printf("%d\n",batch_size_);
+	// // printf("%d\n??",src_s_);
+	// // for(int j=0;j<10;j++){
+	// // 		printf("%d\n",src[j]);
+	// // 	}	printf("\n");
+	// }
 
 	// //			128 		128		  2208
 	// for(int i=threadId;i<large_size*batch_size_;i+=blockDim.x*gridDim.x){

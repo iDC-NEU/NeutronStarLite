@@ -176,19 +176,19 @@ return s;
 }
 void graph_engine::forward(){
 	
-	const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=128;
+	const int THREAD_SIZE=32;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
 	//_wt=NULL_TYPE;
 	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
 	printf("CUDA_DEBUGE_INFO: RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
 	if(_wt==NULL_TYPE){
-		printf("NULL_TYPE\t %d %d %d \n",_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
+	//	printf("NULL_TYPE\t %d %d %d \n",_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
 		processing_no_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
 			_forward_graph->_neighbour, _forward_graph->_index, _input, _output,_with_weight 
 			    ,_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
 
 	}else if(_wt==SCALA_TYPE){
-		printf("SCALA_TYPE\n");
+	//	printf("SCALA_TYPE\n");
 		processing_scalar_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
 			_forward_graph->_neighbour, _forward_graph->_index, _input, _output,_with_weight 
 			    ,_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
@@ -199,8 +199,8 @@ void graph_engine::forward(){
 	//	printf("finish\n");
 }
 void graph_engine::backward(){
-	const int BLOCK_SIZE=128;
-	const int THREAD_SIZE=128;
+	const int BLOCK_SIZE=32;
+	const int THREAD_SIZE=32;
 	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
 	if(_wt==NULL_TYPE){
 		printf("backward null_type\n");
@@ -259,14 +259,14 @@ void graph_engine::show(){
 
 
 void aggregate_engine::aggregate_grad(){
-	const int BLOCK_SIZE=128;
-	const int THREAD_SIZE=512;
+	const int BLOCK_SIZE=256;
+	const int THREAD_SIZE=256;
 //	cudaMemset(final_gradient,0,sizeof(float)*size_remote(1)*size_local(1));
 	if(wt_==TENSOR_TYPE){
-	printf("%d %d %d  %d\n",size_remote(0),size_remote(1),size_local(0),size_local(1));
+	//printf("%d %d %d  %d\n",size_remote(0),size_remote(1),size_local(0),size_local(1));
 		dot_mult_tensor_weight<<<BLOCK_SIZE,THREAD_SIZE>>>(intermediate_gradient,
 			remote_grad,weight,size_remote(0),size_remote(1));
-		printf("finish dot\n");
+	//	printf("finish dot\n");
 		cudaDeviceSynchronize();
 		//show_dot_mult_to_buffer<<<1,1>>>(intermediate_gradient, 3, 2);
 		

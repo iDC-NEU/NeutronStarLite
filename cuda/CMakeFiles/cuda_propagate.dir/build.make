@@ -57,6 +57,142 @@ include cuda/CMakeFiles/cuda_propagate.dir/progress.make
 # Include the compile flags for this target's objects.
 include cuda/CMakeFiles/cuda_propagate.dir/flags.make
 
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: cuda/csc_graph.cu
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/_G_config.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/alloca.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/assert.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/bits/atomic_lockfree_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/bits/cpp_type_traits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/bits/exception_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/bits/exception_ptr.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/bits/nested_exception.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/cmath
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/cstdlib
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/exception
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/ext/type_traits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/c++/5/new
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/endian.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/features.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/libio.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/limits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/linux/limits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/math.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/stdc-predef.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/stdio.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/stdlib.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/string.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/time.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/wchar.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/byteswap-16.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/byteswap.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/endian.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/huge_val.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/huge_valf.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/huge_vall.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/inf.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/local_lim.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/math-vector.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/mathcalls.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/mathdef.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/mathinline.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/nan.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/posix1_lim.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/posix2_lim.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/select.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/select2.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/sigset.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdio.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdio2.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdio_lim.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdlib-float.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/stdlib.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/string3.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/sys_errlist.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/time.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/timex.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/typesizes.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/waitflags.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/waitstatus.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/wordsize.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/bits/xopen_lim.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/c++/5/bits/c++config.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/c++/5/bits/cpu_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/c++/5/bits/os_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/gnu/stubs-64.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/gnu/stubs.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/sys/cdefs.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/sys/select.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/sys/sysmacros.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/x86_64-linux-gnu/sys/types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/include/xlocale.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/lib/gcc/x86_64-linux-gnu/5/include-fixed/limits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/lib/gcc/x86_64-linux-gnu/5/include-fixed/syslimits.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/lib/gcc/x86_64-linux-gnu/5/include/stdarg.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/builtin_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/channel_descriptor.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/common_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/common_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/device_double_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/device_double_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/device_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/device_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/host_config.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/host_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/math_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/math_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/sm_70_rt.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/crt/sm_70_rt.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/cuda_device_runtime_api.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/cuda_runtime.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/cuda_runtime_api.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/cuda_surface_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/cuda_texture_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/device_atomic_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/device_atomic_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/device_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/device_launch_parameters.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/device_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/driver_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/driver_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/host_config.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/host_defines.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/library_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_20_atomic_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_20_atomic_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_20_intrinsics.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_20_intrinsics.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_30_intrinsics.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_30_intrinsics.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_32_atomic_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_32_atomic_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_32_intrinsics.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_32_intrinsics.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_35_atomic_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_35_intrinsics.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_60_atomic_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_60_atomic_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_61_intrinsics.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/sm_61_intrinsics.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/surface_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/surface_indirect_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/surface_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/texture_fetch_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/texture_indirect_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/texture_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/vector_functions.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/vector_functions.hpp
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: /usr/local/cuda-9.0/include/vector_types.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o.cmake
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o: cuda/csc_graph.cu
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building NVCC (Device) object cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o"
+	cd /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir && /usr/local/bin/cmake -E make_directory /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//.
+	cd /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir && /usr/local/bin/cmake -D verbose:BOOL=$(VERBOSE) -D build_configuration:STRING= -D generated_file:STRING=/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//./cuda_propagate_generated_csc_graph.cu.o -D generated_cubin_file:STRING=/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//./cuda_propagate_generated_csc_graph.cu.o.cubin.txt -P /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//cuda_propagate_generated_csc_graph.cu.o.cmake
+
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: cuda/propagate.cuh
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: cuda/test.hpp
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: cuda/test_propagate.cu
@@ -278,13 +414,13 @@ cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o:
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/local/cuda-9.0/include/vector_types.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o.cmake
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: cuda/test_propagate.cu
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building NVCC (Device) object cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building NVCC (Device) object cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o"
 	cd /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir && /usr/local/bin/cmake -E make_directory /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//.
 	cd /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir && /usr/local/bin/cmake -D verbose:BOOL=$(VERBOSE) -D build_configuration:STRING= -D generated_file:STRING=/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//./cuda_propagate_generated_test_propagate.cu.o -D generated_cubin_file:STRING=/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//./cuda_propagate_generated_test_propagate.cu.o.cubin.txt -P /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir//cuda_propagate_generated_test_propagate.cu.o.cmake
 
 cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o: cuda/CMakeFiles/cuda_propagate.dir/flags.make
 cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o: cuda/main.cpp
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o"
 	cd /home/wangqg/zg/GNNmini/cuda && /usr/bin/c++  $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -o CMakeFiles/cuda_propagate.dir/main.cpp.o -c /home/wangqg/zg/GNNmini/cuda/main.cpp
 
 cuda/CMakeFiles/cuda_propagate.dir/main.cpp.i: cmake_force
@@ -301,13 +437,15 @@ cuda_propagate_OBJECTS = \
 
 # External object files for target cuda_propagate
 cuda_propagate_EXTERNAL_OBJECTS = \
+"/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o" \
 "/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o"
 
 cuda/libcuda_propagate.a: cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o
+cuda/libcuda_propagate.a: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o
 cuda/libcuda_propagate.a: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o
 cuda/libcuda_propagate.a: cuda/CMakeFiles/cuda_propagate.dir/build.make
 cuda/libcuda_propagate.a: cuda/CMakeFiles/cuda_propagate.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX static library libcuda_propagate.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/wangqg/zg/GNNmini/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX static library libcuda_propagate.a"
 	cd /home/wangqg/zg/GNNmini/cuda && $(CMAKE_COMMAND) -P CMakeFiles/cuda_propagate.dir/cmake_clean_target.cmake
 	cd /home/wangqg/zg/GNNmini/cuda && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/cuda_propagate.dir/link.txt --verbose=$(VERBOSE)
 
@@ -320,6 +458,7 @@ cuda/CMakeFiles/cuda_propagate.dir/clean:
 	cd /home/wangqg/zg/GNNmini/cuda && $(CMAKE_COMMAND) -P CMakeFiles/cuda_propagate.dir/cmake_clean.cmake
 .PHONY : cuda/CMakeFiles/cuda_propagate.dir/clean
 
+cuda/CMakeFiles/cuda_propagate.dir/depend: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_csc_graph.cu.o
 cuda/CMakeFiles/cuda_propagate.dir/depend: cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o
 	cd /home/wangqg/zg/GNNmini && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/wangqg/zg/GNNmini /home/wangqg/zg/GNNmini/cuda /home/wangqg/zg/GNNmini /home/wangqg/zg/GNNmini/cuda /home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : cuda/CMakeFiles/cuda_propagate.dir/depend
