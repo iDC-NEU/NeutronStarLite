@@ -57,6 +57,7 @@ public:
     }
 
     void gatherW() {
+        
         if (workid == 0) {
             //接收数组
             memset(recv_buffer, 0, sizeof (t_v)*(worknum) * weight_row * weight_col);
@@ -71,6 +72,7 @@ public:
         }
     }
     void gatherW(int row,int col) {
+        //std::cout<<"network"<<buffer[0]<<" "<<workid<<" "<<worknum<<std::endl;
         if (workid == 0) {
             //接收数组
             memset(recv_buffer, 0, sizeof (t_v)*(worknum) * row * col);
@@ -83,6 +85,7 @@ public:
             //发送数组
             MPI_Send(buffer, row* col*sizeof(t_v), MPI_CHAR, 0, 0, MPI_COMM_WORLD);
         }
+        //MPI_Barrier(MPI_COMM_WORLD);
     }
     
     
@@ -129,6 +132,7 @@ public:
         else {
             MPI_Recv(buffer, weight_row*weight_col*sizeof(t_v), MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     void broadcastW() {
@@ -142,6 +146,7 @@ public:
         else {
             MPI_Recv(buffer, weight_row*weight_col*sizeof(t_v), MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
+        //MPI_Barrier(MPI_COMM_WORLD);
 
     }
     void broadcastW(t_v* buffer_, int row, int col) {
@@ -157,6 +162,7 @@ public:
         else {
             MPI_Recv(buffer, row* col*sizeof(t_v), MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
+        //MPI_Barrier(MPI_COMM_WORLD);
 
     }
 

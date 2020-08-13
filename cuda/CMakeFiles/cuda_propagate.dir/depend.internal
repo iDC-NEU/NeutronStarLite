@@ -3,5 +3,4 @@
 
 cuda/CMakeFiles/cuda_propagate.dir/main.cpp.o
  /home/wangqg/zg/GNNmini/cuda/main.cpp
- /home/wangqg/zg/GNNmini/cuda/test.hpp
  /usr/local/cuda-9.0/include/cuda.h

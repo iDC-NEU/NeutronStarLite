@@ -283,7 +283,7 @@ public:
     }
     inputlabel.close();
     }
-     void readlebel_citeseer(Graph<Empty>* graph){
+    void readlebel_citeseer(Graph<Empty>* graph){
             std::string str;
     //readfeature
     std::ifstream input("./citeseer_data/fea.txt",std::ios::in);

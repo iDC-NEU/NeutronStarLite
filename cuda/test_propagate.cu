@@ -10,12 +10,79 @@
 	} }
 
 
+void forward_on_GPU(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* src,VertexId_CUDA *dst,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edge_size,VertexId_CUDA batch_size,VertexId_CUDA feature_size){
+	
+	const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+		processing_scalar_weight_shard<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			src, dst, input, output, weight_forward, 
+				src_start, dst_start, edge_size, feature_size);
+		cudaDeviceSynchronize();
+}
+
+void backward_on_GPU(float* input,float* output,float* weight_backward,//data 
+        VertexId_CUDA* src,VertexId_CUDA *dst,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edge_size,VertexId_CUDA batch_size,VertexId_CUDA feature_size){
+	
+	const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	printf("CUDA_DEBUGE_INFO: BACKWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+		processing_scalar_weight_shard<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			dst, src, input, output, weight_backward, 
+				dst_start, src_start, edge_size, feature_size);
+		cudaDeviceSynchronize();
+}
+
+
+
+
+
+
+COO_graph::COO_graph(VertexId_CUDA vertices,VertexId_CUDA edges){
+	_vertices=vertices;
+	_edges=edges;
+}
+
+void COO_graph::remalloc_src_on_gpu(size_t new_capacity){
+	cudaMalloc(&_src,sizeof(VertexId_CUDA)*(new_capacity+1));
+}
+
+void COO_graph::remalloc_dst_on_gpu(size_t new_capacity){
+	cudaMalloc(&_dst,sizeof(VertexId_CUDA)*(new_capacity+1));
+}
+
+void COO_graph::remalloc_dst_on_cpu(size_t new_capacity){
+	_dst=new VertexId_CUDA[new_capacity+1];
+}
+
+void COO_graph::remalloc_src_on_cpu(size_t new_capacity){
+	_src=new VertexId_CUDA[new_capacity+1];
+}
+
+void COO_graph::move_src_to_gpu(VertexId_CUDA* src_cpu, VertexId_CUDA edges){
+	cudaMemcpy(_src,src_cpu,(edges+1)*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice);
+	cudaDeviceSynchronize();
+}
+
+void COO_graph::move_dst_to_gpu(VertexId_CUDA* dst_cpu, VertexId_CUDA edges){
+	cudaMemcpy(_dst,dst_cpu,(edges+1)*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice);
+	cudaDeviceSynchronize();
+}
 
 
 CSC_graph::CSC_graph(VertexId_CUDA vertices,VertexId_CUDA edges,bool has_degree){
 	_vertices=vertices;
 	_edges=edges;
 	_has_degree=has_degree;
+	if(edges==39297)
+	std::cout<<"new CSC_graph"<<std::endl;
 }
 void CSC_graph::remalloc_neighbour_on_gpu(size_t new_capacity, bool has_degree){
 	
@@ -58,68 +125,6 @@ void CSC_graph::move_neighbour_to_gpu(VertexId_CUDA* e_cpu, VertexId_CUDA edges)
 	cudaMemcpy(_neighbour,e_cpu,(edges+1)*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice);
 	cudaDeviceSynchronize();
 }
-
-
-
-
-
-
-void graph_engine::load_graph(CSC_graph* forward_graph,CSC_graph *backward_graph,MetaInfo *meta){
-	_forward_graph=new CSC_graph(forward_graph->_vertices,
-		forward_graph->_edges,forward_graph->_has_degree);
-	_backward_graph=new CSC_graph(backward_graph->_vertices,
-		backward_graph->_edges,backward_graph->_has_degree);
-
-	_forward_graph->remalloc_vertex_on_gpu(_forward_graph->_vertices);
-	_backward_graph->remalloc_vertex_on_gpu(_backward_graph->_vertices);
-
-	_forward_graph->remalloc_neighbour_on_gpu(_forward_graph->_vertices,
-		_forward_graph->_has_degree);
-	_backward_graph->remalloc_neighbour_on_gpu(_backward_graph->_vertices,
-		_backward_graph->_has_degree);	
-	
-	_forward_graph->move_vertices_to_gpu(forward_graph->_index,
-		forward_graph->_vertices);
-	_forward_graph->move_neighbour_to_gpu(forward_graph->_neighbour,
-		forward_graph->_edges);
-	_backward_graph->move_vertices_to_gpu(backward_graph->_index,
-		forward_graph->_vertices);
-	_backward_graph->move_neighbour_to_gpu(backward_graph->_neighbour,
-		backward_graph->_edges);
-	_meta=new MetaInfo(meta->_src_s,meta->_src_e,meta->_dst_s,meta->_dst_e,meta->_feature_size);
-
-}
-
-void graph_engine::load_graph(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
-	VertexId_CUDA b_vertices,VertexId_CUDA b_edges,VertexId_CUDA b_has_degree,
-	VertexId_CUDA* f_index,VertexId_CUDA* f_neighbour,VertexId_CUDA* b_index,VertexId_CUDA* b_neighbour,
-	VertexId_CUDA _src_s,VertexId_CUDA _src_e,VertexId_CUDA _dst_s,VertexId_CUDA _dst_e,VertexId_CUDA _feature_size){
-
-
-   
-
-	_forward_graph=new CSC_graph(f_vertices, f_edges, f_has_degree);
-	_backward_graph=new CSC_graph(b_vertices, b_edges, b_has_degree);
-
-	_forward_graph->remalloc_vertex_on_gpu(f_vertices);
-	_backward_graph->remalloc_vertex_on_gpu(b_vertices);
-
-	_forward_graph->remalloc_neighbour_on_gpu(f_edges, f_has_degree);
-	_backward_graph->remalloc_neighbour_on_gpu(b_edges, b_has_degree);	
-	
-	_forward_graph->move_vertices_to_gpu(f_index, f_vertices);
-	_forward_graph->move_neighbour_to_gpu(f_neighbour, f_edges);
-
-	_backward_graph->move_vertices_to_gpu(b_index, b_vertices);
-	_backward_graph->move_neighbour_to_gpu(b_neighbour,	b_edges);
-
-	_meta=new MetaInfo(_src_s, _src_e, _dst_s, _dst_e, _feature_size);
-
-}
-
-
-
-
 
 void graph_engine::test_load_graph(){
 	/*
@@ -174,10 +179,135 @@ while(s<num){
 }
 return s;
 }
+
+
+
+/*Useless*/
+void graph_engine::load_graph(CSC_graph* forward_graph,CSC_graph *backward_graph,MetaInfo *meta){
+	_forward_graph=new CSC_graph(forward_graph->_vertices,
+		forward_graph->_edges,forward_graph->_has_degree);
+	_backward_graph=new CSC_graph(backward_graph->_vertices,
+		backward_graph->_edges,backward_graph->_has_degree);
+
+	_forward_graph->remalloc_vertex_on_gpu(_forward_graph->_vertices);
+	_backward_graph->remalloc_vertex_on_gpu(_backward_graph->_vertices);
+
+	_forward_graph->remalloc_neighbour_on_gpu(_forward_graph->_vertices,
+		_forward_graph->_has_degree);
+	_backward_graph->remalloc_neighbour_on_gpu(_backward_graph->_vertices,
+		_backward_graph->_has_degree);	
+	
+	_forward_graph->move_vertices_to_gpu(forward_graph->_index,
+		forward_graph->_vertices);
+	_forward_graph->move_neighbour_to_gpu(forward_graph->_neighbour,
+		forward_graph->_edges);
+	_backward_graph->move_vertices_to_gpu(backward_graph->_index,
+		forward_graph->_vertices);
+	_backward_graph->move_neighbour_to_gpu(backward_graph->_neighbour,
+		backward_graph->_edges);
+	_meta=new MetaInfo(meta->_src_s,meta->_src_e,meta->_dst_s,meta->_dst_e,meta->_feature_size);
+
+}
+
+
+
+
+	/*load graph for CSC graph
+	qiange wang*/
+void graph_engine::load_graph(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
+	VertexId_CUDA b_vertices,VertexId_CUDA b_edges,VertexId_CUDA b_has_degree,
+	VertexId_CUDA* f_index,VertexId_CUDA* f_neighbour,VertexId_CUDA* b_index,VertexId_CUDA* b_neighbour,
+	VertexId_CUDA _src_s,VertexId_CUDA _src_e,VertexId_CUDA _dst_s,VertexId_CUDA _dst_e,
+	VertexId_CUDA _feature_size){
+
+	//std::cout<<"&&&&&&&&&worker well"<<std::endl;	
+	_forward_graph=new CSC_graph(f_vertices, f_edges, f_has_degree);
+	//std::cout<<"&&&&&&&&&worker done"<<b_vertices<<" "<<b_edges<<" "<<b_has_degree<<std::endl;	
+	_backward_graph=new CSC_graph(b_vertices, b_edges, b_has_degree);
+	//if(_backward_graph->_edges==b_edges)
+	//std::cout<<"---worker not   done"<<b_vertices<<" "<<b_edges<<" "<<b_has_degree<<std::endl;	
+	_forward_graph->remalloc_vertex_on_gpu(f_vertices);
+	_backward_graph->remalloc_vertex_on_gpu(b_vertices);
+
+	_forward_graph->remalloc_neighbour_on_gpu(f_edges, f_has_degree);
+	_backward_graph->remalloc_neighbour_on_gpu(b_edges, b_has_degree);	
+	
+	_forward_graph->move_vertices_to_gpu(f_index, f_vertices);
+	_forward_graph->move_neighbour_to_gpu(f_neighbour, f_edges);
+
+	_backward_graph->move_vertices_to_gpu(b_index, b_vertices);
+	_backward_graph->move_neighbour_to_gpu(b_neighbour,	b_edges);
+
+	_meta=new MetaInfo(_src_s, _src_e, _dst_s, _dst_e, _feature_size);
+
+}
+	/*load graph for COO graph
+	qiange wang*/
+void graph_engine::load_graph_for_COO(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
+		VertexId_CUDA* f_src,VertexId_CUDA* f_dst,
+		VertexId_CUDA _src_s,VertexId_CUDA _src_e,VertexId_CUDA _dst_s,VertexId_CUDA _dst_e,
+		VertexId_CUDA _feature_size){
+		 _graph_cuda=new COO_graph(f_vertices,f_edges);
+		 
+		 _graph_cuda->remalloc_src_on_gpu(f_edges);
+		 _graph_cuda->remalloc_dst_on_gpu(f_edges);
+
+		 _graph_cuda->move_dst_to_gpu(f_dst,f_edges);
+		 _graph_cuda->move_src_to_gpu(f_src,f_edges);
+
+		 _meta=new MetaInfo(_src_s, _src_e, _dst_s, _dst_e, _feature_size);
+
+		}
+
+
+	
+
+void graph_engine::forward_one_step(float* input,float* output,float* weight,
+		weight_type wt,VertexId_CUDA feature_size){
+		this->redirect_input_output(input, output, weight, wt, feature_size);
+		this->forward();   
+}
+
+
+void graph_engine::forward_one_step_COO(float* input,float* output,float* weight,
+	weight_type wt,VertexId_CUDA feature_size){
+	this->redirect_input_output(input, output, weight, wt, feature_size);
+    this->forward_COO();   
+}
+void graph_engine::forward_one_step_COO_partition(float* input_partition,
+		float* output_partition,float* weight_partition,
+	weight_type wt,VertexId_CUDA feature_size, int partition_id){
+		int dst_start=_graph_cuda->partition_offset[partition_id];
+		int current_batch=_graph_cuda->partition_offset[partition_id+1]-
+								_graph_cuda->partition_offset[partition_id];
+
+		for(int i=0;i<_graph_cuda->partitions;i++){
+			int current_batch=_graph_cuda->partition_offset[i+1]-
+				_graph_cuda->partition_offset[i];
+			int src_start=_graph_cuda->partition_offset[i];
+			this->redirect_input_output(input_partition, output_partition, weight_partition, wt, feature_size);
+			this->forward_COO();   
+		}
+}
+
+
+
+void graph_engine::backward_one_step(float* input,float* output,float* weight,
+	weight_type wt,VertexId_CUDA feature_size){
+	this->redirect_input_output(input, output, weight, wt, feature_size);
+    this->backward();   
+}
+void graph_engine::backward_one_step_COO(float* input,float* output,float* weight,
+	weight_type wt,VertexId_CUDA feature_size){
+	this->redirect_input_output(input, output, weight, wt, feature_size);
+    this->backward_COO();   
+}
+
+
 void graph_engine::forward(){
 	
-	const int THREAD_SIZE=32;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
+	const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
 	//_wt=NULL_TYPE;
 	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
 	printf("CUDA_DEBUGE_INFO: RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
@@ -188,19 +318,48 @@ void graph_engine::forward(){
 			    ,_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
 
 	}else if(_wt==SCALA_TYPE){
-	//	printf("SCALA_TYPE\n");
+		//printf("SCALA_TYPE\n");
+		//std::cout<<_meta->get_batch()<<" "<<_meta->batch_start_vertex()<<" "<<_meta->get_feature_size()<<std::endl;
 		processing_scalar_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
 			_forward_graph->_neighbour, _forward_graph->_index, _input, _output,_with_weight 
-			    ,_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
+				,_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
 	}else if(_wt==TENSOR_TYPE){
 		;
 	}
 		cudaDeviceSynchronize();
 	//	printf("finish\n");
 }
+void graph_engine::forward_COO(){
+	
+	const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	//_wt=NULL_TYPE;
+	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
+	printf("CUDA_DEBUGE_INFO: RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+	if(_wt==NULL_TYPE){
+	//	printf("NULL_TYPE\t %d %d %d \n",_meta->get_batch(),_meta->batch_start_vertex(),_meta->get_feature_size());
+		processing_no_weight_one_by_one<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			_graph_cuda->_dst, _graph_cuda->_src, _input, _output,_with_weight 
+				,_graph_cuda->_edges,0,0,
+					_meta->get_feature_size());
+
+	}else if(_wt==SCALA_TYPE){
+		printf("SCALA_TYPE COO %d\n",_graph_cuda->_edges);
+		processing_scalar_weight_one_by_one<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			_graph_cuda->_dst, _graph_cuda->_src, _input, _output,_with_weight 
+				,(int)(_graph_cuda->_edges),_meta->batch_start_vertex(),_meta->batch_start_vertex(),
+					_meta->get_feature_size());
+	}else if(_wt==TENSOR_TYPE){
+		;
+	}
+		cudaDeviceSynchronize();
+	//	printf("finish\n");
+}
+
+
 void graph_engine::backward(){
-	const int BLOCK_SIZE=32;
-	const int THREAD_SIZE=32;
+	const int BLOCK_SIZE=128;
+	const int THREAD_SIZE=128;
 	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
 	if(_wt==NULL_TYPE){
 		printf("backward null_type\n");
@@ -218,6 +377,30 @@ void graph_engine::backward(){
 	}
 		cudaDeviceSynchronize();
 }
+void graph_engine::backward_COO(){
+	const int BLOCK_SIZE=128;
+	const int THREAD_SIZE=128;
+	cudaMemset(_output,0,sizeof(float)*_meta->get_batch()*_meta->get_feature_size());
+	if(_wt==NULL_TYPE){
+		printf("backward null_type\n");
+		processing_no_weight_one_by_one<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			_graph_cuda->_src, _graph_cuda->_dst, _input, _output,_with_weight 
+				,_meta->get_batch(),_meta->batch_start_vertex(),_meta->batch_start_vertex(),
+					_meta->get_feature_size());
+
+	}else if(_wt==SCALA_TYPE){
+		printf("backward SCALA_TYPE COO %d %d\n",_graph_cuda->_edges,_meta->batch_start_vertex());
+		processing_scalar_weight_one_by_one<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE>>>(
+			_graph_cuda->_src, _graph_cuda->_dst, _input, _output,_with_weight,
+			(int)(_graph_cuda->_edges),_meta->batch_start_vertex(),_meta->batch_start_vertex(),
+					_meta->get_feature_size());
+	}else if(_wt==TENSOR_TYPE){
+		;
+	}
+		cudaDeviceSynchronize();
+}
+
+
 void graph_engine::set_input(float* input){
 	_input=input;
 }
@@ -295,6 +478,7 @@ void aggregate_engine::init_intermediate_gradient(){
 	printf("Memory allocate_intermediate_GPU:%d  %d\n",size_remote(0),size_remote(1));
 	cudaMalloc(&intermediate_gradient,sizeof(float)*size_remote(0)*size_remote(1));
 }
+
 void aggregate_engine::init_final_gradient(){
 	//cudaMalloc(&_index,sizeof(size_t)*(new_capacity+1));
 	printf("Memory allocate_final_GPU:%d  %d\n",size_local(1),size_remote(1));
@@ -312,6 +496,7 @@ void aggregate_engine::close_intermediate_gradient(){
 
 
 
+/*
 
 gpu_processor::gpu_processor(int batch_size,int edge_size, 
 													int feature_size,graph_type g_t){
@@ -546,3 +731,4 @@ cudaDeviceSynchronize();
 cudaDeviceReset();
 	return 0;
 }
+*/

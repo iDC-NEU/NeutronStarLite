@@ -235,14 +235,19 @@ cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o:
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/ptr_traits.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/range_access.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_algobase.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_bvector.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_construct.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_function.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_iterator.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_iterator_base_funcs.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_iterator_base_types.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_pair.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_uninitialized.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stl_vector.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/streambuf.tcc
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/streambuf_iterator.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/stringfwd.h
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/bits/vector.tcc
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/cctype
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/cerrno
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/clocale
@@ -272,6 +277,7 @@ cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o:
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/string
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/system_error
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/type_traits
+cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/c++/5/vector
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/ctype.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/endian.h
 cuda/CMakeFiles/cuda_propagate.dir/cuda_propagate_generated_test_propagate.cu.o: /usr/include/errno.h

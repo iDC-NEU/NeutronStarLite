@@ -9,6 +9,9 @@
 #define TEST_HPP
 #include<iostream>
 #include<stdio.h>
+#include<vector>
+#include<string.h>
+//#include"../core/graph.hpp"
 typedef uint32_t VertexId_CUDA;
 enum graph_type{CSR,CSC,PAIR};
 enum weight_type{NULL_TYPE,SCALA_TYPE,TENSOR_TYPE};
@@ -37,6 +40,8 @@ VertexId_CUDA get_batch(){
 	return _dst_e-_dst_s;
 }
 };
+
+
 class CSC_graph{
 public:
 	CSC_graph(VertexId_CUDA vertices, VertexId_CUDA edges,bool has_degree);
@@ -50,6 +55,10 @@ public:
     VertexId_CUDA neighbour(VertexId_CUDA index);
 	void move_vertices_to_gpu(VertexId_CUDA* v_cpu, VertexId_CUDA vertices);
 	void move_neighbour_to_gpu(VertexId_CUDA* e_cpu, VertexId_CUDA edges);
+	void set_index_neighbour(VertexId_CUDA* index, VertexId_CUDA* neighbour){
+		_index=index;
+		_neighbour=neighbour;
+	}
 	size_t  _vertices;
 	size_t  _edges;
 	VertexId_CUDA* _index;
@@ -61,6 +70,56 @@ public:
 
 };
 
+class COO_graph{
+public:
+	COO_graph(VertexId_CUDA vertices, VertexId_CUDA edges);
+	COO_graph(){;}
+	void remalloc_src_on_gpu(size_t new_capacity);
+	void remalloc_dst_on_gpu(size_t new_capacity);
+	void remalloc_src_on_cpu(size_t new_capacity);
+	void remalloc_dst_on_cpu(size_t new_capacity);
+	void from_CSC_to_COO(VertexId_CUDA* index,VertexId_CUDA* neighbour,VertexId_CUDA vertices);
+	void move_src_to_gpu(VertexId_CUDA* v_cpu, VertexId_CUDA edges);
+	void move_dst_to_gpu(VertexId_CUDA* e_cpu, VertexId_CUDA edges);
+	void set_src_dst(VertexId_CUDA* src, VertexId_CUDA* dst){
+		_src=src;
+		_dst=dst;
+	}
+	void init_partitions(int partitions_,int* partition_offset_,int partition_id_){
+	 partitions=partitions_;
+	 std::cout<<"init_partitions"<<std::endl;
+	 partition_offset=partition_offset_;
+	 std::cout<<"init_partitions1"<<std::endl;
+	 partition_id=partition_id_;
+	}
+	size_t  _vertices;
+	size_t  _edges;
+	VertexId_CUDA* _src;
+	VertexId_CUDA* _src_cpu;
+	VertexId_CUDA* _dst;
+	VertexId_CUDA* _dst_cpu;
+	size_t _v_capacity;
+	size_t _e_capacity;
+	bool   _on_gpu;
+	int partitions;
+	int* partition_offset;
+	int partition_id;
+
+};
+
+
+void forward_on_GPU(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* src,VertexId_CUDA *dst,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,VertexId_CUDA feature_size);
+void backward_on_GPU(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* src,VertexId_CUDA *dst,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,VertexId_CUDA feature_size);
+
+
 class graph_engine{
 
 public:
@@ -70,6 +129,8 @@ public:
 	 int getThreadNum(int num);
 	void forward();
 	void backward();
+	void forward_COO();
+	void backward_COO();
 	void set_input(float* input);
 	void set_output(float* output);
 	void set_weight(float* weight,weight_type wt);
@@ -78,22 +139,68 @@ public:
 //	CSC* forward_graph;
 //  CSC* backward_graph;
 	void init_cuda_stream();
+
+	void load_and_processing_1by1(float* input,float* output,float* weight,weight_type wt,VertexId_CUDA feature_size);
+
+	void forward_one_step(float* input,float* output,float* weight,weight_type wt,VertexId_CUDA feature_size);
+
+	void backward_one_step(float* input,float* output,float* weight,weight_type wt,VertexId_CUDA feature_size);
+
 	void redirect_input_output(float* input,float* output,float* weight,weight_type wt,VertexId_CUDA feature_size);
+
+	void forward_one_step_COO(float* input,float* output,float* weight,
+	weight_type wt,VertexId_CUDA feature_size);
+
+	void forward_one_step_COO_partition(float* input_partition,
+		float* output_partition,float* weight_partition,
+	weight_type wt,VertexId_CUDA feature_size, int partition_id);
+
+	void backward_one_step_COO(float* input,float* output,float* weight,
+	weight_type wt,VertexId_CUDA feature_size);
+
+	/*Useless*/
 	void load_graph(CSC_graph* forward_graph,CSC_graph* backward_graph,MetaInfo* meta);
+
+
+	/*load graph for CSC graph
+	qiange wang*/
 	void load_graph(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
 	VertexId_CUDA b_vertices,VertexId_CUDA b_edges,VertexId_CUDA b_has_degree,
 	VertexId_CUDA* f_index,VertexId_CUDA* f_neighbour,VertexId_CUDA* b_index,VertexId_CUDA* b_neighbour,
 	VertexId_CUDA _src_s,VertexId_CUDA _src_e,VertexId_CUDA _dst_s,VertexId_CUDA _dst_e,VertexId_CUDA _feature_size);
+
+	/*load graph for COO graph
+	qiange wang*/
+	void load_graph_for_COO(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
+	VertexId_CUDA* f_src,VertexId_CUDA* f_dst,
+	VertexId_CUDA _src_s,VertexId_CUDA _src_e,VertexId_CUDA _dst_s,VertexId_CUDA _dst_e,VertexId_CUDA _feature_size);
+
+	void load_graph_shards(VertexId_CUDA f_vertices,VertexId_CUDA f_edges,VertexId_CUDA f_has_degree,
+			std::vector<COO_graph>,VertexId_CUDA _feature_size);
+
+	/*init graph for coo graph
+	*/
+	void init_graph_for_1by1(VertexId_CUDA f_vertices, VertexId_CUDA f_edges, VertexId_CUDA f_has_degree,
+	VertexId_CUDA b_vertices, VertexId_CUDA b_edges, VertexId_CUDA b_has_degree,
+	VertexId_CUDA* f_index, VertexId_CUDA* f_neighbour, VertexId_CUDA* b_index, VertexId_CUDA* b_neighbour);
+
 	void test_load_graph();
+
 	void show();
 
-private:
 float* _input;
 float* _output;
 float* _with_weight;
 MetaInfo* _meta;
 CSC_graph* _forward_graph;
 CSC_graph* _backward_graph;
+
+CSC_graph* _forward_CPU;
+CSC_graph* _backward_CPU;
+
+COO_graph* _graph_CPU;
+COO_graph* _graph_cuda;
+
 void* _cuda_stream;
 int THREAD_SIZE=-1;
 const int BLOCK_SIZE=512;
@@ -245,5 +352,5 @@ float* get_grad(){
  int r_;
  int c_;
 };
-int test();
+//int test();
 #endif /* TEST_H_ */

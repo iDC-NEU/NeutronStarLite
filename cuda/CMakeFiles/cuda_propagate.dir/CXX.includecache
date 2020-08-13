@@ -13,15 +13,7 @@ stdlib.h
 -
 cuda.h
 -
-test.hpp
-/home/wangqg/zg/GNNmini/cuda/test.hpp
 iostream
--
-
-/home/wangqg/zg/GNNmini/cuda/test.hpp
-iostream
--
-stdio.h
 -
 
 /usr/local/cuda-9.0/include/cuda.h

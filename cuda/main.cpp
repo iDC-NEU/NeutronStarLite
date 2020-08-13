@@ -12,7 +12,7 @@
 #include <stdlib.h>
 
 #include <cuda.h>
-#include "test.hpp"
+//#include "test.hpp"
 #include<iostream>
 static const int WORK_SIZE = 256;
 
@@ -32,7 +32,7 @@ static const int WORK_SIZE = 256;
 
 int main(int argc, char **argv)
 {
-	test();
+//	test();
 std::cout<<"load test"<<std::endl;
 	return 0;
 }
