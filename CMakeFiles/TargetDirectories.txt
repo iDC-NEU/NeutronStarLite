@@ -1,9 +1,0 @@
-/home/wangqg/zg/GNNmini/CMakeFiles/rebuild_cache.dir
-/home/wangqg/zg/GNNmini/CMakeFiles/myfistapp.dir
-/home/wangqg/zg/GNNmini/CMakeFiles/edit_cache.dir
-/home/wangqg/zg/GNNmini/cuda/CMakeFiles/rebuild_cache.dir
-/home/wangqg/zg/GNNmini/cuda/CMakeFiles/edit_cache.dir
-/home/wangqg/zg/GNNmini/cuda/CMakeFiles/cuda_propagate.dir
-/home/wangqg/zg/GNNmini/core/CMakeFiles/rebuild_cache.dir
-/home/wangqg/zg/GNNmini/core/CMakeFiles/edit_cache.dir
-/home/wangqg/zg/GNNmini/core/CMakeFiles/core.dir

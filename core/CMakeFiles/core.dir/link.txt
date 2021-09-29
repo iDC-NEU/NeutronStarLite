@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcore.a  
-/usr/bin/ranlib libcore.a
