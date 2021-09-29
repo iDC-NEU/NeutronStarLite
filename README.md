@@ -1,11 +1,12 @@
-This Repo contains part of the codes of NeutronStar, A Distributed GNN training system.
+NeutronStarLite contains part of the codes of NeutronStar, a distributed GNN training system.
+This repo is a simple version that contains only part of the C++ codes and a simple GCN example.
 
 ## Software dependency
 NeutronStar uses **MPI** for inter-process communication.
 
 A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions, multi-threading, etc.) is required.
 
-LibTorch 1.5 with GPU support is required.
+**LibTorch 1.5** with GPU support is required.
 
 
 To build:
@@ -25,8 +26,7 @@ To build:
 
 To run:
 
-run example:
-
+./test.sh
 
 
 ``` 
