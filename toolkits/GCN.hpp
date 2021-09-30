@@ -22,7 +22,6 @@ public:
     torch::Tensor target_gpu;
     GTensor<ValueType, long, MAX_LAYER> *gt;
     //Tensor
-    
     torch::Tensor new_combine_grad;// = torch::zeros({graph->gnnctx->layer_size[0], graph->gnnctx->layer_size[1]}, torch::kFloat).cuda();
     torch::Tensor inter1_gpu;// = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     torch::Tensor X0_cpu;// = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().dtype(torch::kFloat));
@@ -127,7 +126,13 @@ void vertexForward(torch::Tensor &a, torch::Tensor &x, torch::Tensor &y){
     }
 }
 
-
+/* NOTE!!!!!!
+ * libtorch 1.7 and its higher versions have conflict 
+ * with the our openmp based parallel processing that inherit from Gemini [OSDI 2016].
+ * So in this example we use Libtorch 1.5 as auto differentiation tool.
+ * As 'autograd' function is not supported in C++ release of libtorch 1.5, we illustrate 
+ * the example use a simple manually implementation.
+ */
 void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
@@ -226,8 +231,8 @@ void Allbackward(){
         
         graph->rtminfo->curr_layer = 0;
         gt->GraphPropagateForward(X0_gpu, Y0_cpu_buffered, Y0_gpu, forward_csc_segment);
-        if(graph->partition_id==1)
-        std::cout <<test_id + graph->partition_offset[graph->partition_id]<<" "<< graph->out_degree_for_backward[test_id + graph->partition_offset[graph->partition_id]] << " " << Y0_gpu[test_id][0] << std::endl;
+//        if(graph->partition_id==1)
+//        std::cout <<test_id + graph->partition_offset[graph->partition_id]<<" "<< graph->out_degree_for_backward[test_id + graph->partition_offset[graph->partition_id]] << " " << Y0_gpu[test_id][0] << std::endl;
       
         vertexForward(Y0_gpu, X0_gpu, Out0_gpu);
         
