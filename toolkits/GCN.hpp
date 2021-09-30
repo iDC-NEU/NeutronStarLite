@@ -133,7 +133,7 @@ void vertexBackward(){
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
         Out0_gpu.backward(Y1_inv_gpu); //new
-        Gnn_v1->all_reduce_to_gradient(Gnn_v2->W.cpu());
+        Gnn_v1->all_reduce_to_gradient(Gnn_v1->W.cpu());
         //Gnn_v1->learnC2G(learn_rate);
         Gnn_v1->learnC2G_with_decay(learn_rate,weight_decay);
 
@@ -219,19 +219,15 @@ void Allbackward(){
             //Gnn_v2->W*=(1-weight_decay);
         }
         
-        int test_id=34;
         graph->rtminfo->epoch = i_i;
         
         graph->rtminfo->curr_layer = 0;
         gt->GraphPropagateForward(X0_gpu, Y0_cpu_buffered, Y0_gpu, forward_csc_segment);
-//        if(graph->partition_id==1)
-//        std::cout <<test_id + graph->partition_offset[graph->partition_id]<<" "<< graph->out_degree_for_backward[test_id + graph->partition_offset[graph->partition_id]] << " " << Y0_gpu[test_id][0] << std::endl;
-      
+
         vertexForward(Y0_gpu, X0_gpu, Out0_gpu);
         
         graph->rtminfo->curr_layer = 1;
         gt->GraphPropagateForward(Out0_gpu, Y0_cpu_buffered, Y1_gpu, forward_csc_segment);
-        //gt->Process_GPU_overlap_lite(Out0_gpu, Y0_cpu_buffered, Y1_gpu, csc_segment);
         vertexForward(Y1_gpu, Out0_gpu, loss);
 
         Allbackward();
