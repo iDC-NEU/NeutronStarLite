@@ -96,10 +96,6 @@ public:
     Gnn_v2->to(GPU);
     Gnn_v1->to(GPU);
     
-    
-    new_combine_grad = torch::zeros({graph->gnnctx->layer_size[0], graph->gnnctx->layer_size[1]}, torch::kFloat).cuda();
-
-    inter1_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     X0_cpu = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().dtype(torch::kFloat));
     X0_gpu = X0_cpu.cuda();
     Y0_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().device_index(0).dtype(torch::kFloat));
@@ -115,8 +111,7 @@ void vertexForward(torch::Tensor &a, torch::Tensor &x, torch::Tensor &y){
     
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
-        inter1_gpu.set_data(Gnn_v1->forward(a));
-        y = torch::relu(inter1_gpu); //new
+        y=torch::relu(Gnn_v1->forward(a));
 
     }
     else if(layer==1){
@@ -126,20 +121,18 @@ void vertexForward(torch::Tensor &a, torch::Tensor &x, torch::Tensor &y){
     }
 }
 
-/* NOTE!!!!!!
+/* 
  * libtorch 1.7 and its higher versions have conflict 
  * with the our openmp based parallel processing that inherit from Gemini [OSDI 2016].
  * So in this example we use Libtorch 1.5 as auto differentiation tool.
- * As 'autograd' function is not supported in C++ release of libtorch 1.5, we illustrate 
- * the example use a simple manually implementation.
+ * As 'autograd' function is not explict supported in C++ release of libtorch 1.5, we illustrate 
+ * the example in a implicit manner.
  */
 void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
-        Out0_gpu.backward(); //new
-        new_combine_grad.zero_();
-        new_combine_grad = Y0_gpu.t().mm(Y1_inv_gpu * inter1_gpu.grad());
+        Out0_gpu.backward(Y1_inv_gpu); //new
         Gnn_v1->all_reduce_to_gradient(new_combine_grad.cpu());
         //Gnn_v1->learnC2G(learn_rate);
         Gnn_v1->learnC2G_with_decay(learn_rate,weight_decay);
