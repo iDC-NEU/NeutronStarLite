@@ -133,7 +133,7 @@ void vertexBackward(){
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
         Out0_gpu.backward(Y1_inv_gpu); //new
-        Gnn_v1->all_reduce_to_gradient(new_combine_grad.cpu());
+        Gnn_v1->all_reduce_to_gradient(Gnn_v2->W.cpu());
         //Gnn_v1->learnC2G(learn_rate);
         Gnn_v1->learnC2G_with_decay(learn_rate,weight_decay);
 
