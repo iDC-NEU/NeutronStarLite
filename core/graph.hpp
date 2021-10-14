@@ -47,6 +47,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/csrc/api/include/torch/cuda.h"
+#include "ATen/ATen.h"
 
 #define CHUNK_LENGTH 32768 //32768
 #define REPLICATE_THRESHOLD 40
@@ -186,19 +187,32 @@ typedef struct graph_Tensor_Segment1
 typedef struct graph_Tensor_Segment_pinned
 {
   VertexId *column_offset;     //VertexNumber
-  VertexId *row_indices;       //edge_size
+  VertexId *row_indices;       //edge_size also the source nodes
+  VertexId *row_offset;     //VertexNumber
+  VertexId *column_indices;  
+  long *source;
+  long *destination;
   float *edge_weight;          //edge_size
+  float *edge_weight_backward;
   VertexId *column_offset_gpu; //VertexNumber
   VertexId *row_indices_gpu;   //edge_size
   float *edge_weight_gpu;      //edge_size
+  VertexId *row_offset_gpu; //VertexNumber
+  VertexId *column_indices_gpu;   //edge_size
+  float *edge_weight_backward_gpu;      //edge_size
   int edge_size;
   int batch_size;
+  int batch_size_forward;
+  int batch_size_backward;
   int input_size;
   int output_size;
   int feature_size;
   int src_range[2];
   int dst_range[2];
 } CSC_segment_pinned;
+
+
+
 
 typedef struct rep_graph
 {
@@ -227,6 +241,7 @@ typedef struct InputInfo
   size_t vertices;
   bool overlap;
   bool process_local;
+  bool with_weight;
   size_t repthreshold;
   std::string layer_string;
   std::string feature_file;
@@ -237,11 +252,13 @@ typedef struct runtimeInfo
 {
   bool process_local;
   bool process_overlap;
+  bool with_weight;
   bool reduce_comm;
   size_t epoch;
   size_t curr_layer;
   size_t embedding_size;
   bool copy_data;
+  bool forward;
 
 } runtimeinfo;
 typedef struct GNNContext
@@ -267,6 +284,228 @@ typedef struct BlockInfomation
   VertexId max_buffer_size; //for alloc
 
 } BlockInfo;
+
+class EdgeOperation{
+public:
+    EdgeOperation(){
+         ;
+    }
+    void InitBlock(long* s, long* d,VertexId E_, VertexId feature_size_, VertexId output_size_, int src_start_, int dst_start_,Cuda_Stream * cuda_stream_){//for DEBUG
+        src=s;
+        dst=d;
+        E=E_;
+        feature_size=feature_size_;
+        output_size=output_size;
+        src_start=src_start_;
+        dst_start=src_start_;
+        srcT=(torch::from_blob(src, {E, 1},torch::kInt64)-(long)src_start).cuda();
+        dstT=(torch::from_blob(dst, {E, 1},torch::kInt64)-(long)dst_start).cuda();
+        cuda_stream=cuda_stream_;
+        
+    }
+    void InitBlock(CSC_segment_pinned* graph_partition, VertexId feature_size_, VertexId output_size_,Cuda_Stream * cuda_stream_){//for DEBUG
+        src=graph_partition->source;
+        dst=graph_partition->destination;
+        E=graph_partition->edge_size;
+        feature_size=feature_size_;
+        output_size=output_size_;
+        src_start=graph_partition->src_range[0];
+        dst_start=graph_partition->dst_range[0];        
+        srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start).cuda();
+        dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start).cuda();
+        cuda_stream=cuda_stream_;
+        subgraph=graph_partition;    
+    }
+    
+    long maxdst(){
+        long maxD=0;
+        for(long i=0;i<E;i++){ 
+           if(dst[i]>=maxD)
+               maxD=dst[i];
+       }
+        return maxD;
+    }
+    long mindst(){
+        long minD=200000000;
+        for(long i=0;i<E;i++){ 
+           if(dst[i]<minD)
+               minD=dst[i];
+       }
+        return minD;   
+    }
+    long maxsrc(){
+        long maxD=0;
+        for(long i=0;i<E;i++){ 
+           if(src[i]>=maxD)
+               maxD=src[i];
+       }
+        return maxD;
+    }
+    long minsrc(){
+        long minD=200000000;
+        for(long i=0;i<E;i++){ 
+           if(src[i]<minD)
+               minD=src[i];
+       }
+        return minD;   
+    }
+    
+    
+    inline torch::Tensor ScatterSrc(torch::Tensor src_input){
+        //srcT=torch::from_blob(src, {E, 1},torch::kInt64).cuda();
+        return src_input.gather(0,(srcT).expand({srcT.size(0),src_input.size(1)}));
+    }
+    inline torch::Tensor ScatterDst(torch::Tensor dst_input){
+        return dst_input.gather(0,(dstT).expand({dstT.size(0),dst_input.size(1)}));
+    }
+    inline torch::Tensor PrepareMessage(torch::Tensor message){
+        return torch::sparse_coo_tensor(torch::cat({srcT,dstT},1).t(),message,
+                at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
+    }
+    
+    inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor message,torch::Tensor weight){
+        float *message_buffer=message.packed_accessor<float,2>().data();
+        float *weight_buffer=weight.packed_accessor<float,2>().data();
+        float *output_buffer=output.packed_accessor<float,2>().data();
+        VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
+        VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
+        
+    VertexId src_start = subgraph->src_range[0];
+    VertexId src_end = subgraph->src_range[1];
+    VertexId dst_start = subgraph->dst_range[0];
+    VertexId dst_end = subgraph->dst_range[1];
+    //kernel GatherByDst;
+    /*
+             * output_gpu
+             * input_gpu
+             * graph_partitions[i]->src
+             * graph_partitions[i]->dst
+             * graph_partitions[i]->weight;
+             * graph_partitions[i]->src_range[0],[1];
+             * graph_partitions[j]->dst_range[0],[1];
+             * graph_partitions[i]->batch_size
+             * graph_partitions[i]->edge_size
+             * graph_partitions[i]->feature_size
+             */
+    // std::cout<<"GatherByDst"<<std::endl;
+    cuda_stream->Gather_By_Dst_From_Message(message_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_indices_from_pinned,
+                               column_offset_from_pinned, //graph
+                               src_start, src_end, dst_start, dst_end,
+                               E,
+                               subgraph->batch_size,
+                               feature_size, false);
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+    }
+    inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){
+        float *input_buffer=input_src.packed_accessor<float,2>().data();
+        float *weight_buffer=weight.packed_accessor<float,2>().data();
+        float *output_buffer=output.packed_accessor<float,2>().data();
+        VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
+        VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
+        
+    VertexId src_start = subgraph->src_range[0];
+    VertexId src_end = subgraph->src_range[1];
+    VertexId dst_start = subgraph->dst_range[0];
+    VertexId dst_end = subgraph->dst_range[1];
+    
+    //std::cout<<output_size<<"  "<<src_end-src_start<<" "<<subgraph->batch_size_backward<<std::endl;
+    cuda_stream->Gather_By_Src_From_Dst(input_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_offset_from_pinned, //graph
+                               column_indices_from_pinned,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_backward,
+                               (VertexId)output_size,
+                               false);
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+    }
+    
+    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){
+        float *input_buffer=input_src.packed_accessor<float,2>().data();
+        float *weight_buffer=weight.packed_accessor<float,2>().data();
+        float *output_buffer=output.packed_accessor<float,2>().data();
+        VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
+        VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
+        
+    VertexId src_start = subgraph->src_range[0];
+    VertexId src_end = subgraph->src_range[1];
+    VertexId dst_start = subgraph->dst_range[0];
+    VertexId dst_end = subgraph->dst_range[1];
+    
+    cuda_stream->Gather_By_Dst_From_Src(input_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_indices_from_pinned,
+                               column_offset_from_pinned, //graph
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size,
+                               (VertexId)output_size,
+                               false);
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+    }
+    
+    inline torch::Tensor DeSerializeTensorToGPU(torch::Tensor var_cpu){
+        torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),at::TensorOptions().device_index(0).requires_grad(true));
+         DeSe_data.set_data(var_cpu.cuda());
+         return DeSe_data;
+        
+        
+    }
+    void MoveResultOut(float* th, torch::Tensor td, bool sync=false){
+            cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
+                                 td.packed_accessor<float, 2>().data(),
+                                 subgraph->src_range[0],
+                                 subgraph->src_range[1],
+                                 feature_size, sync);
+    }
+    
+    inline int BYSRC(){
+        return 0;
+    }
+    inline int BYDST(){
+        return 1;
+    }
+    void edgeComputeFunction();
+//   
+//    torch::Tensor message_input;
+//    torch::Tensor message_output;
+//    torch::Tensor src_input;
+//    torch::Tensor dst_output;
+//    
+    long* src;
+    long* dst;
+    VertexId E;
+    VertexId feature_size;
+    VertexId output_size;
+    torch::Tensor srcT;
+    torch::Tensor dstT;
+    int src_start;
+    int dst_start;
+    bool with_weight;
+    Cuda_Stream * cuda_stream;
+    CSC_segment_pinned*  subgraph;
+//    inline torch::Tensor get_src(){
+//        return src_input;
+//    }
+//    inline torch::Tensor get_dst(){
+//        return dst_output;
+//    }
+//    inline torch::Tensor get_message_input(){
+//        return message_input;
+//    }
+//    inline torch::Tensor get_message_output(){
+//        return message_output;
+//    }
+};
+
 
 template <typename EdgeData = Empty>
 class Graph
@@ -348,6 +587,9 @@ public:
   int current_send_part_id;
   MessageBuffer ***send_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
   MessageBuffer ***recv_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
+  
+  //Edgefunction
+  EdgeOperation *EdgeOp;
 
   //replication
   int replication_threshold;
@@ -366,6 +608,7 @@ public:
   VertexId rep_output_size;
   VertexId **message_write_offset;
   VertexId **message_amount;
+  VertexId encode_partition;
 
   //overlap
   VertexId *column_offset_intergate;
@@ -410,6 +653,11 @@ public:
     replication_threshold = 0;
     init();
     config = new inputinfo;
+    EdgeOp=new EdgeOperation();
+    encode_partition=-1;
+  }
+  std::string VarEncode(std::string name){
+      return name.append("_").append(std::to_string(rtminfo->curr_layer)).append("_").append(std::to_string(encode_partition));
   }
   void init_blockinfo()
   {
@@ -3206,12 +3454,14 @@ public:
     return global_reducer;
   }
 
+ 
+  
   template <typename R, typename M>
   R compute_sync_explict(torch::Tensor input_gpu_or_cpu,
                                                          float *output_cpu,
                                                          std::vector<CSC_segment_pinned *> &graph_partitions,
                                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                                         float *local_data_buffer)
+                                                         float *local_data_buffer)//backward
   {
 
     int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
@@ -3265,7 +3515,10 @@ public:
     for (int i = 0; i < graph_partitions.size(); i++)
     {
       max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+      if (rtminfo->forward)
+        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+      else
+        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0]));
     };
 
     weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
@@ -3366,6 +3619,7 @@ public:
 
         double cuda_sync_time = 0;
         cuda_sync_time -= MPI_Wtime();
+        if(rtminfo->forward){
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
             output_cpu,
@@ -3373,6 +3627,15 @@ public:
             feature_size,
             (current_send_part_id + 1) % partitions,
             cuda_stream);
+        }else{
+        backward_gpu_CSR_partition(
+            input_gpu_or_cpu,
+            output_cpu,
+            graph_partitions,
+            feature_size,
+            (current_send_part_id + 1) % partitions,
+            cuda_stream);
+        }
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
         cuda_sync_time += MPI_Wtime();
         this->all_cuda_sync_time += cuda_sync_time;
@@ -3391,13 +3654,23 @@ public:
           cuda_sync_time -= MPI_Wtime();
           //    printf("%d %d\n",input_gpu_or_cpu.size(0),input_gpu_or_cpu.size(1));
 
-          forward_gpu_CSC_partition(
-              input_gpu_or_cpu,
-              output_cpu,
-              graph_partitions,
-              feature_size,
-              (current_send_part_id + 1) % partitions,
-              cuda_stream);
+          if(rtminfo->forward){
+        forward_gpu_CSC_partition(
+            input_gpu_or_cpu,
+            output_cpu,
+            graph_partitions,
+            feature_size,
+            (current_send_part_id + 1) % partitions,
+            cuda_stream);
+        }else{
+        backward_gpu_CSR_partition(
+            input_gpu_or_cpu,
+            output_cpu,
+            graph_partitions,
+            feature_size,
+            (current_send_part_id + 1) % partitions,
+            cuda_stream);
+        }
           cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
 
           //no pipeline
@@ -3428,13 +3701,23 @@ public:
           cuda_sync_time -= MPI_Wtime();
           if (process_overlap)
           {
-            forward_gpu_CSC_partition(
-                input_gpu_or_cpu,
-                output_cpu,
-                graph_partitions,
-                feature_size,
-                (current_send_part_id + 1) % partitions,
-                cuda_stream);
+            if(rtminfo->forward){
+                forward_gpu_CSC_partition(
+                    input_gpu_or_cpu,
+                    output_cpu,
+                    graph_partitions,
+                    feature_size,
+                    (current_send_part_id + 1) % partitions,
+                    cuda_stream);
+            }else{
+                backward_gpu_CSR_partition(
+                    input_gpu_or_cpu,
+                    output_cpu,
+                    graph_partitions,
+                    feature_size,
+                    (current_send_part_id + 1) % partitions,
+                    cuda_stream);
+        }
           }
           //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
           cuda_sync_time += MPI_Wtime();
@@ -3717,7 +4000,11 @@ public:
     for (int i = 0; i < graph_partitions.size(); i++)
     {
       max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+      if(rtminfo->forward)
+          max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+      else
+          max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0]));
+          
     };
 
     weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
@@ -3818,6 +4105,7 @@ public:
 
         double cuda_sync_time = 0;
         cuda_sync_time -= MPI_Wtime();
+        if(rtminfo->forward){
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
             output_cpu,
@@ -3825,6 +4113,15 @@ public:
             feature_size,
             (current_send_part_id + 1) % partitions,
             cuda_stream);
+        }else{
+        backward_gpu_CSR_partition(
+            input_gpu_or_cpu,
+            output_cpu,
+            graph_partitions,
+            feature_size,
+            (current_send_part_id + 1) % partitions,
+            cuda_stream);
+        }
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
         cuda_sync_time += MPI_Wtime();
         this->all_cuda_sync_time += cuda_sync_time;
@@ -3832,24 +4129,30 @@ public:
       else
       {
 
-        //no pipeline
         for (int step = 0; step < partitions; step++)
         {
-          //pipeline
-          //current_send_part_id = partition_id;
-          //no pipeline
+
           current_send_part_id = (current_send_part_id + 1) % partitions;
           double cuda_sync_time = 0;
           cuda_sync_time -= MPI_Wtime();
-          //    printf("%d %d\n",input_gpu_or_cpu.size(0),input_gpu_or_cpu.size(1));
 
-          forward_gpu_CSC_partition(
-              input_gpu_or_cpu,
-              output_cpu,
-              graph_partitions,
-              feature_size,
-              (current_send_part_id + 1) % partitions,
-              cuda_stream);
+          if(rtminfo->forward){
+            forward_gpu_CSC_partition(
+                input_gpu_or_cpu,
+                output_cpu,
+                graph_partitions,
+                feature_size,
+                (current_send_part_id + 1) % partitions,
+                cuda_stream);
+            }else{
+            backward_gpu_CSR_partition(
+                input_gpu_or_cpu,
+                output_cpu,
+                graph_partitions,
+                feature_size,
+                (current_send_part_id + 1) % partitions,
+                cuda_stream);
+            }
           cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
 
           //no pipeline
@@ -3880,13 +4183,23 @@ public:
           cuda_sync_time -= MPI_Wtime();
           if (process_overlap)
           {
-            forward_gpu_CSC_partition(
+            if(rtminfo->forward){
+                forward_gpu_CSC_partition(
+                    input_gpu_or_cpu,
+                    output_cpu,
+                    graph_partitions,
+                    feature_size,
+                    (current_send_part_id + 1) % partitions,
+                    cuda_stream);
+            }else{
+                backward_gpu_CSR_partition(
                 input_gpu_or_cpu,
                 output_cpu,
                 graph_partitions,
                 feature_size,
                 (current_send_part_id + 1) % partitions,
                 cuda_stream);
+            }
           }
           //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
           cuda_sync_time += MPI_Wtime();
@@ -4308,7 +4621,7 @@ public:
 //                                          graph_partitions[i]->src_range[1],
 //                                          graph_partitions[i]->dst_range[0],
 //                                          graph_partitions[i]->dst_range[1]);
-              forward_gpu_CSC_partition_gpu(
+              forward_gpu_CSC_partition_from_buffer(
               gpu_input_buffer,
               local_data_buffer,
               graph_partitions,
@@ -4347,6 +4660,633 @@ public:
     R global_reducer;
     //MPI_Datatype dt = get_mpi_data_type<R>();
     //MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+  
+  
+  
+      // process edges
+  template <typename R, typename M>
+  R sync_compute_edge_computation(torch::Tensor input_origin,
+                                  torch::Tensor &input_transferred,
+                 std::vector<CSC_segment_pinned *> &graph_partitions,
+                 std::function<void(VertexId)> sparse_signal,
+                 std::function<torch::Tensor(torch::Tensor)> PreComputation,
+                 std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeComputation,
+                 torch::Tensor output)
+  {
+    
+      
+    Bitmap* active = alloc_vertex_subset();
+    active->fill();
+    int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
+    bool process_local = rtminfo->process_local;
+    int layer_ = rtminfo->curr_layer;
+    bool process_overlap = rtminfo->process_overlap;
+
+    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
+
+    if (partition_id == 0)
+    {
+      printf("SyncComputeLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
+    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    size_t basic_chunk = 64;
+
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      //  printf("alloc local send buffer %d\n",sizeofM<M>(feature_size)*local_send_buffer_limit);
+      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+
+    long max_recv_buffer_size = owned_vertices * sockets;
+    long max_partition_size=0;
+    
+    for (int i = 0; i < partitions; i++)
+    {
+      for (int s_i = 0; s_i < sockets; s_i++)
+      {
+        recv_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        send_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * owned_vertices * sockets);
+        send_buffer[i][s_i]->count = 0;
+        recv_buffer[i][s_i]->count = 0;
+        max_recv_buffer_size = std::max(max_recv_buffer_size, (long)(partition_offset[i + 1] - partition_offset[i])*sockets);
+        max_partition_size=std::max(max_partition_size,(long)(partition_offset[i + 1] - partition_offset[i]));
+      }
+    }
+    //  printf("initialize send buffer finished %d\n", partition_id);
+    float *gpu_memory_buffer = NULL;
+    float *gpu_input_buffer = NULL;
+    VertexId *index_gpu_input = NULL;
+    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
+    VertexId *index_gpu_output = NULL;
+    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
+    Cuda_Stream *cuda_stream = new Cuda_Stream();
+    allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
+    allocate_gpu_buffer(&gpu_input_buffer, max_partition_size * (feature_size+1));
+    // if (gpu_memory_buffer == NULL)
+    // {
+    //   printf("something wrong\n");
+    // }
+    
+    
+    //output.zero_();
+    //zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
+
+    size_t max_dstrange = 0, max_edge_size = 0;
+    for (int i = 0; i < graph_partitions.size(); i++)
+    {
+      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
+      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+    };
+
+    weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
+    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
+    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
+
+    VertexId *src;
+    VertexId *dst;
+    float *weight;
+    input_transferred=PreComputation(input_origin);
+    
+    {  
+      int *send_queue = new int[partitions];
+      int *recv_queue = new int[partitions];
+      volatile int send_queue_size = 0;
+      volatile int recv_queue_size = 0;
+      std::mutex send_queue_mutex;
+      std::mutex recv_queue_mutex;
+
+      current_send_part_id = partition_id;
+#pragma omp parallel for
+      for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk)
+      {
+        VertexId v_i = begin_v_i;
+        unsigned long word = active->data[WORD_OFFSET(v_i)];
+        while (word != 0)
+        {
+          if (word & 1)
+          {
+            sparse_signal(v_i);
+          }
+          v_i++;
+          word = word >> 1;
+        }
+      }
+#pragma omp parallel for
+      for (int t_i = 0; t_i < threads; t_i++)
+      {
+        flush_local_send_buffer<M>(t_i);
+      }
+      recv_queue[recv_queue_size] = partition_id;
+      recv_queue_mutex.lock();
+      recv_queue_size += 1;
+      recv_queue_mutex.unlock();
+      std::thread send_thread([&]() {
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[partition_id][s_i]->data, sizeofM<M>(feature_size) * send_buffer[partition_id][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id + step) % partitions;
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Status recv_status;
+            MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+            MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+            MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
+          }
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+      });
+      int current_recv_part_id = partition_id;
+      for (int step = 0; step < partitions; step++)
+      {
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        
+        for (int s_i = 0; s_i < sockets; s_i++)
+        {
+            //if(partition_id==1&&i==1){
+            int current_recv_part_id = i;
+            cuda_stream->move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1), false);
+            zero_buffer(gpu_input_buffer, (partition_offset[i + 1] - partition_offset[i]) * (feature_size));
+            //printf("partition offset %d %d\n",partition_offset[i],partition_offset[i+1]);
+            cuda_stream->deSerializeToGPU(gpu_input_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[i], partition_offset[i + 1], false);
+            // torch::from_blob(graph->in_degree + graph->partition_offset[graph->partition_id], {embedding->rownum, 1});
+            torch::Tensor mirror_inputs=torch::from_blob(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size},at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
+            
+            torch::Tensor master_outputs;
+                 
+            EdgeOp->InitBlock(graph_partitions[i],
+                              gnnctx->layer_size[rtminfo->curr_layer],
+                              gnnctx->layer_size[rtminfo->curr_layer+1],
+                              cuda_stream
+                             );
+            encode_partition=i;// must specify the encode_partition, or the message will be flushed even though call encode function.
+            torch::Tensor message=  EdgeComputation(mirror_inputs,input_transferred,EdgeOp);
+            EdgeOp->GatherByDstFromSrc(output, mirror_inputs, message);
+            
+        }
+      }
+
+      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+
+      
+      FreeBuffer(gpu_memory_buffer);
+      FreeBuffer(gpu_input_buffer);
+      cuda_stream->destory_Stream();
+      send_thread.join();
+      recv_thread.join();
+      delete[] recv_queue;
+      delete[] send_queue;
+   
+      if (process_local)
+      {
+        FreeEdge(src);
+        FreeEdge(dst);
+        FreeBuffer(weight);
+        FreeEdge(index_gpu_input);
+        FreeEdge(index_gpu_output);
+        FreeBuffer(graph_rep[layer_].rep_feature_gpu_buffer);
+      }
+      free_all_tmp();
+      //      printf("con%d_%d\n",con,partition_offset[1]);
+    }
+
+    R global_reducer;
+    //MPI_Datatype dt = get_mpi_data_type<R>();
+    //MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+
+  
+    template <typename R, typename M>
+  R compute_sync_edge_computation(torch::Tensor &input_grad,
+                                          torch::Tensor &dst_input,
+                                          float *output_cpu,
+                                          std::vector<CSC_segment_pinned *> &graph_partitions,
+                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
+                                          std::function<torch::Tensor(torch::Tensor)> PreComputation,
+                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeForward,
+                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeBackward,
+                                          torch::Tensor &output_grad)//backward
+  {
+
+    int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
+    bool process_local = rtminfo->process_local;
+    int layer_ = rtminfo->curr_layer;
+    bool process_overlap = rtminfo->process_overlap;
+
+    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
+
+    if (partition_id == 0)
+    {
+      printf("ComputeSyncLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
+    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    //    printf("initialize not been finished %d\n", partition_id);
+    double compute_time = 0;
+    compute_time -= MPI_Wtime();
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+    long max_recv_buffer_size = owned_vertices * sockets;
+    for (int i = 0; i < partitions; i++)
+    {
+      for (int s_i = 0; s_i < sockets; s_i++)
+      {
+        recv_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * owned_vertices * sockets);
+        send_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        send_buffer[i][s_i]->count = 0;
+        recv_buffer[i][s_i]->count = 0;
+        //max_recv_buffer_size = std::max(max_recv_buffer_size, (int)(partition_offset[i + 1] - partition_offset[i]));
+      }
+    } //init the send and receive buffer
+    //  printf("initialize send buffer finished %d\n", partition_id);
+    
+    
+    
+    float *local_data_buffer=output_grad.packed_accessor<float,2>().data();
+            
+    float *gpu_memory_buffer = NULL;
+    VertexId *index_gpu_input = NULL;
+    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
+    VertexId *index_gpu_output = NULL;
+    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
+    Cuda_Stream *cuda_stream = new Cuda_Stream();
+    allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
+
+    
+    zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
+    //output_grad.zero_();
+
+    size_t max_dstrange = 0, max_edge_size = 0;
+    for (int i = 0; i < graph_partitions.size(); i++)
+    {
+      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
+      if (rtminfo->forward)
+        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
+      else
+        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0]));
+    };
+
+    weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
+    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
+    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
+
+    VertexId *src;
+    VertexId *dst;
+    float *weight;
+    
+    
+    torch::Tensor dst_input_transferred =PreComputation(dst_input);
+    
+    
+    size_t basic_chunk = 64;
+    {
+#ifdef PRINT_DEBUG_MESSAGES
+      if (partition_id == 0)
+      {
+        printf("dense mode\n");
+      }
+#endif
+      int *send_queue = new int[partitions];
+      int *recv_queue = new int[partitions];
+      volatile int send_queue_size = 0;
+      volatile int recv_queue_size = 0;
+      std::mutex send_queue_mutex;
+      std::mutex recv_queue_mutex;
+
+      std::thread send_thread([&]() {
+        for (int step = 0; step < partitions; step++)
+        {
+          if (step == partitions - 1)
+          {
+            break;
+          }
+          while (true)
+          {
+            send_queue_mutex.lock();
+            bool condition = (send_queue_size <= step);
+            send_queue_mutex.unlock();
+            if (!condition)
+              break;
+            __asm volatile("pause" ::
+                               : "memory");
+          }
+          int i = send_queue[step];
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[i][s_i]->data, sizeofM<M>(feature_size) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        std::vector<std::thread> threads;
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads.emplace_back([&](int i) {
+            for (int s_i = 0; s_i < sockets; s_i++)
+            {
+              MPI_Status recv_status;
+              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
+            }
+          },
+                               i);
+        }
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+
+          threads[step - 1].join();
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+        recv_queue[recv_queue_size] = partition_id;
+        recv_queue_mutex.lock();
+        recv_queue_size += 1;
+        recv_queue_mutex.unlock();
+      });
+
+      if (process_overlap)
+      {
+
+        //pipeline
+        current_send_part_id = partition_id;
+        
+//                    backward_gpu_CSR_partition(
+//                input_grad,
+//                output_cpu,
+//                graph_partitions,
+//                feature_size,
+//                (current_send_part_id + 1) % partitions,
+//                cuda_stream);
+        
+   
+      }
+      else
+      {
+        //no pipeline
+        for (int step = 0; step < partitions; step++)
+        {
+            current_send_part_id = (current_send_part_id + 1) % partitions;
+            
+            
+//            backward_gpu_CSR_partition(
+//                input_grad,
+//                output_cpu,
+//                graph_partitions,
+//                feature_size,
+//                (current_send_part_id + 1) % partitions,
+//                cuda_stream);
+            
+            EdgeOp->InitBlock(graph_partitions[current_send_part_id],
+                            gnnctx->layer_size[rtminfo->curr_layer],
+                              gnnctx->layer_size[rtminfo->curr_layer+1],
+                                cuda_stream); 
+            encode_partition=current_send_part_id;
+        torch::Tensor src_input_tensor;
+        torch::Tensor message=EdgeForward(src_input_tensor,dst_input_transferred,EdgeOp);
+        torch::Tensor src_inter_grad=torch::zeros({graph_partitions[current_send_part_id]->batch_size_backward,
+                                                        EdgeOp->output_size},
+                                                       at::TensorOptions().device_index(0).dtype(torch::kFloat));                                           
+        EdgeOp->GatherBySrcFromDst(src_inter_grad,input_grad,message);
+        torch::Tensor src_grad=EdgeBackward(torch::ones_like(message),src_inter_grad,EdgeOp);
+        //std::cout<<src_grad.size(0)<<" "<<src_grad.size(1)<<std::endl;
+        EdgeOp->MoveResultOut(output_cpu,src_grad);
+        
+        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+            
+        }
+      }
+
+      for (int step = 0; step < partitions; step++)
+      {
+        current_send_part_id = (current_send_part_id + 1) % partitions;
+        int i = current_send_part_id;
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
+        }
+
+        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+        //free_all_tmp();
+        if (current_send_part_id != partition_id)
+        {
+          if (process_overlap)
+          {
+//                backward_gpu_CSR_partition(
+//                    input_grad,
+//                    output_cpu,
+//                    graph_partitions,
+//                    feature_size,
+//                    (current_send_part_id + 1) % partitions,
+//                    cuda_stream);
+        
+          }
+          //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+        }
+
+#pragma omp parallel
+        {
+          //printf("DEBUGstart%d\n",partition_id);
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          VertexId final_p_v_i = thread_state[thread_id]->end;
+
+          while (true)
+          {
+            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (begin_p_v_i >= final_p_v_i)
+              break;
+            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+            if (end_p_v_i > final_p_v_i)
+            {
+              end_p_v_i = final_p_v_i;
+            }
+            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+            {
+              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+            }
+          }
+          //  printf("Send initial has been finished %d\n", partition_id);
+          thread_state[thread_id]->status = STEALING;
+          for (int t_offset = 1; t_offset < threads; t_offset++)
+          {
+            int t_i = (thread_id + t_offset) % threads;
+            int s_i = get_socket_id(t_i);
+            while (thread_state[t_i]->status != STEALING)
+            {
+              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
+              if (begin_p_v_i >= thread_state[t_i]->end)
+                break;
+              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+              if (end_p_v_i > thread_state[t_i]->end)
+              {
+                end_p_v_i = thread_state[t_i]->end;
+              }
+              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+              {
+                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+              }
+            }
+          }
+        }
+#pragma omp parallel for
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          flush_local_send_buffer_buffer(t_i, feature_size);
+        }
+        if (i != partition_id)
+        {
+          send_queue[send_queue_size] = i;
+          send_queue_mutex.lock();
+          send_queue_size += 1;
+          send_queue_mutex.unlock();
+        }
+      }
+
+      compute_time += MPI_Wtime();
+      all_compute_time += compute_time;
+
+      double overlap_time = 0;
+      overlap_time -= MPI_Wtime();
+      // //process_local
+      for (int step = 0; step < partitions; step++)
+      {
+        int wait_time = 0;
+        wait_time -= MPI_Wtime();
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        wait_time += MPI_Wtime();
+        all_recv_wait_time += wait_time;
+
+        //add GPU_aggregator
+        //copy data to gpu  size: dst:  used_buffer[s_i]->count*(feature_size+1)
+        for (int s_i = 0; s_i < sockets; s_i++)
+        {
+          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+          if (used_buffer[s_i]->count > 0)
+          {
+            int recv_copy = 0;
+            recv_copy -= MPI_Wtime();
+            cuda_stream->move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1), false);
+
+            recv_copy += MPI_Wtime();
+            all_recv_copy_time += recv_copy;
+            int recv_kernel = 0;
+            recv_kernel -= MPI_Wtime();
+            cuda_stream->aggregate_comm_result_debug(local_data_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[partition_id], partition_offset[partition_id + 1], false);
+            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+            recv_kernel += MPI_Wtime();
+            all_recv_kernel_time += recv_kernel;
+          }
+        }
+        //aggregate
+
+        //sync
+      }
+      
+      
+      output_grad=output_grad+dst_input.grad();
+      
+      
+      overlap_time += MPI_Wtime();
+      all_overlap_time += overlap_time;
+
+      // send_thread.join();
+      // recv_thread.join();
+      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+
+      FreeBuffer(gpu_memory_buffer);
+      cuda_stream->destory_Stream();
+      // wait_time+=MPI_Wtime();
+      // all_wait_time+=wait_time;
+      send_thread.join();
+      recv_thread.join();
+
+      delete[] send_queue;
+      delete[] recv_queue;
+      free_all_tmp();
+      //      printf("con%d_%d\n",con,partition_offset[1]);
+    }
+
+    R global_reducer;
     stream_time += MPI_Wtime();
 #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id == 0)
@@ -4789,447 +5729,6 @@ public:
 #endif
     return global_reducer;
   }
-
-  template <typename R, typename M>
-  R compute_sync_explict_para(torch::Tensor input_gpu_or_cpu,
-                                                              float *output_cpu,
-                                                              torch::Tensor para,
-                                                              std::vector<CSC_segment_pinned *> &graph_partitions,
-                                                              std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                                              float *local_data_buffer)
-  {
-
-    int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
-    bool process_local = rtminfo->process_local;
-    int layer_ = rtminfo->curr_layer;
-    bool process_overlap = rtminfo->process_overlap;
-
-    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
-
-    if (partition_id == 0)
-    {
-      printf("layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
-    }
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-    //    printf("initialize not been finished %d\n", partition_id);
-    double compute_time = 0;
-    compute_time -= MPI_Wtime();
-    for (int t_i = 0; t_i < threads; t_i++)
-    {
-      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
-      local_send_buffer[t_i]->count = 0;
-    }
-    long max_recv_buffer_size = owned_vertices * sockets;
-    for (int i = 0; i < partitions; i++)
-    {
-      for (int s_i = 0; s_i < sockets; s_i++)
-      {
-        recv_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
-        send_buffer[i][s_i]->count = 0;
-        recv_buffer[i][s_i]->count = 0;
-        //max_recv_buffer_size = std::max(max_recv_buffer_size, (int)(partition_offset[i + 1] - partition_offset[i]));
-      }
-    } //init the send and receive buffer
-    //  printf("initialize send buffer finished %d\n", partition_id);
-    float *gpu_memory_buffer = NULL;
-    VertexId *index_gpu_input = NULL;
-    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    VertexId *index_gpu_output = NULL;
-    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
-    allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
-    zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
-
-    size_t max_dstrange = 0, max_edge_size = 0;
-    for (int i = 0; i < graph_partitions.size(); i++)
-    {
-      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
-    };
-
-    //weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
-    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
-    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
-
-    VertexId *src;
-    VertexId *dst;
-    float *weight;
-
-    if (process_local)
-    {
-      index_gpu_output = (VertexId *)cudaMallocGPU(vertices * sizeof(VertexId));
-      index_gpu_input = (VertexId *)cudaMallocGPU(vertices * sizeof(VertexId));
-      graph_rep[layer_].rep_feature_gpu_buffer = (float *)cudaMallocGPU(((long)sizeof(float)) * graph_rep[layer_].rep_node_size * graph_rep[layer_].feature_size + 1);
-      src = (VertexId *)cudaMallocGPU(sizeof(VertexId) * graph_rep[layer_].rep_edge_size + 1);
-      dst = (VertexId *)cudaMallocGPU(sizeof(VertexId) * graph_rep[layer_].rep_edge_size + 1);
-      //weight = (float *)cudaMallocGPU(sizeof(float) * graph_rep[layer_].rep_edge_size + 1);
-      //	printf("initialize send buffer finished %d\n", partition_id);
-    }
-    size_t basic_chunk = 64;
-    {
-#ifdef PRINT_DEBUG_MESSAGES
-      if (partition_id == 0)
-      {
-        printf("dense mode\n");
-      }
-#endif
-      int *send_queue = new int[partitions];
-      int *recv_queue = new int[partitions];
-      volatile int send_queue_size = 0;
-      volatile int recv_queue_size = 0;
-      std::mutex send_queue_mutex;
-      std::mutex recv_queue_mutex;
-
-      std::thread send_thread([&]() {
-        for (int step = 0; step < partitions; step++)
-        {
-          if (step == partitions - 1)
-          {
-            break;
-          }
-          while (true)
-          {
-            send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
-            send_queue_mutex.unlock();
-            if (!condition)
-              break;
-            __asm volatile("pause" ::
-                               : "memory");
-          }
-          int i = send_queue[step];
-          for (int s_i = 0; s_i < sockets; s_i++)
-          {
-            MPI_Send(send_buffer[i][s_i]->data, sizeofM<M>(feature_size) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
-          }
-        }
-      });
-      std::thread recv_thread([&]() {
-        std::vector<std::thread> threads;
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads.emplace_back([&](int i) {
-            for (int s_i = 0; s_i < sockets; s_i++)
-            {
-              MPI_Status recv_status;
-              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
-              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
-              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
-            }
-          },
-                               i);
-        }
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-
-          threads[step - 1].join();
-          recv_queue[recv_queue_size] = i;
-          recv_queue_mutex.lock();
-          recv_queue_size += 1;
-          recv_queue_mutex.unlock();
-        }
-        recv_queue[recv_queue_size] = partition_id;
-        recv_queue_mutex.lock();
-        recv_queue_size += 1;
-        recv_queue_mutex.unlock();
-      });
-
-      if (process_overlap)
-      {
-
-        //pipeline
-        current_send_part_id = partition_id;
-
-        double cuda_sync_time = 0;
-        cuda_sync_time -= MPI_Wtime();
-        forward_gpu_CSC_partition_para(
-            input_gpu_or_cpu,
-            output_cpu,
-            para,
-            graph_partitions,
-            feature_size,
-            (current_send_part_id + 1) % partitions,
-            cuda_stream);
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        cuda_sync_time += MPI_Wtime();
-        this->all_cuda_sync_time += cuda_sync_time;
-      }
-      else
-      {
-
-        //no pipeline
-        /*       for (int step = 0; step < partitions; step++)
-        {
-          //pipeline
-          //current_send_part_id = partition_id;
-          //no pipeline
-          current_send_part_id = (current_send_part_id + 1) % partitions;
-          double cuda_sync_time = 0;
-          cuda_sync_time -= MPI_Wtime();
-          //    printf("%d %d\n",input_gpu_or_cpu.size(0),input_gpu_or_cpu.size(1));
-
-          forward_gpu_CSC_partition_para(
-              input_gpu_or_cpu,
-              output_cpu,
-              para,
-              graph_partitions,
-              feature_size,
-              (current_send_part_id + 1) % partitions,
-              cuda_stream);
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-
-          //no pipeline
-          cuda_sync_time += MPI_Wtime();
-          this->all_cuda_sync_time += cuda_sync_time;
-          //no pipeline
-        }
-	*/
-        //printf("emove data\n");
-      }
-      //printf("initialize send buffer finished %d\n", partition_id);
-
-      for (int step = 0; step < partitions; step++)
-      {
-        current_send_part_id = (current_send_part_id + 1) % partitions;
-        int i = current_send_part_id;
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
-          //    printf("Range %d\t%d %d\n",tuned_chunks_dense[i][t_i].curr,tuned_chunks_dense[i][t_i].end,partition_id);
-        }
-        //这后计算.
-
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        //free_all_tmp();
-        if (current_send_part_id != partition_id)
-        {
-          double cuda_sync_time = 0;
-          cuda_sync_time -= MPI_Wtime();
-          if (process_overlap)
-          {
-            forward_gpu_CSC_partition_para(
-                input_gpu_or_cpu,
-                output_cpu,
-                para,
-                graph_partitions,
-                feature_size,
-                (current_send_part_id + 1) % partitions,
-                cuda_stream);
-          }
-          //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-          cuda_sync_time += MPI_Wtime();
-          this->all_cuda_sync_time += cuda_sync_time;
-        }
-        else
-        {
-          if (process_overlap)
-          {
-            double replication_time = 0;
-            replication_time -= MPI_Wtime();
-            if (process_local)
-            {
-              // if (partition_id == 0)
-              //  printf("process_replicate %d on layer %d\n", replication_threshold, layer_);
-              //MPI_Barrier(MPI_COMM_WORLD);
-              forward_gpu_local_para(graph_rep, local_data_buffer, cuda_stream, src, dst, para, index_gpu_input, index_gpu_output, feature_size, layer_);
-              //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            }
-            replication_time += MPI_Wtime();
-            //MPI_Barrier(MPI_COMM_WORLD);
-            all_replication_time += replication_time;
-          }
-        }
-
-#pragma omp parallel
-        {
-          //printf("DEBUGstart%d\n",partition_id);
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          VertexId final_p_v_i = thread_state[thread_id]->end;
-
-          //printf("DEBUG %d %d %d %d\n",thread_state[thread_id]->end,s_i,thread_id,partition_id);
-
-          while (true)
-          {
-            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (begin_p_v_i >= final_p_v_i)
-              break;
-            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-            if (end_p_v_i > final_p_v_i)
-            {
-              end_p_v_i = final_p_v_i;
-            }
-            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-            {
-              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-            }
-          }
-          //  printf("Send initial has been finished %d\n", partition_id);
-          thread_state[thread_id]->status = STEALING;
-          for (int t_offset = 1; t_offset < threads; t_offset++)
-          {
-            int t_i = (thread_id + t_offset) % threads;
-            int s_i = get_socket_id(t_i);
-            while (thread_state[t_i]->status != STEALING)
-            {
-              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
-              if (begin_p_v_i >= thread_state[t_i]->end)
-                break;
-              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-              if (end_p_v_i > thread_state[t_i]->end)
-              {
-                end_p_v_i = thread_state[t_i]->end;
-              }
-              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-              {
-                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-              }
-            }
-          }
-        }
-        //  printf("Send start %d\n", partition_id);
-#pragma omp parallel for
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          flush_local_send_buffer_buffer(t_i, feature_size);
-        }
-        if (i != partition_id)
-        {
-          send_queue[send_queue_size] = i;
-          send_queue_mutex.lock();
-          send_queue_size += 1;
-          send_queue_mutex.unlock();
-        }
-      }
-
-      compute_time += MPI_Wtime();
-      all_compute_time += compute_time;
-
-      double overlap_time = 0;
-      overlap_time -= MPI_Wtime();
-      // //process_local
-      for (int step = 0; step < partitions; step++)
-      {
-        int wait_time = 0;
-        wait_time -= MPI_Wtime();
-        while (true)
-        {
-          recv_queue_mutex.lock();
-          bool condition = (recv_queue_size <= step);
-          recv_queue_mutex.unlock();
-          if (!condition)
-            break;
-          __asm volatile("pause" ::
-                             : "memory");
-        }
-        int i = recv_queue[step];
-        MessageBuffer **used_buffer;
-        if (i == partition_id)
-        {
-          used_buffer = send_buffer[i];
-        }
-        else
-        {
-          used_buffer = recv_buffer[i];
-        }
-        wait_time += MPI_Wtime();
-        all_recv_wait_time += wait_time;
-
-        //add GPU_aggregator
-        //copy data to gpu  size: dst:  used_buffer[s_i]->count*(feature_size+1)
-        for (int s_i = 0; s_i < sockets; s_i++)
-        {
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-          if (used_buffer[s_i]->count > 0)
-          {
-            //printf("%ld %ld %ld\n", used_buffer[s_i]->count, max_recv_buffer_size, max_recv_buffer_size * (feature_size + 1));
-            int recv_copy = 0;
-            recv_copy -= MPI_Wtime();
-            cuda_stream->move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1), false);
-            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            recv_copy += MPI_Wtime();
-            all_recv_copy_time += recv_copy;
-            int recv_kernel = 0;
-            recv_kernel -= MPI_Wtime();
-            cuda_stream->aggregate_comm_result_debug(local_data_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[partition_id], partition_offset[partition_id + 1], false);
-            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            recv_kernel += MPI_Wtime();
-            all_recv_kernel_time += recv_kernel;
-
-            //printf("remove comm\n");
-          }
-        }
-        //aggregate
-
-        //sync
-      }
-      //printf("Send has been finished %d\n", partition_id);
-
-      overlap_time += MPI_Wtime();
-      all_overlap_time += overlap_time;
-
-      send_thread.join();
-      recv_thread.join();
-      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-
-      if (!process_overlap)
-      {
-        double replication_time = 0;
-        replication_time -= MPI_Wtime();
-        if (process_local)
-        {
-          //if (partition_id == 0)
-          //printf("process_replicate %d on layer %d\n", replication_threshold, layer_);
-          //MPI_Barrier(MPI_COMM_WORLD);
-          forward_gpu_local_para(graph_rep, local_data_buffer, cuda_stream, src, dst, para, index_gpu_input, index_gpu_output, feature_size, layer_);
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        }
-        replication_time += MPI_Wtime();
-        //MPI_Barrier(MPI_COMM_WORLD);
-        all_replication_time += replication_time;
-      }
-
-      //process_local
-      //  double wait_time=0;
-      //  wait_time-=MPI_Wtime();
-      FreeBuffer(gpu_memory_buffer);
-      cuda_stream->destory_Stream();
-      // wait_time+=MPI_Wtime();
-      // all_wait_time+=wait_time;
-
-      delete[] send_queue;
-      delete[] recv_queue;
-      if (process_local)
-      {
-        FreeEdge(src);
-        FreeEdge(dst);
-        FreeBuffer(weight);
-        FreeEdge(index_gpu_input);
-        FreeEdge(index_gpu_output);
-        FreeBuffer(graph_rep[layer_].rep_feature_gpu_buffer);
-      }
-      free_all_tmp();
-      //      printf("con%d_%d\n",con,partition_offset[1]);
-    }
-
-    R global_reducer;
-    stream_time += MPI_Wtime();
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
-  }
-
   void forward_gpu_local(graph_replication *graph_rep, float *local_data_buffer,
                          Cuda_Stream *cuda_stream, VertexId *src, VertexId *dst, float *weight, VertexId *index, VertexId *index_output, int feature_size, int layer_)
   {
@@ -5286,127 +5785,8 @@ public:
     //FreeBuffer(graph_rep[layer].rep_feature_gpu_buffer);
   }
 
-  void forward_gpu_local_para(graph_replication *graph_rep, float *local_data_buffer,
-                              Cuda_Stream *cuda_stream, VertexId *src, VertexId *dst, torch::Tensor para, VertexId *index, VertexId *index_output, int feature_size, int layer_)
-  {
-    int layer = layer_;
-    cuda_stream->move_data_in(graph_rep[layer].rep_feature_gpu_buffer,
-                              graph_rep[layer].rep_feature,
-                              0,
-                              graph_rep[layer].rep_node_size,
-                              graph_rep[layer].feature_size, false);
 
-    cuda_stream->move_edge_in(index,
-                              graph_rep[layer].src_map,
-                              0,
-                              vertices,
-                              1,
-                              false);
-    cuda_stream->move_edge_in(index_output,
-                              graph_rep[layer].dst_map,
-                              0,
-                              vertices,
-                              1,
-                              false);
-    cuda_stream->move_edge_in(src,
-                              graph_rep[layer].src_rep,
-                              0,
-                              graph_rep[layer].rep_edge_size,
-                              1,
-                              false);
-    cuda_stream->move_edge_in(dst,
-                              graph_rep[layer].dst_rep,
-                              0,
-                              graph_rep[layer].rep_edge_size,
-                              1,
-                              false);
-    cuda_stream->process_local_inter_para(graph_rep[layer].output_buffer_gpu, graph_rep[layer].rep_feature_gpu_buffer,
-                                          src, dst, index, index_output, para.packed_accessor<float, 2>().data(), partition_offset[partition_id], partition_offset[partition_id + 1],
-                                          graph_rep[layer].feature_size, graph_rep[layer].rep_edge_size, rep_output_size, false);
-  }
-
-  void forward_gpu_CSC_partition_para(
-      torch::Tensor input_gpu_or_cpu,
-      float *output_cpu,
-      torch::Tensor para,
-      std::vector<CSC_segment_pinned *> &graph_partitions,
-      int feature_size,
-      int current_send_partition_id,
-      Cuda_Stream *cuda_stream,
-      bool require_move_in = false)
-  {
-
-    double movein_time = 0;
-    movein_time -= MPI_Wtime();
-    output_gpu_buffered.zero_();
-    int vertex_range = partition_offset[partition_id + 1] - partition_offset[partition_id];
-    int dst_range = graph_partitions[current_send_partition_id]->dst_range[1] - graph_partitions[current_send_partition_id]->dst_range[0];
-
-    cuda_stream->move_edge_in(row_indices_intergate,
-                              (VertexId *)(graph_partitions[current_send_partition_id]->row_indices),
-                              0,
-                              graph_partitions[current_send_partition_id]->edge_size,
-                              1,
-                              false);
-    cuda_stream->move_edge_in(column_offset_intergate,
-                              graph_partitions[current_send_partition_id]->column_offset,
-                              0,
-                              dst_range + 1,
-                              1,
-                              false);
-
-    VertexId src_start = graph_partitions[current_send_partition_id]->src_range[0];
-    VertexId src_end = graph_partitions[current_send_partition_id]->src_range[1];
-    VertexId dst_start = graph_partitions[current_send_partition_id]->dst_range[0];
-    VertexId dst_end = graph_partitions[current_send_partition_id]->dst_range[1];
-    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-    movein_time += MPI_Wtime();
-    all_movein_time += movein_time;
-    //kernal function call;
-    /*
-             * output_gpu
-             * input_gpu
-             * graph_partitions[i]->src
-             * graph_partitions[i]->dst
-             * graph_partitions[i]->weight;
-             * graph_partitions[i]->src_range[0],[1];
-             * graph_partitions[j]->dst_range[0],[1];
-             * graph_partitions[i]->batch_size
-             * graph_partitions[i]->edge_size
-             * graph_partitions[i]->feature_size
-             */
-    // std::cout<<"run one batch"<<std::endl;
-    double kernel_time = 0;
-    kernel_time -= MPI_Wtime();
-
-    cuda_stream->forward_on_GPU_CSC_Para(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
-                                         output_gpu_buffered.packed_accessor<float, 2>().data(),
-                                         para.packed_accessor<float, 2>().data(), //data
-                                         row_indices_intergate,
-                                         column_offset_intergate, //graph
-                                         src_start, src_end, dst_start, dst_end,
-                                         graph_partitions[current_send_partition_id]->edge_size,
-                                         graph_partitions[current_send_partition_id]->batch_size,
-                                         feature_size, false);
-    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-    kernel_time += MPI_Wtime();
-    all_kernel_time += kernel_time;
-    //
-    double moveout_time = 0;
-    moveout_time -= MPI_Wtime();
-
-    cuda_stream->move_result_out(output_cpu + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
-                                 output_gpu_buffered.packed_accessor<float, 2>().data(),
-                                 graph_partitions[current_send_partition_id]->dst_range[0],
-                                 graph_partitions[current_send_partition_id]->dst_range[1],
-                                 feature_size, false);
-
-    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-    moveout_time += MPI_Wtime();
-    all_moveout_time += moveout_time;
-  }
-
-  void forward_gpu_CSC_partition_gpu(
+  void forward_gpu_CSC_partition_from_buffer(
       float *input_gpu,
       float *output_gpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
@@ -5463,7 +5843,7 @@ public:
     double kernel_time = 0;
     kernel_time -= MPI_Wtime();
 
-    cuda_stream->forward_on_GPU_CSC(input_gpu,
+    cuda_stream->Gather_By_Dst_From_Src(input_gpu,
                                     output_gpu,
                                     weight_gpu_intergate, //data
                                     row_indices_intergate,
@@ -5550,7 +5930,7 @@ public:
     double kernel_time = 0;
     kernel_time -= MPI_Wtime();
 
-    cuda_stream->forward_on_GPU_CSC(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
+    cuda_stream->Gather_By_Dst_From_Src(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
                                     output_gpu_buffered.packed_accessor<float, 2>().data(),
                                     weight_gpu_intergate, //data
                                     row_indices_intergate,
@@ -5576,39 +5956,36 @@ public:
     moveout_time += MPI_Wtime();
     all_moveout_time += moveout_time;
   }
-  
-  
-
-  void forward_gpu_CSC_partition_shrink(
+    
+    void backward_gpu_CSR_partition(
       torch::Tensor input_gpu_or_cpu,
       float *output_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
       int feature_size,
       int current_send_partition_id,
       Cuda_Stream *cuda_stream,
-      int layer,
       bool require_move_in = false)
   {
 
     double movein_time = 0;
     movein_time -= MPI_Wtime();
     output_gpu_buffered.zero_();
-    int vertex_range = partition_offset[partition_id + 1] - partition_offset[partition_id];
-    int dst_range = graph_partitions[current_send_partition_id]->dst_range[1] - graph_partitions[current_send_partition_id]->dst_range[0];
+    int vertex_range = graph_partitions[current_send_partition_id]->dst_range[1] - graph_partitions[current_send_partition_id]->dst_range[0];
+    int dst_range = graph_partitions[current_send_partition_id]->src_range[1] - graph_partitions[current_send_partition_id]->src_range[0];
 
     cuda_stream->move_data_in(weight_gpu_intergate,
-                              graph_partitions[current_send_partition_id]->edge_weight,
+                              graph_partitions[current_send_partition_id]->edge_weight_backward,
                               0,
                               graph_partitions[current_send_partition_id]->edge_size,
                               1, false);
     cuda_stream->move_edge_in(row_indices_intergate,
-                              (VertexId *)(graph_partitions[current_send_partition_id]->row_indices),
+                              (VertexId *)(graph_partitions[current_send_partition_id]->column_indices),
                               0,
                               graph_partitions[current_send_partition_id]->edge_size,
                               1,
                               false);
     cuda_stream->move_edge_in(column_offset_intergate,
-                              graph_partitions[current_send_partition_id]->column_offset,
+                              graph_partitions[current_send_partition_id]->row_offset,
                               0,
                               dst_range + 1,
                               1,
@@ -5616,9 +5993,8 @@ public:
 
     VertexId src_start = graph_partitions[current_send_partition_id]->src_range[0];
     VertexId src_end = graph_partitions[current_send_partition_id]->src_range[1];
-    VertexId dst_start = blockinfo[layer].block_index[current_send_partition_id];
-    VertexId dst_end = blockinfo[layer].block_index[current_send_partition_id + 1];
-    VertexId batch_size = blockinfo[layer].block_index[current_send_partition_id + 1] - blockinfo[layer].block_index[current_send_partition_id];
+    VertexId dst_start = graph_partitions[current_send_partition_id]->dst_range[0];
+    VertexId dst_end = graph_partitions[current_send_partition_id]->dst_range[1];
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     movein_time += MPI_Wtime();
     all_movein_time += movein_time;
@@ -5639,18 +6015,16 @@ public:
     double kernel_time = 0;
     kernel_time -= MPI_Wtime();
 
-    cuda_stream->forward_on_GPU_CSC_shrink(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
-                                           output_gpu_buffered.packed_accessor<float, 2>().data(),
-                                           weight_gpu_intergate, //data
-                                           row_indices_intergate,
-                                           column_offset_intergate, //graph
-                                           blockinfo[layer].index_gpu_buffer,
-                                           blockinfo[layer].vertex_gpu_buffer,
-                                           src_start, src_end, dst_start, dst_end,
-                                           graph_partitions[current_send_partition_id]->dst_range[0],
-                                           batch_size,
-                                           feature_size, false);
-    //CUDA_DEVICE_SYNCHRONIZE();
+    cuda_stream->Gather_By_Dst_From_Src(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
+                                    output_gpu_buffered.packed_accessor<float, 2>().data(),
+                                    weight_gpu_intergate, //data
+                                    row_indices_intergate,
+                                    column_offset_intergate, //graph
+                                    dst_start, dst_end, //down
+                                    src_start, src_end, //up
+                                    graph_partitions[current_send_partition_id]->edge_size,
+                                    graph_partitions[current_send_partition_id]->batch_size_backward,
+                                    feature_size, false);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
     all_kernel_time += kernel_time;
@@ -5658,15 +6032,18 @@ public:
     double moveout_time = 0;
     moveout_time -= MPI_Wtime();
 
-    cuda_stream->move_result_out(output_cpu + (blockinfo[layer].block_index[current_send_partition_id] * feature_size),
+    cuda_stream->move_result_out(output_cpu + (graph_partitions[current_send_partition_id]->src_range[0] * feature_size),
                                  output_gpu_buffered.packed_accessor<float, 2>().data(),
-                                 blockinfo[layer].block_index[current_send_partition_id],
-                                 blockinfo[layer].block_index[current_send_partition_id + 1],
+                                 graph_partitions[current_send_partition_id]->src_range[0],
+                                 graph_partitions[current_send_partition_id]->src_range[1],
                                  feature_size, false);
+
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     moveout_time += MPI_Wtime();
     all_moveout_time += moveout_time;
   }
+    
+    
 
   void free_all_tmp()
   {
