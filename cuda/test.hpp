@@ -140,25 +140,37 @@ public:
         void deSerializeToGPU(float *input_gpu_buffer, float *input_buffer, VertexId_CUDA data_size, VertexId_CUDA feature_size, VertexId_CUDA partition_start, VertexId_CUDA partition_end, bool sync);
 	void aggregate_comm_result_debug(float *aggregate_buffer, float *input_buffer, VertexId_CUDA data_size, VertexId_CUDA feature_size, VertexId_CUDA partition_start, VertexId_CUDA partition_end, bool sync);
 
-	void forward_on_GPU_CSC(float *input, float *output, float *weight_forward, //data
+	void Gather_By_Dst_From_Src(float *input, float *output, float *weight_forward, //data
+							VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,				//graph
+							VertexId_CUDA src_start, VertexId_CUDA src_end,
+							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+							VertexId_CUDA edges, VertexId_CUDA batch_size,
+							VertexId_CUDA feature_size, bool with_weight = false);
+        void Gather_By_Src_From_Dst(float* input,float* output,float* weight_forward,//data 
+                                                        VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,//graph
+                                                        VertexId_CUDA src_start, VertexId_CUDA src_end,
+                                                        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+                                                        VertexId_CUDA edges,VertexId_CUDA batch_size,
+                                                        VertexId_CUDA feature_size,bool with_weight=false);
+        void Gather_By_Dst_From_Message(float *input, float *output, float *weight_forward, //data
+							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
+							VertexId_CUDA src_start, VertexId_CUDA src_end,
+							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+							VertexId_CUDA edges, VertexId_CUDA batch_size,
+							VertexId_CUDA feature_size, bool with_weight = false);
+	void Gather_By_Dst_From_Src_Para(float *input, float *output, float *para_forward, //data
 							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
 							VertexId_CUDA feature_size, bool sync = true);
-	void forward_on_GPU_CSC_Para(float *input, float *output, float *para_forward, //data
-							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
-							VertexId_CUDA src_start, VertexId_CUDA src_end,
-							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-							VertexId_CUDA edges, VertexId_CUDA batch_size,
-							VertexId_CUDA feature_size, bool sync = true);
-	void forward_on_GPU_CSC_shrink(float *input, float *output, float *weight_forward, //data
-								   VertexId_CUDA *src, VertexId_CUDA *dst,			   //graph
-								   VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
-								   VertexId_CUDA src_start, VertexId_CUDA src_end,
-								   VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-								   VertexId_CUDA actual_dst_start, VertexId_CUDA batch_size,
-								   VertexId_CUDA feature_size, bool sync = true);
+//	void Gather_By_Dst_From_Src_shrink(float *input, float *output, float *weight_forward, //data
+//								   VertexId_CUDA *src, VertexId_CUDA *dst,			   //graph
+//								   VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
+//								   VertexId_CUDA src_start, VertexId_CUDA src_end,
+//								   VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//								   VertexId_CUDA actual_dst_start, VertexId_CUDA batch_size,
+//								   VertexId_CUDA feature_size, bool sync = true);
 	void process_local(float *local_buffer, float *input_tensor,
 					   VertexId_CUDA *src, VertexId_CUDA *dst,
 					   VertexId_CUDA *src_index, float *weight_buffer,
@@ -182,7 +194,7 @@ void forward_on_GPU(float *input, float *output, float *weight_forward, //data
 					VertexId_CUDA src_start, VertexId_CUDA src_end,
 					VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 					VertexId_CUDA edges, VertexId_CUDA batch_size, VertexId_CUDA feature_size);
-void forward_on_GPU_CSC(float *input, float *output, float *weight_forward, //data
+void Gather_By_Dst_From_Src(float *input, float *output, float *weight_forward, //data
 						VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
 						VertexId_CUDA src_start, VertexId_CUDA src_end,
 						VertexId_CUDA dst_start, VertexId_CUDA dst_end,

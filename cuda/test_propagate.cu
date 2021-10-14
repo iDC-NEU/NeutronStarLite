@@ -23,7 +23,7 @@ void* getDevicePointer(void* host_data_to_device){
 
 void* cudaMallocPinned(long size_of_bytes){
     void *data=NULL;
-   cudaHostAlloc(&data,size_of_bytes, cudaHostAllocDefault);
+   cudaHostAlloc(&data,size_of_bytes, cudaHostAllocMapped);
     return data;
 }
 
@@ -89,8 +89,49 @@ void Cuda_Stream::deSerializeToGPU(float* input_gpu_buffer,float *input_buffer,V
     const int BLOCK_SIZE=128;
     deSerializeToGPUkernel<<<THREAD_SIZE,BLOCK_SIZE,0,stream>>>(input_gpu_buffer,input_buffer,data_size,feature_size,partition_start,partition_end,sync);
 }
+void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size,bool with_weight){
+        const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+        if(with_weight){
+		aggregate_kernel_from_src_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+			row_indices, column_offset, input, output, weight_forward, 
+				src_start, dst_start, batch_size, feature_size);
+        }
+        else{
+                aggregate_kernel_from_src_without_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+			row_indices, column_offset, input, output, weight_forward, 
+				src_start, dst_start, batch_size, feature_size);
+        }
+}
 
-void Cuda_Stream::forward_on_GPU_CSC(float* input,float* output,float* weight_forward,//data 
+void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size,bool with_weight){
+        const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+        if(with_weight){
+		aggregate_kernel_from_dst_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+			row_offset, column_indices, input, output, weight_forward, 
+				src_start, dst_start, batch_size, feature_size);
+        }
+        else{
+                aggregate_kernel_from_dst_without_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+			row_offset, column_indices, input, output, weight_forward, 
+				src_start, dst_start, batch_size, feature_size);
+        }
+}
+
+void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,float* weight_forward,//data 
         VertexId_CUDA* src,VertexId_CUDA *dst,//graph
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
@@ -98,12 +139,14 @@ void Cuda_Stream::forward_on_GPU_CSC(float* input,float* output,float* weight_fo
         VertexId_CUDA feature_size,bool sync){
         const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
 	const int BLOCK_SIZE=128;
-	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
-		processing_scalar_weight_shard_CSC<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+	printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+		aggregate_kernel_with_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
 			src, dst, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size); 
 	}
-void Cuda_Stream::forward_on_GPU_CSC_Para(float* input,float* output,float* para,//data 
+
+
+void Cuda_Stream::Gather_By_Dst_From_Src_Para(float* input,float* output,float* para,//data 
         VertexId_CUDA* src,VertexId_CUDA *dst,//graph
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
@@ -116,21 +159,21 @@ void Cuda_Stream::forward_on_GPU_CSC_Para(float* input,float* output,float* para
 			src, dst, input, output, para, 
 				src_start, dst_start, batch_size, feature_size); 
 	}
-void Cuda_Stream::forward_on_GPU_CSC_shrink(float* input,float* output,float* weight_forward,//data 
-		VertexId_CUDA* src,VertexId_CUDA *dst,//graph
-		VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
-        VertexId_CUDA src_start, VertexId_CUDA src_end,
-        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-	VertexId_CUDA actual_dst_start,VertexId_CUDA batch_size,
-        VertexId_CUDA feature_size,bool sync){
-        const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=128;
-	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
-	//printf("call forward shrink\n");
-		processing_scalar_weight_shard_CSC_shrink<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			src, dst, input, output, weight_forward, index_gpu_buffer,vertex_gpu_buffer,
-				src_start, dst_start,actual_dst_start, batch_size, feature_size); 
-	}
+//void Cuda_Stream::Gather_By_Dst_From_Src_shrink(float* input,float* output,float* weight_forward,//data 
+//		VertexId_CUDA* src,VertexId_CUDA *dst,//graph
+//		VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
+//        VertexId_CUDA src_start, VertexId_CUDA src_end,
+//        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//	VertexId_CUDA actual_dst_start,VertexId_CUDA batch_size,
+//        VertexId_CUDA feature_size,bool sync){
+//        const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+//	const int BLOCK_SIZE=128;
+//	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+//	//printf("call forward shrink\n");
+//		processing_scalar_weight_shard_CSC_shrink<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+//			src, dst, input, output, weight_forward, index_gpu_buffer,vertex_gpu_buffer,
+//				src_start, dst_start,actual_dst_start, batch_size, feature_size); 
+//	}
 	
 
 
@@ -236,7 +279,7 @@ void forward_on_GPU(float* input,float* output,float* weight_forward,//data
 				src_start, dst_start, edge_size, feature_size);
 		cudaDeviceSynchronize();
 }
-void forward_on_GPU_CSC(float* input,float* output,float* weight_forward,//data 
+void Gather_By_Dst_From_Src(float* input,float* output,float* weight_forward,//data 
         VertexId_CUDA* src,VertexId_CUDA *dst,//graph
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
