@@ -12,14 +12,15 @@ public:
     //graph
     VertexSubset *active;
     Graph<Empty>* graph;
-    std::vector<CSC_segment_pinned *>csc_segment;
-    std::vector<CSC_segment_pinned *>forward_csc_segment;
+    std::vector<CSC_segment_pinned *>csc_segment;//discard
+    std::vector<CSC_segment_pinned *>subgraphs;
     //NN
     GNNDatum *gnndatum;
-    GnnUnit *Gnn_v1;
-    GnnUnit *Gnn_v2;
+    GnnUnit *W1;
+    GnnUnit *W2;
     torch::Tensor target;
     torch::Tensor target_gpu;
+    std::map<std::string,torch::Tensor>I_data;
     GTensor<ValueType, long, MAX_LAYER> *gt;
     //Tensor
     torch::Tensor new_combine_grad;// = torch::zeros({graph->gnnctx->layer_size[0], graph->gnnctx->layer_size[1]}, torch::kFloat).cuda();
@@ -27,6 +28,7 @@ public:
     torch::Tensor X0_cpu;// = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().dtype(torch::kFloat));
     torch::Tensor X0_gpu;
     torch::Tensor Y0_gpu;
+    torch::Tensor Y01_gpu; 
     torch::Tensor Y1_gpu; 
     torch::Tensor Y1_inv_gpu;
     torch::Tensor Out0_gpu;
@@ -63,6 +65,7 @@ public:
         graph->rtminfo->reduce_comm = graph->config->process_local;
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
+        graph->rtminfo->with_weight=false;
        
         
     } 
@@ -70,8 +73,8 @@ public:
         //std::vector<CSC_segment_pinned *> csc_segment;
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
-        generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-        generate_Forward_Segment_Tensor_pinned(graph, forward_csc_segment, true);
+        //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
+        generate_Forward_Segment_Tensor_pinned(graph, subgraphs, true);
         //if (graph->config->process_local)
         double load_rep_time = 0;
         load_rep_time -= get_time();
@@ -88,17 +91,18 @@ public:
     gnndatum->random_generate();
     gnndatum->registLabel(target);
     target_gpu = target.cuda();
-    Gnn_v1 = new GnnUnit(graph->gnnctx->layer_size[0], graph->gnnctx->layer_size[1]);
-    Gnn_v2 = new GnnUnit(graph->gnnctx->layer_size[1], graph->gnnctx->layer_size[2]);
-    Gnn_v1->init_parameter();
-    Gnn_v2->init_parameter();
+    W1 = new GnnUnit(graph->gnnctx->layer_size[0], graph->gnnctx->layer_size[1]);
+    W2 = new GnnUnit(graph->gnnctx->layer_size[1], graph->gnnctx->layer_size[2]);
+    W1->init_parameter();
+    W2->init_parameter();
     torch::Device GPU(torch::kCUDA, 0);
-    Gnn_v2->to(GPU);
-    Gnn_v1->to(GPU);
+    W2->to(GPU);
+    W1->to(GPU);
     
     X0_cpu = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().dtype(torch::kFloat));
     X0_gpu = X0_cpu.cuda();
     Y0_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().device_index(0).dtype(torch::kFloat));
+    Y01_gpu = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).dtype(torch::kFloat));
     Y1_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     Y1_inv_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     Y0_cpu_buffered = (float *)cudaMallocPinned(((long)graph->vertices) * graph->gnnctx->max_layer * sizeof(float));
@@ -111,11 +115,11 @@ void vertexForward(torch::Tensor &a, torch::Tensor &x, torch::Tensor &y){
     
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
-        y=torch::relu(Gnn_v1->forward(a));
+        y=torch::relu(W1->forward(a));
 
     }
     else if(layer==1){
-        Out1_gpu = Gnn_v2->forward(Y1_gpu);
+        Out1_gpu = W2->forward(Y1_gpu);
         tt = Out1_gpu.log_softmax(1); //CUDA
         y = torch::nll_loss(tt, target_gpu);   
     }
@@ -133,18 +137,77 @@ void vertexBackward(){
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
         Out0_gpu.backward(Y1_inv_gpu); //new
-        Gnn_v1->all_reduce_to_gradient(Gnn_v1->W.cpu());
-        //Gnn_v1->learnC2G(learn_rate);
-        Gnn_v1->learnC2G_with_decay(learn_rate,weight_decay);
-
     }
     else if(layer==1){
         loss.backward();
-        Gnn_v2->all_reduce_to_gradient(Gnn_v2->W.cpu()); //Gnn_v2->W.grad().cpu()
-        //Gnn_v2->learnC2G(learn_rate);
-        Gnn_v2->learnC2G_with_decay(learn_rate,weight_decay);
     }
 }
+
+void Allbackward(){
+    graph->rtminfo->curr_layer = 1;
+    vertexBackward();
+    W2->all_reduce_to_gradient(W2->W.cpu()); //W2->W.grad().cpu()
+    W2->learnC2G_with_decay(learn_rate,weight_decay);
+    
+    torch::Tensor y1grad=Y1_gpu.grad();
+    gt->GraphPropagateBackward(y1grad, Y0_cpu_buffered, Y1_inv_gpu, subgraphs);
+    
+    graph->rtminfo->curr_layer = 0;
+    vertexBackward();
+    W1->all_reduce_to_gradient(W1->W.cpu());
+    W1->learnC2G_with_decay(learn_rate,weight_decay);
+    
+        
+}
+
+
+
+
+/*GPU dist*/ void forward()
+{
+    if (graph->partition_id == 0)
+        printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
+        graph->print_info();
+        
+    exec_time -= get_time();
+    for (int i_i = 0; i_i < iterations; i_i++)
+    {
+        if (i_i != 0)
+        {
+            W1->zero_grad();
+            W2->zero_grad();
+
+
+        }
+        
+        graph->rtminfo->epoch = i_i;
+        
+        graph->rtminfo->forward = true;
+        graph->rtminfo->curr_layer = 0;
+        gt->GraphPropagateForward(X0_gpu, Y0_cpu_buffered, Y0_gpu, subgraphs);
+        vertexForward(Y0_gpu, X0_gpu, Out0_gpu);
+        
+        graph->rtminfo->curr_layer = 1;
+        gt->GraphPropagateForward(Out0_gpu, Y0_cpu_buffered, Y1_gpu, subgraphs);
+        vertexForward(Y1_gpu, Out0_gpu, loss);
+
+        graph->rtminfo->forward = false;
+        Allbackward();
+       
+        if (graph->partition_id == 0)
+            std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;
+        
+        if (i_i == (iterations - 1))
+        { 
+            exec_time += get_time();
+            //DEBUGINFO();
+        }
+         
+    }
+
+    delete active;
+}
+
 
 
 void DEBUGINFO(){
@@ -173,7 +236,7 @@ void DEBUGINFO(){
     }
     //      torch::Tensor tt_cpu=tt.cpu();
     //  if(i_i==(iterations-1)&&graph->partition_id==0){
-    //     inference(tt_cpu,graph, embedding, pytool,Gnn_v1,Gnn_v2);
+    //     inference(tt_cpu,graph, embedding, pytool,W1,W2);
     //  }
     double max_time = 0;
     double mean_time = 0;
@@ -187,62 +250,4 @@ void DEBUGINFO(){
                 another_time, max_time / graph->partitions, mean_time / graph->partitions);
 }
 
-
-
-void Allbackward(){
-    graph->rtminfo->curr_layer = 1;
-    vertexBackward();
-    //gt->Process_GPU_overlap_explict(Y1_gpu.grad(), Y0_cpu_buffered, Y1_inv_gpu, csc_segment);
-    gt->GraphPropagateBackward(Y1_gpu.grad(), Y0_cpu_buffered, Y1_inv_gpu, csc_segment);
-    graph->rtminfo->curr_layer = 0;
-    vertexBackward();
-        
-}
-
-
-
-
-/*GPU dist*/ void forward()
-{
-    if (graph->partition_id == 0)
-        printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
-        graph->print_info();
-
-    exec_time -= get_time();
-    for (int i_i = 0; i_i < iterations; i_i++)
-    {
-        if (i_i != 0)
-        {
-            Gnn_v1->zero_grad();
-            Gnn_v2->zero_grad();
-            //Gnn_v1->W*=(1-weight_decay);
-            //Gnn_v2->W*=(1-weight_decay);
-        }
-        
-        graph->rtminfo->epoch = i_i;
-        
-        graph->rtminfo->curr_layer = 0;
-        gt->GraphPropagateForward(X0_gpu, Y0_cpu_buffered, Y0_gpu, forward_csc_segment);
-
-        vertexForward(Y0_gpu, X0_gpu, Out0_gpu);
-        
-        graph->rtminfo->curr_layer = 1;
-        gt->GraphPropagateForward(Out0_gpu, Y0_cpu_buffered, Y1_gpu, forward_csc_segment);
-        vertexForward(Y1_gpu, Out0_gpu, loss);
-
-        Allbackward();
-       
-        if (graph->partition_id == 0)
-            std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;
-        
-        if (i_i == (iterations - 1))
-        { 
-            exec_time += get_time();
-            //DEBUGINFO();
-        }
-         
-    }
-
-    delete active;
-}
 };
