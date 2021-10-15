@@ -164,6 +164,12 @@ public:
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
 							VertexId_CUDA feature_size, bool sync = true);
+        void Scatter_Grad_Back_To_Weight(float* input,float* output_grad,float* weight_grad,//data 
+                                                        long* src,long *dst,//graph
+                                                        VertexId_CUDA src_start, VertexId_CUDA src_end,
+                                                        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+                                                        VertexId_CUDA edges,VertexId_CUDA batch_size,
+                                                        VertexId_CUDA feature_size,bool sync=true);
 //	void Gather_By_Dst_From_Src_shrink(float *input, float *output, float *weight_forward, //data
 //								   VertexId_CUDA *src, VertexId_CUDA *dst,			   //graph
 //								   VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
