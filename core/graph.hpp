@@ -191,7 +191,9 @@ typedef struct graph_Tensor_Segment_pinned
   VertexId *row_offset;     //VertexNumber
   VertexId *column_indices;  
   long *source;
+  long *source_gpu;
   long *destination;
+  long *destination_gpu;
   float *edge_weight;          //edge_size
   float *edge_weight_backward;
   VertexId *column_offset_gpu; //VertexNumber
@@ -246,11 +248,14 @@ typedef struct InputInfo
   std::string layer_string;
   std::string feature_file;
   std::string edge_file;
+  bool with_cuda;
 } inputinfo;
+
 
 typedef struct runtimeInfo
 {
   bool process_local;
+  bool with_cuda;
   bool process_overlap;
   bool with_weight;
   bool reduce_comm;
@@ -285,25 +290,14 @@ typedef struct BlockInfomation
 
 } BlockInfo;
 
-class EdgeOperation{
+class EdgeNNModule{
 public:
-    EdgeOperation(){
+    EdgeNNModule(){
          ;
     }
-    void InitBlock(long* s, long* d,VertexId E_, VertexId feature_size_, VertexId output_size_, int src_start_, int dst_start_,Cuda_Stream * cuda_stream_){//for DEBUG
-        src=s;
-        dst=d;
-        E=E_;
-        feature_size=feature_size_;
-        output_size=output_size;
-        src_start=src_start_;
-        dst_start=src_start_;
-        srcT=(torch::from_blob(src, {E, 1},torch::kInt64)-(long)src_start).cuda();
-        dstT=(torch::from_blob(dst, {E, 1},torch::kInt64)-(long)dst_start).cuda();
-        cuda_stream=cuda_stream_;
-        
-    }
-    void InitBlock(CSC_segment_pinned* graph_partition, VertexId feature_size_, VertexId output_size_,Cuda_Stream * cuda_stream_){//for DEBUG
+    void InitBlock(CSC_segment_pinned* graph_partition, VertexId feature_size_, 
+                    VertexId output_size_,VertexId current_process_partition_id_,
+                    VertexId current_process_layer_,Cuda_Stream * cuda_stream_){//for DEBUG
         src=graph_partition->source;
         dst=graph_partition->destination;
         E=graph_partition->edge_size;
@@ -314,81 +308,37 @@ public:
         srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start).cuda();
         dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start).cuda();
         cuda_stream=cuda_stream_;
-        subgraph=graph_partition;    
-    }
-    
-    long maxdst(){
-        long maxD=0;
-        for(long i=0;i<E;i++){ 
-           if(dst[i]>=maxD)
-               maxD=dst[i];
-       }
-        return maxD;
-    }
-    long mindst(){
-        long minD=200000000;
-        for(long i=0;i<E;i++){ 
-           if(dst[i]<minD)
-               minD=dst[i];
-       }
-        return minD;   
-    }
-    long maxsrc(){
-        long maxD=0;
-        for(long i=0;i<E;i++){ 
-           if(src[i]>=maxD)
-               maxD=src[i];
-       }
-        return maxD;
-    }
-    long minsrc(){
-        long minD=200000000;
-        for(long i=0;i<E;i++){ 
-           if(src[i]<minD)
-               minD=src[i];
-       }
-        return minD;   
+        subgraph=graph_partition;
+        current_process_layer=current_process_layer_;
+        current_process_partition_id=current_process_partition_id_;
     }
     
     
-    inline torch::Tensor ScatterSrc(torch::Tensor src_input){
+    inline torch::Tensor ScatterSrc(torch::Tensor &src_input){
         //srcT=torch::from_blob(src, {E, 1},torch::kInt64).cuda();
         return src_input.gather(0,(srcT).expand({srcT.size(0),src_input.size(1)}));
     }
-    inline torch::Tensor ScatterDst(torch::Tensor dst_input){
+    inline torch::Tensor ScatterDst(torch::Tensor &dst_input){
         return dst_input.gather(0,(dstT).expand({dstT.size(0),dst_input.size(1)}));
     }
-    inline torch::Tensor PrepareMessage(torch::Tensor message){
+    inline torch::Tensor PrepareMessage(torch::Tensor &message){
         return torch::sparse_coo_tensor(torch::cat({srcT,dstT},1).t(),message,
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
     }
     
-    inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor message,torch::Tensor weight){
-        float *message_buffer=message.packed_accessor<float,2>().data();
-        float *weight_buffer=weight.packed_accessor<float,2>().data();
-        float *output_buffer=output.packed_accessor<float,2>().data();
+    inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor &message,torch::Tensor &weight){
+        float *message_buffer=getWritableBuffer(message);
+        float *weight_buffer=getWritableBuffer(weight);
+        float *output_buffer=getWritableBuffer(output);
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
         
-    VertexId src_start = subgraph->src_range[0];
-    VertexId src_end = subgraph->src_range[1];
-    VertexId dst_start = subgraph->dst_range[0];
-    VertexId dst_end = subgraph->dst_range[1];
-    //kernel GatherByDst;
-    /*
-             * output_gpu
-             * input_gpu
-             * graph_partitions[i]->src
-             * graph_partitions[i]->dst
-             * graph_partitions[i]->weight;
-             * graph_partitions[i]->src_range[0],[1];
-             * graph_partitions[j]->dst_range[0],[1];
-             * graph_partitions[i]->batch_size
-             * graph_partitions[i]->edge_size
-             * graph_partitions[i]->feature_size
-             */
-    // std::cout<<"GatherByDst"<<std::endl;
-    cuda_stream->Gather_By_Dst_From_Message(message_buffer,
+        VertexId src_start = subgraph->src_range[0];
+        VertexId src_end = subgraph->src_range[1];
+        VertexId dst_start = subgraph->dst_range[0];
+        VertexId dst_end = subgraph->dst_range[1];
+
+        cuda_stream->Gather_By_Dst_From_Message(message_buffer,
                                output_buffer,
                                weight_buffer, //data
                                row_indices_from_pinned,
@@ -399,10 +349,11 @@ public:
                                feature_size, false);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
-    inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){
-        float *input_buffer=input_src.packed_accessor<float,2>().data();
-        float *weight_buffer=weight.packed_accessor<float,2>().data();
-        float *output_buffer=output.packed_accessor<float,2>().data();
+    
+    inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
+        float *input_buffer=getWritableBuffer(input_src);
+        float *weight_buffer=getWritableBuffer(weight);
+        float *output_buffer=getWritableBuffer(output);
         VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
         VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
         
@@ -426,10 +377,10 @@ public:
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
-    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){
-        float *input_buffer=input_src.packed_accessor<float,2>().data();
-        float *weight_buffer=weight.packed_accessor<float,2>().data();
-        float *output_buffer=output.packed_accessor<float,2>().data();
+    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
+        float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
+        float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
+        float *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
         
@@ -452,14 +403,113 @@ public:
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
-    inline torch::Tensor DeSerializeTensorToGPU(torch::Tensor var_cpu){
-        torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),at::TensorOptions().device_index(0).requires_grad(true));
-         DeSe_data.set_data(var_cpu.cuda());
-         return DeSe_data;
-        
-        
+    inline void BackwardScatterGradBackToWeight(torch::Tensor &input_src,torch::Tensor &grad_output, torch::Tensor &message_grad){
+        float *input_src_buffer=getWritableBuffer(input_src);
+        float *grad_output_buffer=getWritableBuffer(grad_output);//.packed_accessor<float,2>().data();
+        float *message_grad_buffer=getWritableBuffer(message_grad);//.packed_accessor<float,2>().data();
+        VertexId src_start = subgraph->src_range[0];
+        VertexId src_end = subgraph->src_range[1];
+        VertexId dst_start = subgraph->dst_range[0];
+        VertexId dst_end = subgraph->dst_range[1];
+        cuda_stream->Scatter_Grad_Back_To_Weight(input_src_buffer,
+                               grad_output_buffer,
+                               message_grad_buffer, //data
+                               subgraph->source_gpu,
+                               subgraph->destination_gpu, //graph
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size,
+                               (VertexId)output_size,
+                               false);
+        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();   
     }
-    void MoveResultOut(float* th, torch::Tensor td, bool sync=false){
+    
+    inline torch::Tensor DeSerializeTensorToGPU(torch::Tensor &var_cpu){
+        
+         torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),at::TensorOptions().device_index(0).requires_grad(true));
+         DeSe_data.set_data(var_cpu.cuda());
+         return DeSe_data; 
+    }
+    
+    
+    inline void SerializeToCPU(std::string name,torch::Tensor &var_gpu){
+        //assert(var_cpu.device()==torch::Device::Type::GPU);
+         CacheVar[VarEncode(name)]=var_gpu.cpu();
+         return; 
+    }
+    inline torch::Tensor DeSerializeFromCPU(std::string name,bool to_gpu=true,int device_id=0){
+        torch::Tensor var_cpu=CacheVar[VarEncode(name)];
+        if(to_gpu){
+            //assert(var_cpu.device()==torch::Device::Type::CPU);
+            torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),
+                        at::TensorOptions().device_index(device_id).requires_grad(true));
+            DeSe_data.set_data(var_cpu.cuda());
+            return DeSe_data;
+        }
+        else{
+            torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),
+                        at::TensorOptions().requires_grad(true));
+            DeSe_data.set_data(var_cpu.cuda());
+            return DeSe_data;
+        }
+    }
+    inline torch::Tensor NewKeyTensor(torch::Tensor &mould, bool GPU=true, int device_id=0){
+        
+        if(GPU){
+           return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));  
+        }else{
+           return torch::zeros_like(mould,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));  
+        }
+    }
+     inline torch::Tensor NewKeyTensor(at::IntArrayRef size, bool GPU=true, int device_id=0){
+        if(GPU){
+           return torch::zeros(size,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));
+        }else{
+           return torch::zeros(size,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));
+        }
+    }
+     
+     inline torch::Tensor NewLeafTensor(torch::Tensor &mould, bool GPU=true, int device_id=0){
+        
+        if(GPU){
+             return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));  
+        }else{
+             return torch::zeros_like(mould,at::TensorOptions().dtype(torch::kFloat));  
+        }
+    }
+     inline torch::Tensor NewLeafTensor(at::IntArrayRef size, bool GPU=true, int device_id=0){
+        if(GPU){
+           return torch::zeros(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
+        }else{
+           return torch::zeros(size,at::TensorOptions().dtype(torch::kFloat));
+        }
+    }
+    
+    inline float* getWritableBuffer(torch::Tensor &T_var,bool GPU=true){
+        if(GPU){
+        return T_var.packed_accessor<float,2>().data();
+        }else{
+        return T_var.packed_accessor<float,2>().data();    
+        }
+    }
+    
+   std::string Encode(std::string name, int layer){
+      return name.append("_").append(std::to_string(layer));
+   }
+    
+   std::string VarEncode(std::string name){
+      return name.append("_").append(std::to_string(current_process_layer)).append("_").append(std::to_string(current_process_partition_id));
+   }
+    void MoveResultOut(float* th, torch::Tensor &td, bool sync=false){
+            cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
+                                 td.packed_accessor<float, 2>().data(),
+                                 subgraph->src_range[0],
+                                 subgraph->src_range[1],
+                                 feature_size, sync);
+    }
+    
+    inline void MoveDataInGPU(float* th, torch::Tensor &td, bool sync=false){
             cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
                                  td.packed_accessor<float, 2>().data(),
                                  subgraph->src_range[0],
@@ -473,13 +523,6 @@ public:
     inline int BYDST(){
         return 1;
     }
-    void edgeComputeFunction();
-//   
-//    torch::Tensor message_input;
-//    torch::Tensor message_output;
-//    torch::Tensor src_input;
-//    torch::Tensor dst_output;
-//    
     long* src;
     long* dst;
     VertexId E;
@@ -490,20 +533,15 @@ public:
     int src_start;
     int dst_start;
     bool with_weight;
+    VertexId current_process_partition_id;
+    VertexId current_process_layer;
     Cuda_Stream * cuda_stream;
     CSC_segment_pinned*  subgraph;
-//    inline torch::Tensor get_src(){
-//        return src_input;
-//    }
-//    inline torch::Tensor get_dst(){
-//        return dst_output;
-//    }
-//    inline torch::Tensor get_message_input(){
-//        return message_input;
-//    }
-//    inline torch::Tensor get_message_output(){
-//        return message_output;
-//    }
+    std::map<std::string,torch::Tensor>KeyVar;//key roles in the compute graph
+    std::map<std::string,torch::Tensor>InterVar;//key roles in the compute graph
+    //src_input_trans dst_input_trans, message,
+    std::map<std::string,torch::Tensor>CacheVar;//used for caching data;
+    //src_input.cpu() dst_input.cpu()
 };
 
 
@@ -589,7 +627,7 @@ public:
   MessageBuffer ***recv_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
   
   //Edgefunction
-  EdgeOperation *EdgeOp;
+  EdgeNNModule *EdgeOp;
 
   //replication
   int replication_threshold;
@@ -653,7 +691,7 @@ public:
     replication_threshold = 0;
     init();
     config = new inputinfo;
-    EdgeOp=new EdgeOperation();
+    EdgeOp=new EdgeNNModule();
     encode_partition=-1;
   }
   std::string VarEncode(std::string name){
@@ -696,9 +734,6 @@ public:
       {
         blockinfo[l].max_buffer_size = std::max(blockinfo[l].max_buffer_size, blockinfo[l].block_index[i + 1] - blockinfo[l].block_index[i]);
       }
-      //printf("%d [%d %d %d] [%d %d %d]\n", partition_id,
-      //       blockinfo[l].vertex[blockinfo[l].block_index[0]], blockinfo[l].vertex[blockinfo[l].block_index[1]], blockinfo[l].vertex[blockinfo[l].block_index[2] - 1],
-      //       blockinfo[l].block_index[0], blockinfo[l].block_index[1], blockinfo[l].block_index[2]);
       current_partition = 0;
       for (VertexId i = 0; i < blockinfo[l].global_index.size(); i++)
       {
@@ -768,6 +803,7 @@ public:
     rtminfo->curr_layer = -1;
     rtminfo->embedding_size = -1;
     rtminfo->copy_data = false;
+    rtminfo->with_cuda = false;
   }
   void init_gnnctx(std::string layer_string)
   {
@@ -3457,7 +3493,7 @@ public:
  
   
   template <typename R, typename M>
-  R compute_sync_explict(torch::Tensor input_gpu_or_cpu,
+  R compute_sync_explict(torch::Tensor &input_gpu_or_cpu,
                                                          float *output_cpu,
                                                          std::vector<CSC_segment_pinned *> &graph_partitions,
                                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
@@ -3942,7 +3978,7 @@ public:
   
 
   template <typename R, typename M>
-  R compute_sync_lite(torch::Tensor input_gpu_or_cpu,
+  R compute_sync_lite(torch::Tensor &input_gpu_or_cpu,
                                                       float *output_cpu,
                                                       std::vector<CSC_segment_pinned *> &graph_partitions,
                                                       std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
@@ -4426,7 +4462,7 @@ public:
     
     // process edges
   template <typename R, typename M>
-  R sync_compute(torch::Tensor input_gpu_or_cpu,
+  R sync_compute(torch::Tensor &input_gpu_or_cpu,
                  float *output_cpu,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
@@ -4674,13 +4710,13 @@ public:
   
       // process edges
   template <typename R, typename M>
-  R sync_compute_edge_computation(torch::Tensor input_origin,
+  R sync_compute_edge_computation(torch::Tensor &input_origin,//forward computation
                                   torch::Tensor &input_transferred,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
-                 std::function<torch::Tensor(torch::Tensor)> PreComputation,
-                 std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeComputation,
-                 torch::Tensor output)
+                 std::function<torch::Tensor(torch::Tensor&)> PreComputation,
+                 std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeComputation,
+                 torch::Tensor &output)
   {
     
       
@@ -4726,36 +4762,9 @@ public:
     //  printf("initialize send buffer finished %d\n", partition_id);
     float *gpu_memory_buffer = NULL;
     float *gpu_input_buffer = NULL;
-    VertexId *index_gpu_input = NULL;
-    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    VertexId *index_gpu_output = NULL;
-    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
     Cuda_Stream *cuda_stream = new Cuda_Stream();
     allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
     allocate_gpu_buffer(&gpu_input_buffer, max_partition_size * (feature_size+1));
-    // if (gpu_memory_buffer == NULL)
-    // {
-    //   printf("something wrong\n");
-    // }
-    
-    
-    //output.zero_();
-    //zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
-
-    size_t max_dstrange = 0, max_edge_size = 0;
-    for (int i = 0; i < graph_partitions.size(); i++)
-    {
-      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
-    };
-
-    weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
-    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
-    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
-
-    VertexId *src;
-    VertexId *dst;
-    float *weight;
     input_transferred=PreComputation(input_origin);
     
     {  
@@ -4854,16 +4863,17 @@ public:
             // torch::from_blob(graph->in_degree + graph->partition_offset[graph->partition_id], {embedding->rownum, 1});
             torch::Tensor mirror_inputs=torch::from_blob(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size},at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
             
-            torch::Tensor master_outputs;
-                 
             EdgeOp->InitBlock(graph_partitions[i],
                               gnnctx->layer_size[rtminfo->curr_layer],
                               gnnctx->layer_size[rtminfo->curr_layer+1],
+                              current_recv_part_id,
+                              layer_,
                               cuda_stream
                              );
             encode_partition=i;// must specify the encode_partition, or the message will be flushed even though call encode function.
-            torch::Tensor message=  EdgeComputation(mirror_inputs,input_transferred,EdgeOp);
-            EdgeOp->GatherByDstFromSrc(output, mirror_inputs, message);
+            torch::Tensor mirror_inputs_transferred;
+            torch::Tensor message=  EdgeComputation(mirror_inputs,mirror_inputs_transferred,input_origin,input_transferred,EdgeOp);
+            EdgeOp->GatherByDstFromSrc(output, mirror_inputs_transferred, message);
             
         }
       }
@@ -4879,22 +4889,10 @@ public:
       delete[] recv_queue;
       delete[] send_queue;
    
-      if (process_local)
-      {
-        FreeEdge(src);
-        FreeEdge(dst);
-        FreeBuffer(weight);
-        FreeEdge(index_gpu_input);
-        FreeEdge(index_gpu_output);
-        FreeBuffer(graph_rep[layer_].rep_feature_gpu_buffer);
-      }
       free_all_tmp();
-      //      printf("con%d_%d\n",con,partition_offset[1]);
     }
 
     R global_reducer;
-    //MPI_Datatype dt = get_mpi_data_type<R>();
-    //MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
     stream_time += MPI_Wtime();
 #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id == 0)
@@ -4912,9 +4910,9 @@ public:
                                           float *output_cpu,
                                           std::vector<CSC_segment_pinned *> &graph_partitions,
                                           std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                          std::function<torch::Tensor(torch::Tensor)> PreComputation,
-                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeForward,
-                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeBackward,
+                                          std::function<torch::Tensor(torch::Tensor&)> PreComputation,
+                                          std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeForward,
+                                          std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeBackward,
                                           torch::Tensor &output_grad)//backward
   {
 
@@ -4931,7 +4929,6 @@ public:
     }
     double stream_time = 0;
     stream_time -= MPI_Wtime();
-    //    printf("initialize not been finished %d\n", partition_id);
     double compute_time = 0;
     compute_time -= MPI_Wtime();
     for (int t_i = 0; t_i < threads; t_i++)
@@ -4948,46 +4945,20 @@ public:
         send_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
         send_buffer[i][s_i]->count = 0;
         recv_buffer[i][s_i]->count = 0;
-        //max_recv_buffer_size = std::max(max_recv_buffer_size, (int)(partition_offset[i + 1] - partition_offset[i]));
       }
-    } //init the send and receive buffer
-    //  printf("initialize send buffer finished %d\n", partition_id);
+    }
     
     
     
     float *local_data_buffer=output_grad.packed_accessor<float,2>().data();
             
     float *gpu_memory_buffer = NULL;
-    VertexId *index_gpu_input = NULL;
-    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    VertexId *index_gpu_output = NULL;
-    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
     Cuda_Stream *cuda_stream = new Cuda_Stream();
     allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
 
     
     zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
-    //output_grad.zero_();
-
-    size_t max_dstrange = 0, max_edge_size = 0;
-    for (int i = 0; i < graph_partitions.size(); i++)
-    {
-      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      if (rtminfo->forward)
-        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
-      else
-        max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0]));
-    };
-
-    weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
-    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
-    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
-
-    VertexId *src;
-    VertexId *dst;
-    float *weight;
-    
-    
+        
     torch::Tensor dst_input_transferred =PreComputation(dst_input);
     
     
@@ -5063,20 +5034,10 @@ public:
         recv_queue_mutex.unlock();
       });
 
-      if (process_overlap)
+      if (process_overlap)//pipeline
       {
-
-        //pipeline
         current_send_part_id = partition_id;
-        
-//                    backward_gpu_CSR_partition(
-//                input_grad,
-//                output_cpu,
-//                graph_partitions,
-//                feature_size,
-//                (current_send_part_id + 1) % partitions,
-//                cuda_stream);
-        
+        //COMPUTE CODE
    
       }
       else
@@ -5085,32 +5046,26 @@ public:
         for (int step = 0; step < partitions; step++)
         {
             current_send_part_id = (current_send_part_id + 1) % partitions;
-            
-            
-//            backward_gpu_CSR_partition(
-//                input_grad,
-//                output_cpu,
-//                graph_partitions,
-//                feature_size,
-//                (current_send_part_id + 1) % partitions,
-//                cuda_stream);
-            
+            encode_partition=current_send_part_id;
             EdgeOp->InitBlock(graph_partitions[current_send_part_id],
                             gnnctx->layer_size[rtminfo->curr_layer],
                               gnnctx->layer_size[rtminfo->curr_layer+1],
-                                cuda_stream); 
-            encode_partition=current_send_part_id;
-        torch::Tensor src_input_tensor;
-        torch::Tensor message=EdgeForward(src_input_tensor,dst_input_transferred,EdgeOp);
-        torch::Tensor src_inter_grad=torch::zeros({graph_partitions[current_send_part_id]->batch_size_backward,
-                                                        EdgeOp->output_size},
-                                                       at::TensorOptions().device_index(0).dtype(torch::kFloat));                                           
-        EdgeOp->GatherBySrcFromDst(src_inter_grad,input_grad,message);
-        torch::Tensor src_grad=EdgeBackward(torch::ones_like(message),src_inter_grad,EdgeOp);
-        //std::cout<<src_grad.size(0)<<" "<<src_grad.size(1)<<std::endl;
-        EdgeOp->MoveResultOut(output_cpu,src_grad);
-        
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+                                current_send_part_id,
+                                 layer_,
+                                  cuda_stream); 
+            torch::Tensor src_input_transferred;//mark
+            torch::Tensor src_input;
+            torch::Tensor message=EdgeForward(src_input,src_input_transferred,dst_input,dst_input_transferred,EdgeOp);
+            
+            torch::Tensor src_inter_grad=EdgeOp->NewLeafTensor(src_input_transferred);
+            torch::Tensor message_grad=EdgeOp->NewLeafTensor(message);
+            
+            EdgeOp->GatherBySrcFromDst(src_inter_grad,input_grad,message);//4->3
+            EdgeOp->BackwardScatterGradBackToWeight(src_input_transferred, input_grad, message_grad);//4-2
+            torch::Tensor src_grad=EdgeBackward(message_grad,src_inter_grad,EdgeOp); //(2,3)->1
+            EdgeOp->MoveResultOut(output_cpu,src_grad);
+            
+            cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
             
         }
       }
@@ -5125,18 +5080,11 @@ public:
         }
 
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        //free_all_tmp();
         if (current_send_part_id != partition_id)
         {
           if (process_overlap)
           {
-//                backward_gpu_CSR_partition(
-//                    input_grad,
-//                    output_cpu,
-//                    graph_partitions,
-//                    feature_size,
-//                    (current_send_part_id + 1) % partitions,
-//                    cuda_stream);
+            //COMPUTE CODE
         
           }
           //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
@@ -5243,47 +5191,31 @@ public:
           cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
           if (used_buffer[s_i]->count > 0)
           {
-            int recv_copy = 0;
-            recv_copy -= MPI_Wtime();
+   
             cuda_stream->move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1), false);
-
-            recv_copy += MPI_Wtime();
-            all_recv_copy_time += recv_copy;
-            int recv_kernel = 0;
-            recv_kernel -= MPI_Wtime();
             cuda_stream->aggregate_comm_result_debug(local_data_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[partition_id], partition_offset[partition_id + 1], false);
-            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            recv_kernel += MPI_Wtime();
-            all_recv_kernel_time += recv_kernel;
+            
           }
         }
-        //aggregate
 
-        //sync
       }
       
-      
+      //COMBINE GRAD
       output_grad=output_grad+dst_input.grad();
-      
       
       overlap_time += MPI_Wtime();
       all_overlap_time += overlap_time;
 
-      // send_thread.join();
-      // recv_thread.join();
       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
 
       FreeBuffer(gpu_memory_buffer);
       cuda_stream->destory_Stream();
-      // wait_time+=MPI_Wtime();
-      // all_wait_time+=wait_time;
       send_thread.join();
       recv_thread.join();
 
       delete[] send_queue;
       delete[] recv_queue;
       free_all_tmp();
-      //      printf("con%d_%d\n",con,partition_offset[1]);
     }
 
     R global_reducer;
@@ -5303,7 +5235,7 @@ public:
   
  
   template <typename R, typename M>
-  R compute_and_sync_with_GPU_aggregator_overlap(torch::Tensor input_gpu_or_cpu,
+  R compute_and_sync_with_GPU_aggregator_overlap(torch::Tensor &input_gpu_or_cpu,
                                                  float *output_cpu,
                                                  std::vector<CSC_segment_pinned *> &graph_partitions,
                                                  std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
@@ -5870,8 +5802,6 @@ public:
     all_moveout_time += moveout_time;
   }
   
-  
-  
     void forward_gpu_CSC_partition(
       torch::Tensor input_gpu_or_cpu,
       float *output_cpu,
@@ -6410,13 +6340,13 @@ public:
 
         for (int s_i = 0; s_i < sockets; s_i++)
         {
-          if (!incoming_adj_bitmap_backward[s_i]->get_bit(src))
-          {
-            incoming_adj_bitmap_backward[s_i]->set_bit(src);
-            // incoming_adj_index_backward[s_i][dst] = 0;
-          }
           if (local_partition_offset[s_i] <= dst && dst < local_partition_offset[s_i + 1])
           {
+          if (!incoming_adj_bitmap_backward[s_i]->get_bit(src))
+            {
+                incoming_adj_bitmap_backward[s_i]->set_bit(src);
+                // incoming_adj_index_backward[s_i][dst] = 0;
+            }
             incoming_adj_index_backward[s_i][src] += 1;
             incoming_edges_backward[s_i]++;
           }

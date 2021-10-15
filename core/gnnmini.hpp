@@ -1196,8 +1196,8 @@ public:
                                                torch::Tensor &src_input_transferred,
                                                torch::Tensor &dst_output,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
-                                               std::function<torch::Tensor(torch::Tensor)> PreComputation,
-                                               std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeComputation)
+                                               std::function<torch::Tensor(torch::Tensor&)> PreComputation,
+                                               std::function<torch::Tensor(torch::Tensor&, torch::Tensor&, torch::Tensor&, torch::Tensor&, EdgeNNModule* edgeop)> EdgeComputation)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1212,11 +1212,11 @@ public:
                 [&](VertexId src) {
                     graph_->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
                 },
-                [&](torch::Tensor d_i){
+                [&](torch::Tensor &d_i){
                     return PreComputation(d_i);
                 },
-                [&](torch::Tensor s_i, torch::Tensor d_i,EdgeOperation* edgeop){
-                    return EdgeComputation(s_i, d_i, edgeop);
+                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,EdgeNNModule* edgeop){
+                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,edgeop);
                 },
                 dst_output);
             //printf("done!\n");
@@ -1229,22 +1229,10 @@ public:
                                                torch::Tensor &dst_grad_output,
                                                float* Y_buffered,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
-                                               std::function<torch::Tensor(torch::Tensor)> PreComputation,
-                                               std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeComputation,
-                                               std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeBackward)
+                                               std::function<torch::Tensor(torch::Tensor&)> PreComputation,
+                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeComputation,
+                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeBackward)
     {
-        
-//        R compute_sync_edge_computation(torch::Tensor &input_grad,
-//                                          torch::Tensor &dst_input,
-//                                          float *output_cpu,
-//                                          std::vector<CSC_segment_pinned *> &graph_partitions,
-//                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-//                                          std::function<torch::Tensor(torch::Tensor)> PreComputation,
-//                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeForward,
-//                                          std::function<torch::Tensor(torch::Tensor,torch::Tensor,torch::Tensor,EdgeOperation* edgeop)> EdgeBackward,
-//                                          torch::Tensor &output_grad)//backward
-        
-
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
         int layer = graph_->rtminfo->curr_layer;
@@ -1257,13 +1245,13 @@ public:
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {
                     graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
                 },
-                [&](torch::Tensor d_i){
+                [&](torch::Tensor &d_i){
                     return PreComputation(d_i);
                 },
-                [&](torch::Tensor s_i, torch::Tensor d_i,EdgeOperation* edgeop){
-                    return EdgeComputation(s_i, d_i, edgeop);
+                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,EdgeNNModule* edgeop){
+                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,edgeop);
                 },
-                [&](torch::Tensor b_i, torch::Tensor c_i,EdgeOperation* edgeop){
+                [&](torch::Tensor &b_i, torch::Tensor &c_i,EdgeNNModule* edgeop){
                     return EdgeBackward(b_i, c_i, edgeop);
                 },
                 dst_grad_output);
@@ -1624,7 +1612,11 @@ void generate_Forward_Segment_Tensor_pinned(Graph<Empty> *graph, std::vector<CSC
         
         graph_partitions[i]->row_offset_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->row_offset);///
         graph_partitions[i]->column_indices_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->column_indices);///
-        graph_partitions[i]->edge_weight_backward_gpu = (float *)getDevicePointer(graph_partitions[i]->edge_weight_backward);///
+        graph_partitions[i]->edge_weight_backward_gpu = (float *)getDevicePointer(graph_partitions[i]->edge_weight_backward);/// 
+        
+        
+        graph_partitions[i]->source_gpu = (long *)getDevicePointer(graph_partitions[i]->source);///
+        graph_partitions[i]->destination_gpu = (long *)getDevicePointer(graph_partitions[i]->destination);///
 
         //   std::cout<<"generate_edge_list"<<column_offset_size<<" "<<std::endl;
         for (int j = 0; j < graph_partitions[i]->edge_size; j++)
