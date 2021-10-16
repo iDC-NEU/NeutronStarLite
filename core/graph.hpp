@@ -4706,7 +4706,6 @@ public:
       // process edges
   template <typename R, typename M>
   R sync_compute_edge_computation(torch::Tensor &input_origin,//forward computation
-                                  torch::Tensor &input_transferred,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
                  std::function<torch::Tensor(torch::Tensor&)> PreComputation,
@@ -4760,7 +4759,7 @@ public:
     Cuda_Stream *cuda_stream = new Cuda_Stream();
     allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
     allocate_gpu_buffer(&gpu_input_buffer, max_partition_size * (feature_size+1));
-    input_transferred=PreComputation(input_origin);
+    torch::Tensor input_transferred=PreComputation(input_origin);
     
     {  
       int *send_queue = new int[partitions];

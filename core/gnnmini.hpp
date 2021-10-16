@@ -1229,7 +1229,6 @@ public:
     }
     
      void GraphPropagateForwardEdgeComputation(torch::Tensor &src_input_origin,
-                                               torch::Tensor &src_input_transferred,
                                                torch::Tensor &dst_output,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
                                                std::function<torch::Tensor(torch::Tensor&)> PreComputation,
@@ -1243,7 +1242,6 @@ public:
             //printf("done?\n");
             graph_->sync_compute_edge_computation<int, float>(
                 src_input_origin,
-                src_input_transferred,
                 graph_partitions,
                 [&](VertexId src) {
                     graph_->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);

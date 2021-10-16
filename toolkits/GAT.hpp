@@ -110,18 +110,15 @@ public:
     a2->to(GPU);
     a1->to(GPU);
     
-    //X0_cpu = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().dtype(torch::kFloat));
     X0_cpu=graph->EdgeOp->NewLeafTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
-    //X0_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     X0_gpu=graph->EdgeOp->NewKeyTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CUDA);
+    
     //X1_gpu.set_requires_grad(true);
     Y0_gpu = graph->EdgeOp->NewKeyTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]},torch::DeviceType::CUDA);
     Y1_gpu = graph->EdgeOp->NewKeyTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[2]},torch::DeviceType::CUDA);
     X1_gpu_grad = graph->EdgeOp->NewKeyTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]},torch::DeviceType::CUDA);
     X0_gpu_grad = graph->EdgeOp->NewKeyTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CUDA);
-//    Y0_cpu_buffered = (float *)cudaMallocPinned(((long)graph->vertices) * graph->gnnctx->max_layer * sizeof(float));
-//    if (Y0_cpu_buffered == NULL)
-//        printf("allocate fail\n");
+    
     }
 
     
@@ -283,6 +280,7 @@ void Allbackward(){
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++)
     {
+        graph->rtminfo->epoch = i_i;
         if (i_i != 0)
         {
             W1->zero_grad();
@@ -290,12 +288,10 @@ void Allbackward(){
             a1->zero_grad();
             a2->zero_grad();
         }
-        
-        graph->rtminfo->epoch = i_i;
-        graph->rtminfo->curr_layer = 0;
         graph->rtminfo->forward = true;
-        torch::Tensor X0_gpu_trans;
-        gt->GraphPropagateForwardEdgeComputation(X0_gpu,X0_gpu_trans,Y0_gpu,subgraphs,
+        
+        graph->rtminfo->curr_layer = 0;
+        gt->GraphPropagateForwardEdgeComputation(X0_gpu,Y0_gpu,subgraphs,
                 [&](torch::Tensor &master_input){//pre computation
                    return preComputation(master_input);
                 },
@@ -303,12 +299,11 @@ void Allbackward(){
                            torch::Tensor &X, torch::Tensor &X_trans, EdgeNNModule* edgeop){//edge computation
                                return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, edgeop);
                  });
-        X1_gpu=vertexForward(Y0_gpu, X0_gpu_trans);
+        X1_gpu=vertexForward(Y0_gpu, X0_gpu);
        
         
         graph->rtminfo->curr_layer = 1;
-        torch::Tensor X1_gpu_trans;
-        gt->GraphPropagateForwardEdgeComputation(X1_gpu,X1_gpu_trans,Y1_gpu,subgraphs,
+        gt->GraphPropagateForwardEdgeComputation(X1_gpu,Y1_gpu,subgraphs,
                 [&](torch::Tensor &master_input){//pre computation
                    return preComputation(master_input);
                 },
@@ -316,7 +311,7 @@ void Allbackward(){
                            torch::Tensor &X, torch::Tensor &X_trans, EdgeNNModule* edgeop){//edge computation
                                return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, edgeop);
                  });
-        loss=vertexForward(Y1_gpu, X1_gpu_trans);
+        loss=vertexForward(Y1_gpu, X0_gpu);
         
         Allbackward();
         
