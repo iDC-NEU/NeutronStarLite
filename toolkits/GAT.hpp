@@ -261,16 +261,16 @@ void Allbackward(){
                                               }); 
 
    
-    W2->all_reduce_to_gradient(W2->W.cpu()); //W2->W.grad().cpu()
+    W2->all_reduce_to_gradient(W2->W.grad().cpu()); //W2->W.grad().cpu()
     W2->learnC2G_with_decay(learn_rate,weight_decay);
     
-    a2->all_reduce_to_gradient(a2->W.cpu()); //W2->W.grad().cpu()
+    a2->all_reduce_to_gradient(a2->W.grad().cpu()); //W2->W.grad().cpu()
     a2->learnC2G_with_decay(learn_rate,weight_decay);  
     
-    W1->all_reduce_to_gradient(W1->W.cpu());
+    W1->all_reduce_to_gradient(W1->W.grad().cpu());
     W1->learnC2G_with_decay(learn_rate,weight_decay);
     
-    a1->all_reduce_to_gradient(a1->W.cpu());
+    a1->all_reduce_to_gradient(a1->W.grad().cpu());
     a1->learnC2G_with_decay(learn_rate,weight_decay); 
 }
 
