@@ -297,7 +297,7 @@ public:
     EdgeNNModule(){
          ;
     }
-    void InitBlock(CSC_segment_pinned* graph_partition, VertexId feature_size_, 
+    void InitBlock(CSC_segment_pinned* graph_partition,runtimeinfo *rtminfo_, VertexId feature_size_, 
                     VertexId output_size_,VertexId current_process_partition_id_,
                     VertexId current_process_layer_,Cuda_Stream * cuda_stream_){//for DEBUG
         src=graph_partition->source;
@@ -313,6 +313,7 @@ public:
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
+        rtminfo=rtminfo_;
     }
     
     
@@ -543,6 +544,7 @@ public:
     std::map<std::string,torch::Tensor>InterVar;//key roles in the compute graph
     //src_input_trans dst_input_trans, message,
     std::map<std::string,torch::Tensor>CacheVar;//used for caching data;
+    runtimeinfo *rtminfo;
     //src_input.cpu() dst_input.cpu()
 };
 
@@ -4857,6 +4859,7 @@ public:
             torch::Tensor mirror_inputs=torch::from_blob(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size},at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
             
             EdgeOp->InitBlock(graph_partitions[i],
+                              rtminfo,
                               gnnctx->layer_size[rtminfo->curr_layer],
                               gnnctx->layer_size[rtminfo->curr_layer+1],
                               current_recv_part_id,
@@ -5040,6 +5043,7 @@ public:
             current_send_part_id = (current_send_part_id + 1) % partitions;
             encode_partition=current_send_part_id;
             EdgeOp->InitBlock(graph_partitions[current_send_part_id],
+                            rtminfo,
                             gnnctx->layer_size[rtminfo->curr_layer],
                               gnnctx->layer_size[rtminfo->curr_layer+1],
                                 current_send_part_id,

@@ -312,6 +312,46 @@ public:
             local_label[i] = rand() % gnnctx->label_num;
         }
     }
+     void readCORA(Graph<Empty> *graph)
+    {
+       
+        std::string str;
+        std::ifstream input("cora.content", std::ios::in);
+        //std::ofstream outputl("cora.labeltable",std::ios::out);
+       // ID    F   F   F   F   F   F   F   
+        if (!input.is_open())
+        {
+            //cout<<"open file fail!"<<endl;
+            return;
+        }
+        float *con_tmp = new float[gnnctx->layer_size[0]];
+        int numOfData = 0;
+        std::string la;
+        //std::cout<<"finish1"<<std::endl;
+        VertexId id=0;
+        while (input >> id)
+        {
+            VertexId size_0=gnnctx->layer_size[0];
+            VertexId id_trans=id-gnnctx->p_v_s;
+            if((gnnctx->p_v_s<=id)&&(gnnctx->p_v_e>id)){
+                for (int i = 0; i < size_0; i++){
+                    input >> local_feature[size_0*id_trans+i];
+                    
+                }
+                input >> la;
+                local_label[id_trans]= changelable(la);
+            }else{
+                for (int i = 0; i < size_0; i++){
+                    input >> con_tmp[i];   
+                }
+                input >> la;
+            }
+        }
+        free(con_tmp);
+        input.close();
+        // std::cout<<"finish??"<<std::endl;
+    }
+    
     void registLabel(torch::Tensor &target)
     {
         target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
@@ -1539,7 +1579,7 @@ void generate_CSC_Segment_Tensor_pinned(Graph<Empty> *graph, std::vector<CSC_seg
             graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src;
             graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)v_src;
             graph_partitions[i]->destination[tmp_column_offset[v_dst]] = (long)(v_dst+ graph_partitions[i]->dst_range[0]);
-            graph_partitions[i]->edge_weight[tmp_column_offset[v_dst]++] = 1; // (ValueType)std::sqrt(graph->out_degree_for_backward[v_src]) * (ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
+            graph_partitions[i]->edge_weight[tmp_column_offset[v_dst]++] = 1/(ValueType)std::sqrt(graph->out_degree_for_backward[v_src]) * (ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
         }
     }
     if (overlap)
@@ -1651,10 +1691,14 @@ void generate_Forward_Segment_Tensor_pinned(Graph<Empty> *graph, std::vector<CSC
             graph_partitions[i]->destination[tmp_column_offset[v_dst]] = (long)(v_dst_m);
             
             graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
-            graph_partitions[i]->edge_weight[tmp_column_offset[v_dst]++] = 1;
+            graph_partitions[i]->edge_weight[tmp_column_offset[v_dst]++] = 
+                    1/(ValueType)std::sqrt(graph->out_degree_for_backward[v_src]) 
+                        * (ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);;
             
             graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m;///
-           graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = 1; ///
+           graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = 
+                   1/(ValueType)std::sqrt(graph->out_degree_for_backward[v_src]) 
+                        * (ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);; 
 
         
         }

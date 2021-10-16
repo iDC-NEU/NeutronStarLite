@@ -276,7 +276,7 @@ __global__ void processing_scalar_weight_shard_CSC(const T_l *src,const  T_l *ds
 		for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
 			int local_src=src[i_i]-src_s_;
 			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
-			 	old_feature[feature_size_*local_src+rank]/weight[i_i]);
+			 	old_feature[feature_size_*local_src+rank]*weight[i_i]);
 	 	}
 		
 	}
@@ -685,7 +685,7 @@ __global__ void processing_scalar_weight_shard(const T_l *src,const  T_l *dst,
 		T_l rank=i%feature_size_;
 		T_l local_src=src[i/feature_size_]-src_s_;
 		atomicAdd(&new_feature[feature_size_*local_dst+rank],
-			old_feature[feature_size_*local_src+rank]/weight[i/feature_size_]);
+			old_feature[feature_size_*local_src+rank]*weight[i/feature_size_]);
 		
 	}
 	//printf("finish one batch in GPU\n");
