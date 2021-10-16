@@ -1112,7 +1112,7 @@ public:
 
 
     
-    void Process_GPU_overlap_explict(torch::Tensor &X, float *Y_buffered, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+    void Process_GPU_overlap_explict(torch::Tensor &X, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1123,12 +1123,11 @@ public:
             //printf("done?\n");
             graph_->compute_sync_explict<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     //nodeVector<CURRENT_LAYER_SIZE> sum;
-                    //memcpy(sum.data, Y_buffered + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-                    graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
+                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                 },
                 Y.packed_accessor<float, 2>().data());
             //printf("done!\n");
@@ -1137,22 +1136,21 @@ public:
         { //selective comunication
             graph_->compute_sync_explict<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     if (!graph_->RepVtx[layer]->get_bit(src))
                     {
                         // nodeVector<CURRENT_LAYER_SIZE> sum;
-                        // memcpy(sum.data, Y_buffered + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
                         // graph_->emit(src, sum);
-                        graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
+                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                     }
                 },
                 Y.packed_accessor<float, 2>().data());
         }
     }
     
-    void Process_GPU_overlap_sync_compute_explict(torch::Tensor &X, float *Y_buffered, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+    void Process_GPU_overlap_sync_compute_explict(torch::Tensor &X, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1165,7 +1163,6 @@ public:
             //printf("done?\n");
             graph_->sync_compute<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src) { //push
 //                    if(src==400000){
@@ -1180,7 +1177,6 @@ public:
         { //selective comunication
             graph_->sync_compute<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src) { //pull
                     if (!graph_->RepVtx[layer]->get_bit(src))
@@ -1227,7 +1223,6 @@ public:
     void GraphPropagateBackwardEdgeComputation(torch::Tensor &src_input_origin,
                                                torch::Tensor &dst_grad_input,
                                                torch::Tensor &dst_grad_output,
-                                               float* Y_buffered,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
                                                std::function<torch::Tensor(torch::Tensor&)> PreComputation,
                                                std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeComputation,
@@ -1240,10 +1235,9 @@ public:
             graph_->compute_sync_edge_computation<int, float>(
                 dst_grad_input,
                 src_input_origin,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {
-                    graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
+                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                 },
                 [&](torch::Tensor &d_i){
                     return PreComputation(d_i);
@@ -1260,7 +1254,7 @@ public:
     }
     
     
-     void Process_GPU_overlap_lite(torch::Tensor &X, float *Y_buffered, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+     void Process_GPU_overlap_lite(torch::Tensor &X, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1271,12 +1265,11 @@ public:
             //printf("done?\n");
             graph_->compute_sync_lite<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     //nodeVector<CURRENT_LAYER_SIZE> sum;
-                    //memcpy(sum.data, Y_buffered + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-                    graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
+                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                 },
                 Y.packed_accessor<float, 2>().data());
             //printf("done!\n");
@@ -1285,30 +1278,29 @@ public:
         { //selective comunication
             graph_->compute_sync_lite<int, float>(
                 X,
-                Y_buffered,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     if (!graph_->RepVtx[layer]->get_bit(src))
                     {
                         // nodeVector<CURRENT_LAYER_SIZE> sum;
-                        // memcpy(sum.data, Y_buffered + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
                         // graph_->emit(src, sum);
-                        graph_->emit_buffer(src, Y_buffered + (src)*current_layer_size, current_layer_size);
+                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                     }
                 },
                 Y.packed_accessor<float, 2>().data());
         }
     }
     
-   inline void GraphPropagateForward(torch::Tensor &X, float *Y_buffered, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+   inline void GraphPropagateForward(torch::Tensor &X, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-       Process_GPU_overlap_sync_compute_explict(X,Y_buffered,Y,graph_partitions);
+       Process_GPU_overlap_sync_compute_explict(X,Y,graph_partitions);
     }
 
-   inline void GraphPropagateBackward(torch::Tensor &X, float *Y_buffered, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+   inline void GraphPropagateBackward(torch::Tensor &X, torch::Tensor &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-       Process_GPU_overlap_lite(X,Y_buffered,Y,graph_partitions);
-       //Process_GPU_overlap_sync_compute_explict(X,Y_buffered,Y,graph_partitions);
+       Process_GPU_overlap_lite(X,Y,graph_partitions);
+       //Process_GPU_overlap_sync_compute_explict(X,Y,graph_partitions);
        
     }
 

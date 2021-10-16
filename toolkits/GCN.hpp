@@ -35,7 +35,6 @@ public:
     torch::Tensor Out1_gpu;
     torch::Tensor loss;
     torch::Tensor tt;
-    float *Y0_cpu_buffered;
     
     double exec_time = 0;
     double all_sync_time = 0;
@@ -66,8 +65,8 @@ public:
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
         graph->rtminfo->with_weight=false;
+        graph->rtminfo->with_cuda=true;
        
-        
     } 
     void init_graph(){
         //std::vector<CSC_segment_pinned *> csc_segment;
@@ -84,6 +83,7 @@ public:
         printf("#load_rep_time=%lf(s)\n", load_rep_time);
         graph->init_blockinfo();
         graph->init_message_map_amount();
+        graph->init_message_buffer();
         gt = new GTensor<ValueType, long, MAX_LAYER>(graph, active);
     }
     void init_nn(){
@@ -105,9 +105,6 @@ public:
     Y01_gpu = torch::ones({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).dtype(torch::kFloat));
     Y1_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
     Y1_inv_gpu = torch::zeros({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[1]}, at::TensorOptions().device_index(0).requires_grad(true).dtype(torch::kFloat));
-    Y0_cpu_buffered = (float *)cudaMallocPinned(((long)graph->vertices) * graph->gnnctx->max_layer * sizeof(float));
-    if (Y0_cpu_buffered == NULL)
-        printf("allocate fail\n");
     
     }
 
@@ -150,7 +147,7 @@ void Allbackward(){
     W2->learnC2G_with_decay(learn_rate,weight_decay);
     
     torch::Tensor y1grad=Y1_gpu.grad();
-    gt->GraphPropagateBackward(y1grad, Y0_cpu_buffered, Y1_inv_gpu, subgraphs);
+    gt->GraphPropagateBackward(y1grad, Y1_inv_gpu, subgraphs);
     
     graph->rtminfo->curr_layer = 0;
     vertexBackward();
@@ -184,11 +181,11 @@ void Allbackward(){
         
         graph->rtminfo->forward = true;
         graph->rtminfo->curr_layer = 0;
-        gt->GraphPropagateForward(X0_gpu, Y0_cpu_buffered, Y0_gpu, subgraphs);
+        gt->GraphPropagateForward(X0_gpu, Y0_gpu, subgraphs);
         vertexForward(Y0_gpu, X0_gpu, Out0_gpu);
         
         graph->rtminfo->curr_layer = 1;
-        gt->GraphPropagateForward(Out0_gpu, Y0_cpu_buffered, Y1_gpu, subgraphs);
+        gt->GraphPropagateForward(Out0_gpu, Y1_gpu, subgraphs);
         vertexForward(Y1_gpu, Out0_gpu, loss);
 
         graph->rtminfo->forward = false;

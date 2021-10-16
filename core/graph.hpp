@@ -52,6 +52,8 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #define CHUNK_LENGTH 32768 //32768
 #define REPLICATE_THRESHOLD 40
 
+
+
 typedef struct dataaa
 {
   VertexId data[REPLICATE_THRESHOLD];
@@ -438,9 +440,9 @@ public:
          CacheVar[VarEncode(name)]=var_gpu.cpu();
          return; 
     }
-    inline torch::Tensor DeSerializeFromCPU(std::string name,bool to_gpu=true,int device_id=0){
+    inline torch::Tensor DeSerializeFromCPU(std::string name,torch::DeviceType location=torch::DeviceType::CUDA,int device_id=0){
         torch::Tensor var_cpu=CacheVar[VarEncode(name)];
-        if(to_gpu){
+        if(torch::DeviceType::CUDA==location){
             //assert(var_cpu.device()==torch::Device::Type::CPU);
             torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),
                         at::TensorOptions().device_index(device_id).requires_grad(true));
@@ -454,40 +456,40 @@ public:
             return DeSe_data;
         }
     }
-    inline torch::Tensor NewKeyTensor(torch::Tensor &mould, bool GPU=true, int device_id=0){
+    inline torch::Tensor NewKeyTensor(torch::Tensor &mould,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
         
-        if(GPU){
+        if(torch::DeviceType::CUDA==location){
            return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));  
         }else{
            return torch::zeros_like(mould,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));  
         }
     }
-     inline torch::Tensor NewKeyTensor(at::IntArrayRef size, bool GPU=true, int device_id=0){
-        if(GPU){
+     inline torch::Tensor NewKeyTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+        if(torch::DeviceType::CUDA==location){
            return torch::zeros(size,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));
         }else{
            return torch::zeros(size,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));
         }
     }
      
-     inline torch::Tensor NewLeafTensor(torch::Tensor &mould, bool GPU=true, int device_id=0){
+     inline torch::Tensor NewLeafTensor(torch::Tensor &mould, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
         
-        if(GPU){
+        if(torch::DeviceType::CUDA==location){
              return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));  
         }else{
              return torch::zeros_like(mould,at::TensorOptions().dtype(torch::kFloat));  
         }
     }
-     inline torch::Tensor NewLeafTensor(at::IntArrayRef size, bool GPU=true, int device_id=0){
-        if(GPU){
+     inline torch::Tensor NewLeafTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+        if(torch::DeviceType::CUDA==location){
            return torch::zeros(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
         }else{
            return torch::zeros(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
     
-    inline float* getWritableBuffer(torch::Tensor &T_var,bool GPU=true){
-        if(GPU){
+    inline float* getWritableBuffer(torch::Tensor &T_var,torch::DeviceType location=torch::DeviceType::CUDA){
+        if(torch::DeviceType::CUDA==location){
         return T_var.packed_accessor<float,2>().data();
         }else{
         return T_var.packed_accessor<float,2>().data();    
@@ -646,6 +648,7 @@ public:
   VertexId rep_output_size;
   VertexId **message_write_offset;
   VertexId **message_amount;
+  float *output_cpu_buffer;
   VertexId encode_partition;
 
   //overlap
@@ -793,6 +796,11 @@ public:
         }
       }
     }
+  }
+  void init_message_buffer(){
+        output_cpu_buffer = (float *)cudaMallocPinned(((long)vertices) * gnnctx->max_layer * sizeof(float));
+    if (output_cpu_buffer == NULL)
+        printf("allocate fail\n");
   }
   void init_rtminfo()
   {
@@ -3494,7 +3502,6 @@ public:
   
   template <typename R, typename M>
   R compute_sync_explict(torch::Tensor &input_gpu_or_cpu,
-                                                         float *output_cpu,
                                                          std::vector<CSC_segment_pinned *> &graph_partitions,
                                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                                          float *local_data_buffer)//backward
@@ -3658,7 +3665,6 @@ public:
         if(rtminfo->forward){
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -3666,7 +3672,6 @@ public:
         }else{
         backward_gpu_CSR_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -3693,7 +3698,6 @@ public:
           if(rtminfo->forward){
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -3701,7 +3705,6 @@ public:
         }else{
         backward_gpu_CSR_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -3740,7 +3743,6 @@ public:
             if(rtminfo->forward){
                 forward_gpu_CSC_partition(
                     input_gpu_or_cpu,
-                    output_cpu,
                     graph_partitions,
                     feature_size,
                     (current_send_part_id + 1) % partitions,
@@ -3748,7 +3750,6 @@ public:
             }else{
                 backward_gpu_CSR_partition(
                     input_gpu_or_cpu,
-                    output_cpu,
                     graph_partitions,
                     feature_size,
                     (current_send_part_id + 1) % partitions,
@@ -3979,7 +3980,6 @@ public:
 
   template <typename R, typename M>
   R compute_sync_lite(torch::Tensor &input_gpu_or_cpu,
-                                                      float *output_cpu,
                                                       std::vector<CSC_segment_pinned *> &graph_partitions,
                                                       std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                                       float *local_data_buffer)
@@ -4144,7 +4144,6 @@ public:
         if(rtminfo->forward){
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -4152,7 +4151,6 @@ public:
         }else{
         backward_gpu_CSR_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -4175,7 +4173,6 @@ public:
           if(rtminfo->forward){
             forward_gpu_CSC_partition(
                 input_gpu_or_cpu,
-                output_cpu,
                 graph_partitions,
                 feature_size,
                 (current_send_part_id + 1) % partitions,
@@ -4183,7 +4180,6 @@ public:
             }else{
             backward_gpu_CSR_partition(
                 input_gpu_or_cpu,
-                output_cpu,
                 graph_partitions,
                 feature_size,
                 (current_send_part_id + 1) % partitions,
@@ -4222,7 +4218,6 @@ public:
             if(rtminfo->forward){
                 forward_gpu_CSC_partition(
                     input_gpu_or_cpu,
-                    output_cpu,
                     graph_partitions,
                     feature_size,
                     (current_send_part_id + 1) % partitions,
@@ -4230,7 +4225,6 @@ public:
             }else{
                 backward_gpu_CSR_partition(
                 input_gpu_or_cpu,
-                output_cpu,
                 graph_partitions,
                 feature_size,
                 (current_send_part_id + 1) % partitions,
@@ -4284,7 +4278,7 @@ public:
             {
               VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
               //dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-              flush_data_to_send_buffer_buffer_lock_free_write(thread_id, feature_size, v_i, output_cpu + v_i * feature_size, message_write_offset[layer_][v_i]);
+              flush_data_to_send_buffer_buffer_lock_free_write(thread_id, feature_size, v_i, output_cpu_buffer + v_i * feature_size, message_write_offset[layer_][v_i]);
             }
           }
           //  printf("Send initial has been finished %d\n", partition_id);
@@ -4306,7 +4300,7 @@ public:
               for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
               {
                 VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                flush_data_to_send_buffer_buffer_lock_free_write(t_i, feature_size, v_i, output_cpu + v_i * feature_size, message_write_offset[layer_][v_i]);
+                flush_data_to_send_buffer_buffer_lock_free_write(t_i, feature_size, v_i, output_cpu_buffer + v_i * feature_size, message_write_offset[layer_][v_i]);
                 //dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
               }
             }
@@ -4463,7 +4457,6 @@ public:
     // process edges
   template <typename R, typename M>
   R sync_compute(torch::Tensor &input_gpu_or_cpu,
-                 float *output_cpu,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
                  float *local_data_buffer)
@@ -4907,7 +4900,6 @@ public:
     template <typename R, typename M>
   R compute_sync_edge_computation(torch::Tensor &input_grad,
                                           torch::Tensor &dst_input,
-                                          float *output_cpu,
                                           std::vector<CSC_segment_pinned *> &graph_partitions,
                                           std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                           std::function<torch::Tensor(torch::Tensor&)> PreComputation,
@@ -5063,7 +5055,7 @@ public:
             EdgeOp->GatherBySrcFromDst(src_inter_grad,input_grad,message);//4->3
             EdgeOp->BackwardScatterGradBackToWeight(src_input_transferred, input_grad, message_grad);//4-2
             torch::Tensor src_grad=EdgeBackward(message_grad,src_inter_grad,EdgeOp); //(2,3)->1
-            EdgeOp->MoveResultOut(output_cpu,src_grad);
+            EdgeOp->MoveResultOut(output_cpu_buffer,src_grad);
             
             cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
             
@@ -5201,7 +5193,7 @@ public:
       }
       
       //COMBINE GRAD
-      output_grad=output_grad+dst_input.grad();
+      output_grad=output_grad;//+dst_input.grad();
       
       overlap_time += MPI_Wtime();
       all_overlap_time += overlap_time;
@@ -5236,7 +5228,6 @@ public:
  
   template <typename R, typename M>
   R compute_and_sync_with_GPU_aggregator_overlap(torch::Tensor &input_gpu_or_cpu,
-                                                 float *output_cpu,
                                                  std::vector<CSC_segment_pinned *> &graph_partitions,
                                                  std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                                  float *local_data_buffer,
@@ -5387,7 +5378,6 @@ public:
         cuda_sync_time -= MPI_Wtime();
         forward_gpu_CSC_partition(
             input_gpu_or_cpu,
-            output_cpu,
             graph_partitions,
             feature_size,
             (current_send_part_id + 1) % partitions,
@@ -5411,7 +5401,6 @@ public:
 
           forward_gpu_CSC_partition(
               input_gpu_or_cpu,
-              output_cpu,
               graph_partitions,
               feature_size,
               (current_send_part_id + 1) % partitions,
@@ -5447,7 +5436,6 @@ public:
           {
             forward_gpu_CSC_partition(
                 input_gpu_or_cpu,
-                output_cpu,
                 graph_partitions,
                 feature_size,
                 (current_send_part_id + 1) % partitions,
@@ -5791,7 +5779,7 @@ public:
     double moveout_time = 0;
     moveout_time -= MPI_Wtime();
 
-//    cuda_stream->move_result_out(output_cpu + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
+//    cuda_stream->move_result_out(output_cpu_buffer + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
 //                                 output_gpu_buffered.packed_accessor<float, 2>().data(),
 //                                 graph_partitions[current_send_partition_id]->dst_range[0],
 //                                 graph_partitions[current_send_partition_id]->dst_range[1],
@@ -5804,7 +5792,6 @@ public:
   
     void forward_gpu_CSC_partition(
       torch::Tensor input_gpu_or_cpu,
-      float *output_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
       int feature_size,
       int current_send_partition_id,
@@ -5876,7 +5863,7 @@ public:
     double moveout_time = 0;
     moveout_time -= MPI_Wtime();
 
-    cuda_stream->move_result_out(output_cpu + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
+    cuda_stream->move_result_out(output_cpu_buffer + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
                                  output_gpu_buffered.packed_accessor<float, 2>().data(),
                                  graph_partitions[current_send_partition_id]->dst_range[0],
                                  graph_partitions[current_send_partition_id]->dst_range[1],
@@ -5889,7 +5876,6 @@ public:
     
     void backward_gpu_CSR_partition(
       torch::Tensor input_gpu_or_cpu,
-      float *output_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
       int feature_size,
       int current_send_partition_id,
@@ -5962,7 +5948,7 @@ public:
     double moveout_time = 0;
     moveout_time -= MPI_Wtime();
 
-    cuda_stream->move_result_out(output_cpu + (graph_partitions[current_send_partition_id]->src_range[0] * feature_size),
+    cuda_stream->move_result_out(output_cpu_buffer + (graph_partitions[current_send_partition_id]->src_range[0] * feature_size),
                                  output_gpu_buffered.packed_accessor<float, 2>().data(),
                                  graph_partitions[current_send_partition_id]->src_range[0],
                                  graph_partitions[current_send_partition_id]->src_range[1],
