@@ -226,7 +226,7 @@ void Backward(){
 //                                                   return edge_Backward(b, c,edgeop);
 //                                              }); 
 
-    for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
+    for(int i=0;i<P.size();i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu()); //W2->W.grad().cpu()
         P[i]->learnC2G_with_decay(learn_rate,weight_decay);
     }
