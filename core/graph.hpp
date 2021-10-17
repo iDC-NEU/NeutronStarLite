@@ -349,7 +349,7 @@ public:
                                src_start, src_end, dst_start, dst_end,
                                E,
                                subgraph->batch_size,
-                               feature_size, false);
+                               feature_size, rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
@@ -376,7 +376,7 @@ public:
                                (VertexId)subgraph->edge_size,
                                (VertexId)subgraph->batch_size_backward,
                                (VertexId)output_size,
-                               false);
+                               rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
@@ -402,7 +402,7 @@ public:
                                (VertexId)subgraph->edge_size,
                                (VertexId)subgraph->batch_size,
                                (VertexId)output_size,
-                               false);
+                               rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     

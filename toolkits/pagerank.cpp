@@ -14,10 +14,12 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
    limitations under the License.
  */
 /* CPU single experiment*/
-#include "cpuengine.hpp"
-#include "gpuengine.hpp"
-#include "gpuclusterengine.hpp"
+//#include "cpuengine.hpp"
+//#include "gpuengine.hpp"
+//#include "gpuclusterengine.hpp"
 #include "GCN.hpp"
+//#include "GIN.hpp"
+#include "GAT.hpp"
 //#include"testengine.hpp"
 
 void statistic(Graph<Empty> *graph, int workers)
@@ -203,59 +205,81 @@ int main(int argc, char **argv)
     else if (std::string(argv[4]) == std::string("CPU"))
     {
         printf("%s c engine start", argv[4]);
-        compute(graph, iterations);
+        //compute(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("DISTOVERLAPGF"))
     {
         printf("%s c engine start", argv[4]);
-        compute_dist_GPU_with_CSC_overlap_exchange(graph, iterations);
+        //compute_dist_GPU_with_CSC_overlap_exchange(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("TEST"))
     {
         printf("%s c engine start", argv[4]);
-        compute_single_GPU(graph, iterations);
+        //compute_single_GPU(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("TESTOLD"))
     {
         printf("%s c engine start", argv[4]);
-        compute_single_GPU_old(graph, iterations);
+        //compute_single_GPU_old(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("TESTGF"))
     {
         printf("%s c engine start", argv[4]);
-        compute_single_gf_GPU(graph, iterations);
+        //compute_single_gf_GPU(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("DISTT"))
     {
-        compute_dist_GPU_with_new_system_CSC(graph, iterations, true);
+        //compute_dist_GPU_with_new_system_CSC(graph, iterations, true);
     }
     else if (std::string(argv[4]) == std::string("DISTF"))
     {
-        compute_dist_GPU_with_new_system_CSC(graph, iterations, false);
+       // compute_dist_GPU_with_new_system_CSC(graph, iterations, false);
     }
     else if (std::string(argv[4]) == std::string("GCN"))
     {
         GCN_impl *ntsGCN=new GCN_impl(graph,iterations);
         ntsGCN->init_graph();
         ntsGCN->init_nn();
-        ntsGCN->forward();
+        ntsGCN->run();
         //GCN(graph, iterations);
+    }
+    else if (std::string(argv[4]) == std::string("GIN"))
+    {
+      //  GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
+      //  ntsGIN->init_graph();
+      //  ntsGIN->init_nn();
+      //  ntsGIN->forward();
+    }
+    else if (std::string(argv[4]) == std::string("GAT"))
+    {
+        GAT_impl *ntsGAT=new GAT_impl(graph,iterations);
+        ntsGAT->init_graph();
+        ntsGAT->init_nn();
+        ntsGAT->run();
+    }
+    else if (std::string(argv[4]) == std::string("COMMNET"))
+    {
+        //compute_dist_GPU_with_CSC_overlap_COMMNET(graph, iterations);
+    }
+    else if (std::string(argv[4]) == std::string("GGCN"))
+    {
+        //compute_dist_GPU_with_CSC_overlap_GGCN(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("DISTOLD"))
     {
-        compute_dist_GPU_with_new_system(graph, iterations);
+        //compute_dist_GPU_with_new_system(graph, iterations);
         //compute_dist_GPU(graph, iterations);
         //  std::cout<<"id"<<graph->partition_id<<" vertices "<<graph->owned_vertices;
     }
     else if (std::string(argv[4]) == std::string("TESTGFD"))
     {
         printf("%s c engine start", argv[4]);
-        compute_dist_gf_GPU(graph, iterations);
+        //compute_dist_gf_GPU(graph, iterations);
     }
     else if (std::string(argv[4]) == std::string("active"))
     {
         //printf("%s engine start\n",argv[4]);
-        load_replicate(graph, iterations, argv[1]);
+        //load_replicate(graph, iterations, argv[1]);
     }
     else if (std::string(argv[4]) == std::string("expr_rep"))
     {
@@ -279,7 +303,7 @@ int main(int argc, char **argv)
         printf("exec_time=%lf(s)\n", exec_time);
     }
 
-    ResetDevice();
+    //ResetDevice();
 
     delete graph;
 
