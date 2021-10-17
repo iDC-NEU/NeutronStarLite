@@ -336,7 +336,6 @@ public:
             if((gnnctx->p_v_s<=id)&&(gnnctx->p_v_e>id)){
                 for (int i = 0; i < size_0; i++){
                     input >> local_feature[size_0*id_trans+i];
-                    
                 }
                 input >> la;
                 local_label[id_trans]= changelable(la);
@@ -349,7 +348,6 @@ public:
         }
         free(con_tmp);
         input.close();
-        // std::cout<<"finish??"<<std::endl;
     }
     
     void registLabel(torch::Tensor &target)
@@ -1232,7 +1230,7 @@ public:
                                                torch::Tensor &dst_output,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
                                                std::function<torch::Tensor(torch::Tensor&)> PreComputation,
-                                               std::function<torch::Tensor(torch::Tensor&, torch::Tensor&, torch::Tensor&, torch::Tensor&, EdgeNNModule* edgeop)> EdgeComputation)
+                                               std::function<torch::Tensor(torch::Tensor&, torch::Tensor&, torch::Tensor&, torch::Tensor&, NtsScheduler* nts)> EdgeComputation)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1249,8 +1247,8 @@ public:
                 [&](torch::Tensor &d_i){
                     return PreComputation(d_i);
                 },
-                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,EdgeNNModule* edgeop){
-                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,edgeop);
+                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,NtsScheduler* nts){
+                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,nts);
                 },
                 dst_output);
             //printf("done!\n");
@@ -1263,8 +1261,8 @@ public:
                                                torch::Tensor &dst_grad_output,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
                                                std::function<torch::Tensor(torch::Tensor&)> PreComputation,
-                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeComputation,
-                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,EdgeNNModule* edgeop)> EdgeBackward)
+                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,NtsScheduler* nts)> EdgeComputation,
+                                               std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,NtsScheduler* nts)> EdgeBackward)
     {
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
@@ -1280,11 +1278,11 @@ public:
                 [&](torch::Tensor &d_i){
                     return PreComputation(d_i);
                 },
-                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,EdgeNNModule* edgeop){
-                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,edgeop);
+                [&](torch::Tensor &s_i,torch::Tensor &s_i_t, torch::Tensor &d_i, torch::Tensor &d_i_t,NtsScheduler* nts){
+                    return EdgeComputation(s_i,s_i_t, d_i,d_i_t,nts);
                 },
-                [&](torch::Tensor &b_i, torch::Tensor &c_i,EdgeNNModule* edgeop){
-                    return EdgeBackward(b_i, c_i, edgeop);
+                [&](torch::Tensor &b_i, torch::Tensor &c_i,NtsScheduler* nts){
+                    return EdgeBackward(b_i, c_i, nts);
                 },
                 dst_grad_output);
             //printf("done!\n");

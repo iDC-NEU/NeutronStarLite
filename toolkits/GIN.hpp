@@ -2,7 +2,7 @@
 #include <c10/cuda/CUDAStream.h>
 
 
-class GAT_impl{
+class GIN_impl{
 public:
         
     int iterations;
@@ -42,7 +42,7 @@ public:
     double all_graph_time = 0;
 
     
-    GAT_impl(Graph<Empty> *graph_, int iterations_, bool process_local = false, bool process_overlap = false){
+    GIN_impl(Graph<Empty> *graph_, int iterations_, bool process_local = false, bool process_overlap = false){
         graph=graph_;
         iterations=iterations_;
         learn_rate = 0.01;
@@ -51,20 +51,21 @@ public:
         active->fill();
         
         graph->init_gnnctx(graph->config->layer_string);
+            //rtminfo initialize
         graph->init_rtminfo();
         graph->rtminfo->process_local = graph->config->process_local;
         graph->rtminfo->reduce_comm = graph->config->process_local;
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
         graph->rtminfo->with_weight=true;
+        graph->rtminfo->with_cuda=true;
        
-        
     } 
     void init_graph(){
         //std::vector<CSC_segment_pinned *> csc_segment;
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
-        generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
+        //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         generate_Forward_Segment_Tensor_pinned(graph, subgraphs, true);
         //if (graph->config->process_local)
         double load_rep_time = 0;
@@ -85,8 +86,8 @@ public:
         L_GT_G = L_GT_C.cuda();
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
+            P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i]));
             P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i+1]));
-            P.push_back(new GnnUnit(2*graph->gnnctx->layer_size[i+1],1));
         }
         
         torch::Device GPU(torch::kCUDA, 0);
@@ -99,7 +100,7 @@ public:
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             Y.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
-                                   graph->gnnctx->layer_size[i+1]},
+                                   graph->gnnctx->layer_size[i]},
                                        torch::DeviceType::CUDA));
             X_grad.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
@@ -109,64 +110,31 @@ public:
         for(int i=0;i<graph->gnnctx->layer_size.size();i++){
         torch::Tensor d;X.push_back(d);
         }
-        
         X[0]=F.cuda().set_requires_grad(true);
     }
 
-    
-inline torch::Tensor preComputation(torch::Tensor& master_input){
-     size_t layer=graph->rtminfo->curr_layer;
-        return P[layer*2]->forward(master_input);
-}   
-
 torch::Tensor vertexForward(torch::Tensor &a, torch::Tensor &x){
-    
-    size_t layer=graph->rtminfo->curr_layer;
+    torch::Tensor y;
+    int layer=graph->rtminfo->curr_layer;
     if(layer==0){
-        return torch::relu(a).set_requires_grad(true);
+        y=P[layer*2+1]->forward(torch::relu(P[layer*2]->forward(a))).set_requires_grad(true);
+
     }
     else if(layer==1){
-        torch::Tensor y = torch::relu(a);
+        y = P[layer*2+1]->forward(torch::relu(P[layer*2]->forward(a)));
         y = y.log_softmax(1); //CUDA
-        y = torch::nll_loss(y, L_GT_G);
-        return y;
+        y = torch::nll_loss(y, L_GT_G);   
     }
+    return y;
 }
-                             //grad to message            //grad to src   
-  torch::Tensor edge_Backward(torch::Tensor &message_grad, torch::Tensor &src_grad, NtsScheduler* nts){
-      I_data["msg_grad_1"]=at::_sparse_softmax_backward_data(
-               nts->PrepareMessage(message_grad),
-                I_data["atten"],nts->BYDST(),I_data["w"]);
-      I_data["msg"].backward(I_data["msg_grad_1"].coalesce().values(),true);
-      I_data["src_data"].backward(src_grad,true);
-      return I_data["fetched_src_data"].grad();
-    
- }
-  torch::Tensor edge_Forward(torch::Tensor &src_input, torch::Tensor &src_input_transfered, 
-                             torch::Tensor &dst_input, torch::Tensor &dst_input_transfered, 
-                                                                        NtsScheduler* nts){
-      size_t layer =graph->rtminfo->curr_layer;
-     if(graph->rtminfo->forward==true){
-        nts->SerializeToCPU("cached_src_data",src_input);
-        I_data["src_data"]=P[layer*2]->forward(src_input);
-     }
-     else{
-        I_data["fetched_src_data"]=nts->DeSerializeFromCPU("cached_src_data");
-        I_data["src_data"]=P[layer*2]->forward(I_data["fetched_src_data"]);
-     }
-      
-        src_input_transfered=I_data["src_data"];
-        I_data["dst_data"]=dst_input_transfered;//finish apply W
-        I_data["msg"]=torch::cat({nts->ScatterSrc(I_data["src_data"]),
-                                   nts->ScatterDst(I_data["dst_data"])}
-                                   ,1);
-                                   
-        I_data["msg"]=torch::leaky_relu(torch::exp(P[layer*2+1]->forward(I_data["msg"])),1.0);  
-        I_data["w"]=nts->PrepareMessage(I_data["msg"]);
-        I_data["atten"]=at::_sparse_softmax(I_data["w"],graph->Nts->BYDST());
-        return I_data["atten"].coalesce().values();    
-     }
- 
+
+/* 
+ * libtorch 1.7 and its higher versions have conflict 
+ * with the our openmp based parallel processing that inherit from Gemini [OSDI 2016].
+ * So in this example we use Libtorch 1.5 as auto differentiation tool.
+ * As 'autograd' function is not explict supported in C++ release of libtorch 1.5, we illustrate 
+ * the example in a implicit manner.
+ */
 void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
@@ -178,84 +146,64 @@ void vertexBackward(){
     }
 }
 
-
-
 void Backward(){
     graph->rtminfo->forward = false;
     for(int i=graph->gnnctx->layer_size.size()-2;i>=0;i--){
-        graph->rtminfo->curr_layer = i;
-        vertexBackward();
-        torch::Tensor grad_to_Y=Y[i].grad();
-        gt->GraphPropagateBackwardEdgeComputation(X[i], 
-                                              grad_to_Y,                                              
-                                              X_grad[i],
-                                              subgraphs,
-                                              [&](torch::Tensor &master_input){//pre computation
-                                                   return preComputation(master_input);
-                                              },
-                                              [&](torch::Tensor &mirror_input,torch::Tensor &mirror_input_transfered,
-                                                       torch::Tensor &X, torch::Tensor &X_trans, NtsScheduler* nts){//edge computation
-                                                   return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, nts);
-                                              },
-                                              [&](torch::Tensor &b,torch::Tensor &c, NtsScheduler* nts){//edge computation
-                                                   return edge_Backward(b, c,nts);
-                                              });
+    graph->rtminfo->curr_layer = i;
+    vertexBackward();
+    torch::Tensor grad_to_Y=Y[i].grad();
+    gt->GraphPropagateBackward(grad_to_Y, X_grad[i], subgraphs);
     }
-
-    for(int i=0;i<P.size();i++){
-        P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu()); //W2->W.grad().cpu()
+//    graph->rtminfo->curr_layer = 0;
+//    vertexBackward();
+//    torch::Tensor grad_to_Y0=Y[0].grad();
+//    gt->GraphPropagateBackward(grad_to_Y0, X_grad[0], subgraphs);
+    
+    for(int i=0;i<P.size()-1;i++){
+        P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
         P[i]->learnC2G_with_decay(learn_rate,weight_decay);
     }
+    
+        
 }
 
 void Forward(){
     graph->rtminfo->forward = true;
+    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-        graph->rtminfo->curr_layer = i;
-        gt->GraphPropagateForwardEdgeComputation(X[i],Y[i],subgraphs,
-                [&](torch::Tensor &master_input){//pre computation
-                   return preComputation(master_input);
-                },
-                [&](torch::Tensor &mirror_input,torch::Tensor &mirror_input_transfered,
-                           torch::Tensor &X, torch::Tensor &X_trans, NtsScheduler* nts){//edge computation
-                               return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, nts);
-                 });
-        X[i+1]=vertexForward(Y[i], X[i]);
+    graph->rtminfo->curr_layer = i;
+    gt->GraphPropagateForward(X[i], Y[i], subgraphs);
+    X[i+1]=vertexForward(Y[i],X[i]);
     }
     loss=X[graph->gnnctx->layer_size.size()-1];
-    
 }
+
+
+
 
 /*GPU dist*/ void run()
 {
     if (graph->partition_id == 0)
         printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
         graph->print_info();
-
+        
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++){
         graph->rtminfo->epoch = i_i;
         if (i_i != 0){
-            for(int i=0;i<P.size();i++){
-                P[i]->zero_grad();
-            }
+            for(int i=0;i<P.size();i++)
+            P[i]->zero_grad();
         }
-
-        Forward();
-        Backward();
         
+        Forward();
+        Backward();     
         if (graph->partition_id == 0)
-            std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;
-         
+            std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;       
     }
     exec_time += get_time();
 
     delete active;
 }
-
-
-
-
 
 
 

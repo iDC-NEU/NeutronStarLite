@@ -95,13 +95,13 @@ public:
             P[i]->to(GPU);
         }
         
-        F=graph->EdgeOp->NewLeafTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
+        F=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-            Y.push_back(graph->EdgeOp->NewKeyTensor(
+            Y.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
                                    graph->gnnctx->layer_size[i]},
                                        torch::DeviceType::CUDA));
-            X_grad.push_back(graph->EdgeOp->NewKeyTensor(
+            X_grad.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
                                    graph->gnnctx->layer_size[i]},
                                        torch::DeviceType::CUDA));
@@ -193,6 +193,7 @@ void Forward(){
             for(int i=0;i<P.size();i++)
             P[i]->zero_grad();
         }
+        
         Forward();
         Backward();     
         if (graph->partition_id == 0)
