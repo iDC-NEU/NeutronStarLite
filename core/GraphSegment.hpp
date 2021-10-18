@@ -49,36 +49,36 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
 
-
-typedef struct graph_Tensor_Segment
-{
-  torch::Tensor column_offset; //VertexNumber
-  torch::Tensor row_indices;   //edge_size
-  torch::Tensor edge_weight;   //edge_size
-  int edge_size;
-  int batch_size;
-  int input_size;
-  int output_size;
-  int feature_size;
-  int src_range[2];
-  int dst_range[2];
-  float *weight_buffer;
-} CSC_segment;
-
-typedef struct graph_Tensor_Segment1
-{
-  torch::Tensor row_offset; //VertexNumber
-  torch::Tensor column_indices;   //edge_size
-  torch::Tensor edge_weight;   //edge_size
-  int edge_size;
-  int batch_size;
-  int input_size;
-  int output_size;
-  int feature_size;
-  int src_range[2];
-  int dst_range[2];
-  float *weight_buffer;
-} CSR_segment;
+//
+//typedef struct graph_Tensor_Segment
+//{
+//  torch::Tensor column_offset; //VertexNumber
+//  torch::Tensor row_indices;   //edge_size
+//  torch::Tensor edge_weight;   //edge_size
+//  int edge_size;
+//  int batch_size;
+//  int input_size;
+//  int output_size;
+//  int feature_size;
+//  int src_range[2];
+//  int dst_range[2];
+//  float *weight_buffer;
+//} CSC_segment;
+//
+//typedef struct graph_Tensor_Segment1
+//{
+//  torch::Tensor row_offset; //VertexNumber
+//  torch::Tensor column_indices;   //edge_size
+//  torch::Tensor edge_weight;   //edge_size
+//  int edge_size;
+//  int batch_size;
+//  int input_size;
+//  int output_size;
+//  int feature_size;
+//  int src_range[2];
+//  int dst_range[2];
+//  float *weight_buffer;
+//} CSR_segment;
 
 typedef struct graph_Tensor_Segment_pinned
 {

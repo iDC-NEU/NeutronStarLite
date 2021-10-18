@@ -12,22 +12,21 @@ public:
     //graph
     VertexSubset *active;
     Graph<Empty>* graph;
-    std::vector<CSC_segment_pinned *>csc_segment;//discard
     std::vector<CSC_segment_pinned *>subgraphs;
     //NN
     GNNDatum *gnndatum;
-    torch::Tensor L_GT_C;
-    torch::Tensor L_GT_G;
-    std::map<std::string,torch::Tensor>I_data;
-    GTensor<ValueType, long, MAX_LAYER> *gt;
+    NtsVar L_GT_C;
+    NtsVar L_GT_G;
+    std::map<std::string,NtsVar>I_data;
+    GTensor<ValueType, long> *gt;
     //Variables
     std::vector<GnnUnit*>P;
-    std::vector<torch::Tensor>X;
-    std::vector<torch::Tensor>Y;
-    std::vector<torch::Tensor>X_grad;
-    torch::Tensor F;
-    torch::Tensor loss;
-    torch::Tensor tt;
+    std::vector<NtsVar>X;
+    std::vector<NtsVar>Y;
+    std::vector<NtsVar>X_grad;
+    NtsVar F;
+    NtsVar loss;
+    NtsVar tt;
     
     double exec_time = 0;
     double all_sync_time = 0;
@@ -66,8 +65,8 @@ public:
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-        generate_Forward_Segment_Tensor_pinned(graph, subgraphs, true);
-        //if (graph->config->process_local)
+        gt = new GTensor<ValueType, long>(graph, active);
+        gt->generate_Forward_Segment_Tensor_pinned(subgraphs, true);
         double load_rep_time = 0;
         load_rep_time -= get_time();
         graph->load_replicate3(graph->gnnctx->layer_size);
@@ -77,7 +76,7 @@ public:
         graph->init_blockinfo();
         graph->init_message_map_amount();
         graph->init_message_buffer();
-        gt = new GTensor<ValueType, long, MAX_LAYER>(graph, active);
+
     }
     void init_nn(){
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
@@ -95,7 +94,7 @@ public:
             P[i]->to(GPU);
         }
         
-        F=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
+        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             Y.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
@@ -107,13 +106,13 @@ public:
                                        torch::DeviceType::CUDA));
         }
         for(int i=0;i<graph->gnnctx->layer_size.size();i++){
-        torch::Tensor d;X.push_back(d);
+        NtsVar d;X.push_back(d);
         }
         X[0]=F.cuda().set_requires_grad(true);
     }
 
-torch::Tensor vertexForward(torch::Tensor &a, torch::Tensor &x){
-    torch::Tensor y;
+NtsVar vertexForward(NtsVar &a, NtsVar &x){
+    NtsVar y;
     int layer=graph->rtminfo->curr_layer;
     if(layer==0){
         y=torch::relu(P[layer]->forward(a)).set_requires_grad(true);
@@ -127,13 +126,6 @@ torch::Tensor vertexForward(torch::Tensor &a, torch::Tensor &x){
     return y;
 }
 
-/* 
- * libtorch 1.7 and its higher versions have conflict 
- * with the our openmp based parallel processing that inherit from Gemini [OSDI 2016].
- * So in this example we use Libtorch 1.5 as auto differentiation tool.
- * As 'autograd' function is not explict supported in C++ release of libtorch 1.5, we illustrate 
- * the example in a implicit manner.
- */
 void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
@@ -150,13 +142,9 @@ void Backward(){
     for(int i=graph->gnnctx->layer_size.size()-2;i>=0;i--){
     graph->rtminfo->curr_layer = i;
     vertexBackward();
-    torch::Tensor grad_to_Y=Y[i].grad();
+    NtsVar grad_to_Y=Y[i].grad();
     gt->GraphPropagateBackward(grad_to_Y, X_grad[i], subgraphs);
     }
-//    graph->rtminfo->curr_layer = 0;
-//    vertexBackward();
-//    torch::Tensor grad_to_Y0=Y[0].grad();
-//    gt->GraphPropagateBackward(grad_to_Y0, X_grad[0], subgraphs);
     
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
@@ -192,6 +180,9 @@ void Forward(){
         if (i_i != 0){
             for(int i=0;i<P.size();i++)
             P[i]->zero_grad();
+            for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
+            //X_grad[i].zero_();
+            }
         }
         
         Forward();
@@ -230,7 +221,7 @@ void DEBUGINFO(){
         printf("#graph repliation time=%lf(s)\n", graph->all_replication_time);
         printf("#Timer Info End\n");
     }
-    //      torch::Tensor tt_cpu=tt.cpu();
+    //      NtsVar tt_cpu=tt.cpu();
     //  if(i_i==(iterations-1)&&graph->partition_id==0){
     //     inference(tt_cpu,graph, embedding, pytool,W1,W2);
     //  }

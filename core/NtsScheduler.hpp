@@ -42,12 +42,16 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/time.hpp"
 #include "core/type.hpp"
 #include "cuda/test.hpp"
-
+#include "comm/Network.hpp"
 #include "torch/torch.h"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
+
+typedef torch::Tensor NtsVar;
+typedef torch::nn::Module NtsMudule;
+typedef torch::DeviceType NtsDevide;
 
 class NtsScheduler{
 public:
@@ -245,12 +249,36 @@ public:
            return torch::zeros(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
-    
+    inline torch::Tensor NewKeyTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+        if(torch::DeviceType::CUDA==location){
+            return torch::from_blob(data,size,at::TensorOptions().requires_grad(true).device_index(device_id).dtype(torch::kFloat));
+        }else{
+            return torch::from_blob(data,size,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));    
+        }
+
+    }
+    inline torch::Tensor NewLeafTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+        if(torch::DeviceType::CUDA==location){
+        return torch::from_blob(data,size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
+        }else{
+        return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kFloat));    
+        }
+    } 
+    void ZeroVar(NtsVar& t){
+        t.zero_();
+    } 
+    inline torch::Tensor NewOnesTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+        if(torch::DeviceType::CUDA==location){
+           return torch::ones(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
+        }else{
+           return torch::ones(size,at::TensorOptions().dtype(torch::kFloat));
+        }
+    }
     inline float* getWritableBuffer(torch::Tensor &T_var,torch::DeviceType location=torch::DeviceType::CUDA){
         if(torch::DeviceType::CUDA==location){
         return T_var.packed_accessor<float,2>().data();
         }else{
-        return T_var.packed_accessor<float,2>().data();    
+        return T_var.accessor<float,2>().data();    
         }
     }
     
@@ -304,5 +332,131 @@ public:
     runtimeinfo *rtminfo;
     //src_input.cpu() dst_input.cpu()
 };
+
+
+
+struct GnnUnit : torch::nn::Module
+{
+    NtsVar W;
+    ValueType *W_from;
+    ValueType *w_gradient_buffer;
+    Network_simple<float> *network_simple;
+    int row, col;
+    NtsVar W_gradient;
+    //gpu_processor *gp;
+    GnnUnit(size_t w, size_t h)
+    {
+        //        at::TensorOptions *opt=new at::TensorOptions;
+        //       opt->requires_grad(true);
+        //  torch::randn
+        //     A=torch::randn(torch::randn({w,h},opt));
+        row = w;
+        col = h;
+        W = register_parameter("W", torch::randn({w, h}, torch::kFloat));
+        W_from = new ValueType[w * h];
+        w_gradient_buffer = new ValueType[w * h];
+        memset(w_gradient_buffer, 0, sizeof(float) * w * h);
+        W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
+        network_simple = new Network_simple<float>(row, col);
+    }
+    void init_parameter()
+    {
+        network_simple->broadcast(W.accessor<ValueType, 2>().data());
+    }
+    void all_reduce_to_gradient(NtsVar from)
+    {
+        W_gradient.set_data(from);
+        //memcpy(w_gradient_buffer, from.accessor<ValueType, 2>().data(), sizeof(float) * row * col);
+        //std::cout << from[0][3] << "ss" << w_gradient_buffer[3] << "ds" << W_gradient[0][3] << std::endl;
+        network_simple->all_reduce_sum(W_gradient.accessor<ValueType, 2>().data());
+        //W_gradient = torch::from_blob(w_gradient_buffer, {row, col}, torch::kFloat);
+    }
+    void resetW(size_t w, size_t h, ValueType *buffer)
+    {
+        memcpy(W_from, buffer, sizeof(ValueType) * w * h);
+        NtsVar new_weight_tensor = torch::from_blob(W_from, {w, h});
+        W.set_data(new_weight_tensor);
+    }
+
+    void learnC2G(ValueType learning_rate)
+    {
+        NtsVar tmp = W_gradient.cuda();
+        NtsVar a = (W - (tmp * learning_rate));
+        W.set_data(a);
+    }
+    
+    void learnC2G_with_decay(ValueType learning_rate,ValueType weight_decay)
+    {
+        NtsVar tmp = W_gradient.cuda();
+        NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
+        W.set_data(a);
+    }
+     void learnC2C_with_decay(ValueType learning_rate,ValueType weight_decay)
+    {
+        NtsVar tmp = W_gradient;
+        NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
+        W.set_data(a);
+    }
+
+
+    void learn(NtsVar from, ValueType learning_rate)
+    {
+        NtsVar a = (W - (from * learning_rate));
+
+        W.set_data(a);
+    }
+    void learn_gpu(NtsVar from, ValueType learning_rate)
+    {
+        NtsVar a = (W - (from * learning_rate));
+        W.set_data(a);
+        //W=a;
+    }
+    NtsVar forward(NtsVar x)
+    {
+
+        NtsVar x1 = x.mm(W);
+        return x1;
+    }
+
+    NtsVar forward2(NtsVar x)
+    {
+        return torch::sigmoid(x);
+    }
+    NtsVar forward3(NtsVar x)
+    {
+
+        x = x.mm(W);
+        return x.log_softmax(1);
+    }
+};
+
+struct Intermediate : torch::nn::Module
+{
+    NtsVar W;
+    ValueType *W_from;
+
+    Intermediate(size_t w, size_t h)
+    {
+        //        at::TensorOptions *opt=new at::TensorOptions;
+        //       opt->requires_grad(true);
+        //  torch::randn
+        //     A=torch::randn(torch::randn({w,h},opt));
+        W = register_parameter("W", torch::randn({w, h}));
+        W_from = new ValueType[w * h];
+    }
+    void resetW(size_t w, size_t h, ValueType *buffer)
+    {
+        memcpy(W_from, buffer, sizeof(ValueType) * w * h);
+        NtsVar new_weight_tensor = torch::from_blob(W_from, {w, h});
+        W.set_data(new_weight_tensor);
+    }
+
+    NtsVar forward(NtsVar x)
+    {
+        x = x.mm(W);
+        return x;
+    }
+};
+
 
 #endif

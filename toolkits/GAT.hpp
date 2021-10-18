@@ -12,22 +12,21 @@ public:
     //graph
     VertexSubset *active;
     Graph<Empty>* graph;
-    std::vector<CSC_segment_pinned *>csc_segment;//discard
     std::vector<CSC_segment_pinned *>subgraphs;
     //NN
     GNNDatum *gnndatum;
-    torch::Tensor L_GT_C;
-    torch::Tensor L_GT_G;
-    std::map<std::string,torch::Tensor>I_data;
-    GTensor<ValueType, long, MAX_LAYER> *gt;
+    NtsVar L_GT_C;
+    NtsVar L_GT_G;
+    std::map<std::string,NtsVar>I_data;
+    GTensor<ValueType, long> *gt;
     //Variables
     std::vector<GnnUnit*>P;
-    std::vector<torch::Tensor>X;
-    std::vector<torch::Tensor>Y;
-    std::vector<torch::Tensor>X_grad;
-    torch::Tensor F;
-    torch::Tensor loss;
-    torch::Tensor tt;
+    std::vector<NtsVar>X;
+    std::vector<NtsVar>Y;
+    std::vector<NtsVar>X_grad;
+    NtsVar F;
+    NtsVar loss;
+    NtsVar tt;
     
     double exec_time = 0;
     double all_sync_time = 0;
@@ -64,8 +63,8 @@ public:
         //std::vector<CSC_segment_pinned *> csc_segment;
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
-        generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-        generate_Forward_Segment_Tensor_pinned(graph, subgraphs, true);
+        gt = new GTensor<ValueType, long>(graph, active);
+        gt->generate_Forward_Segment_Tensor_pinned(subgraphs, true);
         //if (graph->config->process_local)
         double load_rep_time = 0;
         load_rep_time -= get_time();
@@ -76,7 +75,6 @@ public:
         graph->init_blockinfo();
         graph->init_message_map_amount();
         graph->init_message_buffer();
-        gt = new GTensor<ValueType, long, MAX_LAYER>(graph, active);
     }
     void init_nn(){
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
@@ -95,7 +93,7 @@ public:
             P[i]->to(GPU);
         }
         
-        F=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
+        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             Y.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
@@ -107,33 +105,33 @@ public:
                                        torch::DeviceType::CUDA));
         }
         for(int i=0;i<graph->gnnctx->layer_size.size();i++){
-        torch::Tensor d;X.push_back(d);
+        NtsVar d;X.push_back(d);
         }
         
         X[0]=F.cuda().set_requires_grad(true);
     }
 
     
-inline torch::Tensor preComputation(torch::Tensor& master_input){
+inline NtsVar preComputation(NtsVar& master_input){
      size_t layer=graph->rtminfo->curr_layer;
         return P[layer*2]->forward(master_input);
 }   
 
-torch::Tensor vertexForward(torch::Tensor &a, torch::Tensor &x){
+NtsVar vertexForward(NtsVar &a, NtsVar &x){
     
     size_t layer=graph->rtminfo->curr_layer;
     if(layer==0){
         return torch::relu(a).set_requires_grad(true);
     }
     else if(layer==1){
-        torch::Tensor y = torch::relu(a);
+        NtsVar y = torch::relu(a);
         y = y.log_softmax(1); //CUDA
         y = torch::nll_loss(y, L_GT_G);
         return y;
     }
 }
                              //grad to message            //grad to src   
-  torch::Tensor edge_Backward(torch::Tensor &message_grad, torch::Tensor &src_grad, NtsScheduler* nts){
+  NtsVar edge_Backward(NtsVar &message_grad, NtsVar &src_grad, NtsScheduler* nts){
       I_data["msg_grad_1"]=at::_sparse_softmax_backward_data(
                nts->PrepareMessage(message_grad),
                 I_data["atten"],nts->BYDST(),I_data["w"]);
@@ -142,8 +140,8 @@ torch::Tensor vertexForward(torch::Tensor &a, torch::Tensor &x){
       return I_data["fetched_src_data"].grad();
     
  }
-  torch::Tensor edge_Forward(torch::Tensor &src_input, torch::Tensor &src_input_transfered, 
-                             torch::Tensor &dst_input, torch::Tensor &dst_input_transfered, 
+  NtsVar edge_Forward(NtsVar &src_input, NtsVar &src_input_transfered, 
+                             NtsVar &dst_input, NtsVar &dst_input_transfered, 
                                                                         NtsScheduler* nts){
       size_t layer =graph->rtminfo->curr_layer;
      if(graph->rtminfo->forward==true){
@@ -185,19 +183,19 @@ void Backward(){
     for(int i=graph->gnnctx->layer_size.size()-2;i>=0;i--){
         graph->rtminfo->curr_layer = i;
         vertexBackward();
-        torch::Tensor grad_to_Y=Y[i].grad();
+        NtsVar grad_to_Y=Y[i].grad();
         gt->GraphPropagateBackwardEdgeComputation(X[i], 
                                               grad_to_Y,                                              
                                               X_grad[i],
                                               subgraphs,
-                                              [&](torch::Tensor &master_input){//pre computation
+                                              [&](NtsVar &master_input){//pre computation
                                                    return preComputation(master_input);
                                               },
-                                              [&](torch::Tensor &mirror_input,torch::Tensor &mirror_input_transfered,
-                                                       torch::Tensor &X, torch::Tensor &X_trans, NtsScheduler* nts){//edge computation
+                                              [&](NtsVar &mirror_input,NtsVar &mirror_input_transfered,
+                                                       NtsVar &X, NtsVar &X_trans, NtsScheduler* nts){//edge computation
                                                    return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, nts);
                                               },
-                                              [&](torch::Tensor &b,torch::Tensor &c, NtsScheduler* nts){//edge computation
+                                              [&](NtsVar &b,NtsVar &c, NtsScheduler* nts){//edge computation
                                                    return edge_Backward(b, c,nts);
                                               });
     }
@@ -213,11 +211,11 @@ void Forward(){
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
         graph->rtminfo->curr_layer = i;
         gt->GraphPropagateForwardEdgeComputation(X[i],Y[i],subgraphs,
-                [&](torch::Tensor &master_input){//pre computation
+                [&](NtsVar &master_input){//pre computation
                    return preComputation(master_input);
                 },
-                [&](torch::Tensor &mirror_input,torch::Tensor &mirror_input_transfered,
-                           torch::Tensor &X, torch::Tensor &X_trans, NtsScheduler* nts){//edge computation
+                [&](NtsVar &mirror_input,NtsVar &mirror_input_transfered,
+                           NtsVar &X, NtsVar &X_trans, NtsScheduler* nts){//edge computation
                                return edge_Forward(mirror_input,mirror_input_transfered,X, X_trans, nts);
                  });
         X[i+1]=vertexForward(Y[i], X[i]);
@@ -283,7 +281,7 @@ void DEBUGINFO(){
         printf("#graph repliation time=%lf(s)\n", graph->all_replication_time);
         printf("#Timer Info End\n");
     }
-    //      torch::Tensor tt_cpu=tt.cpu();
+    //      NtsVar tt_cpu=tt.cpu();
     //  if(i_i==(iterations-1)&&graph->partition_id==0){
     //     inference(tt_cpu,graph, embedding, pytool,W1,W2);
     //  }
