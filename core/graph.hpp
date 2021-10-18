@@ -266,7 +266,7 @@ public:
   VertexId *row_indices_intergate;
 
   float *weight_gpu_intergate;
-  torch::Tensor output_gpu_buffered;
+  NtsVar output_gpu_buffered;
 
   //timer
   double all_wait_time;
@@ -306,9 +306,6 @@ public:
     config = new inputinfo;
     Nts=new NtsScheduler();
     encode_partition=-1;
-  }
-  std::string VarEncode(std::string name){
-      return name.append("_").append(std::to_string(rtminfo->curr_layer)).append("_").append(std::to_string(encode_partition));
   }
   void init_blockinfo()
   {
@@ -545,7 +542,7 @@ public:
     }
   }
 
-  /////////////////////////add by wangqg
+  /////////////////////////add by 
   template <typename T>
   void fill_vertex_array_long(T *array, T value, size_t length)
   { //fill_vertex_array
@@ -2264,8 +2261,6 @@ public:
 
     if (local_send_buffer[t_i]->count == local_send_buffer_limit)
     {
-      ///local_send_buffer[t_i]->count = 0;
-      //printf("mesage %d %d\n", sizeofM<float>(f_size), local_send_buffer_limit);
       flush_local_send_buffer_buffer(t_i, f_size);
       //flush_local_send_buffer<M>(t_i);
     }
@@ -2285,9 +2280,11 @@ public:
     }
   }
 
-  template <typename R, typename M>
-  R process_edges(std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                  std::function<R(VertexId, M)> dense_slot,
+  
+    template <typename R, typename M>
+  R process_edges_forward(std::function<void(VertexId, VertexAdjList<EdgeData>,VertexId)> dense_signal,
+                  std::function<R(VertexId, M*)> dense_slot,
+                  int feature_size,
                   Bitmap *active,
                   Bitmap *dense_selective = nullptr)
   {
@@ -2297,7 +2294,7 @@ public:
 
     for (int t_i = 0; t_i < threads; t_i++)
     {
-      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
+      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
       local_send_buffer[t_i]->count = 0;
     }
     R reducer = 0;
@@ -2305,8 +2302,8 @@ public:
     {
       for (int s_i = 0; s_i < sockets; s_i++)
       {
-        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        recv_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * owned_vertices * sockets);
+        send_buffer[i][s_i]->resize_pinned(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
         send_buffer[i][s_i]->count = 0;
         recv_buffer[i][s_i]->count = 0;
       }
@@ -2370,7 +2367,7 @@ public:
           int i = send_queue[step];
           for (int s_i = 0; s_i < sockets; s_i++)
           {
-            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+            MPI_Send(send_buffer[i][s_i]->data, sizeofM<M>(feature_size) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
           }
         }
       });
@@ -2386,7 +2383,7 @@ public:
               MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
               MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
               MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
+              recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
             }
           },
                                i);
@@ -2434,7 +2431,8 @@ public:
             for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
             {
               VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, 
+                      incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index),thread_id);
             }
           }
           thread_state[thread_id]->status = STEALING;
@@ -2455,7 +2453,8 @@ public:
               for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
               {
                 VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index,
+                        incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index),thread_id);
               }
             }
           }
@@ -2463,7 +2462,7 @@ public:
 #pragma omp parallel for
         for (int t_i = 0; t_i < threads; t_i++)
         {
-          flush_local_send_buffer<M>(t_i);
+           flush_local_send_buffer_buffer(t_i, feature_size);
         }
         if (i != partition_id)
         {
@@ -2514,7 +2513,7 @@ public:
           R local_reducer = 0;
           int thread_id = omp_get_thread_num();
           int s_i = get_socket_id(thread_id);
-          MsgUnit<M> *buffer = (MsgUnit<M> *)used_buffer[s_i]->data;
+          char* buffer = used_buffer[s_i]->data;
           while (true)
           {
             VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
@@ -2528,8 +2527,9 @@ public:
             }
             for (b_i = begin_b_i; b_i < end_b_i; b_i++)
             {
-              VertexId v_i = buffer[b_i].vertex;
-              M msg_data = buffer[b_i].msg_data;
+              long index= (long)b_i*(sizeof(M)*(feature_size)+sizeof(VertexId));
+              VertexId v_i = *((VertexId*)(buffer+index));
+              M* msg_data = (M*)(buffer+index+sizeof(VertexId));
               local_reducer += dense_slot(v_i, msg_data);
             }
           }
@@ -2556,562 +2556,294 @@ public:
 #endif
     return global_reducer;
   }
-
-  template <typename R, typename M>
-  R process_edges_simple(std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                         std::function<R(VertexId, M)> dense_slot,
-                         Bitmap *active = nullptr,
-                         Bitmap *dense_selective = nullptr)
-  {
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-
-    double compute_time = 0;
-    compute_time -= MPI_Wtime();
-    for (int t_i = 0; t_i < threads; t_i++)
-    {
-      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
-      local_send_buffer[t_i]->count = 0;
-    }
-    R reducer = 0;
-    for (int i = 0; i < partitions; i++)
-    {
-      for (int s_i = 0; s_i < sockets; s_i++)
-      {
-        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
-        send_buffer[i][s_i]->count = 0;
-        recv_buffer[i][s_i]->count = 0;
-      }
-    } //init the send and receive buffer
-    size_t basic_chunk = 64;
-    {
-      // dense selective bitmap
-      if (dense_selective != nullptr && partitions > 1)
-      {
-        double sync_time = 0;
-        sync_time -= get_time();
-        std::thread send_thread([&]() {
-          for (int step = 1; step < partitions; step++)
-          {
-            int recipient_id = (partition_id + step) % partitions;
-            MPI_Send(dense_selective->data + WORD_OFFSET(partition_offset[partition_id]), owned_vertices / 64, MPI_UNSIGNED_LONG, recipient_id, PassMessage, MPI_COMM_WORLD);
-          }
-        });
-        std::thread recv_thread([&]() {
-          for (int step = 1; step < partitions; step++)
-          {
-            int sender_id = (partition_id - step + partitions) % partitions;
-            MPI_Recv(dense_selective->data + WORD_OFFSET(partition_offset[sender_id]), (partition_offset[sender_id + 1] - partition_offset[sender_id]) / 64, MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-          }
-        });
-        send_thread.join();
-        recv_thread.join();
-        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
-        sync_time += get_time();
-      }
-#ifdef PRINT_DEBUG_MESSAGES
-      if (partition_id == 0)
-      {
-        printf("dense mode\n");
-      }
-#endif
-      int *send_queue = new int[partitions];
-      int *recv_queue = new int[partitions];
-      volatile int send_queue_size = 0;
-      volatile int recv_queue_size = 0;
-      std::mutex send_queue_mutex;
-      std::mutex recv_queue_mutex;
-
-      std::thread send_thread([&]() {
-        for (int step = 0; step < partitions; step++)
-        {
-          if (step == partitions - 1)
-          {
-            break;
-          }
-          while (true)
-          {
-            send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
-            send_queue_mutex.unlock();
-            if (!condition)
-              break;
-            __asm volatile("pause" ::
-                               : "memory");
-          }
-          int i = send_queue[step];
-          for (int s_i = 0; s_i < sockets; s_i++)
-          {
-            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
-          }
-        }
-      });
-      std::thread recv_thread([&]() {
-        std::vector<std::thread> threads;
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads.emplace_back([&](int i) {
-            for (int s_i = 0; s_i < sockets; s_i++)
-            {
-              MPI_Status recv_status;
-              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
-              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
-              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
-            }
-          },
-                               i);
-        }
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads[step - 1].join();
-          recv_queue[recv_queue_size] = i;
-          recv_queue_mutex.lock();
-          recv_queue_size += 1;
-          recv_queue_mutex.unlock();
-        }
-        recv_queue[recv_queue_size] = partition_id;
-        recv_queue_mutex.lock();
-        recv_queue_size += 1;
-        recv_queue_mutex.unlock();
-      });
-      current_send_part_id = partition_id;
-      for (int step = 0; step < partitions; step++)
-      {
-        current_send_part_id = (current_send_part_id + 1) % partitions;
-        int i = current_send_part_id;
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
-          //          printf("Range %d\t%d\n",tuned_chunks_dense[i][t_i].curr,tuned_chunks_dense[i][t_i].end);
-        }
-
-#pragma omp parallel
-        {
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          VertexId final_p_v_i = thread_state[thread_id]->end;
-          //          if(partition_id==1){
-          //              printf("%d\n",thread_state[thread_id]->end);
-          //          }
-          while (true)
-          {
-            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (begin_p_v_i >= final_p_v_i)
-              break;
-            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-            if (end_p_v_i > final_p_v_i)
-            {
-              end_p_v_i = final_p_v_i;
-            }
-            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-            {
-              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-            }
-          }
-          thread_state[thread_id]->status = STEALING;
-          for (int t_offset = 1; t_offset < threads; t_offset++)
-          {
-            int t_i = (thread_id + t_offset) % threads;
-            int s_i = get_socket_id(t_i);
-            while (thread_state[t_i]->status != STEALING)
-            {
-              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
-              if (begin_p_v_i >= thread_state[t_i]->end)
-                break;
-              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-              if (end_p_v_i > thread_state[t_i]->end)
-              {
-                end_p_v_i = thread_state[t_i]->end;
-              }
-              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-              {
-                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-              }
-            }
-          }
-        }
-#pragma omp parallel for
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          flush_local_send_buffer<M>(t_i);
-        }
-        if (i != partition_id)
-        {
-          send_queue[send_queue_size] = i;
-          send_queue_mutex.lock();
-          send_queue_size += 1;
-          send_queue_mutex.unlock();
-        }
-      }
-      compute_time += MPI_Wtime();
-      all_compute_time += compute_time;
-      double overlap_time = 0;
-      overlap_time -= MPI_Wtime();
-      for (int step = 0; step < partitions; step++)
-      {
-        while (true)
-        {
-          recv_queue_mutex.lock();
-          bool condition = (recv_queue_size <= step);
-          recv_queue_mutex.unlock();
-          if (!condition)
-            break;
-          __asm volatile("pause" ::
-                             : "memory");
-        }
-        int i = recv_queue[step];
-        MessageBuffer **used_buffer;
-        if (i == partition_id)
-        {
-          used_buffer = send_buffer[i];
-        }
-        else
-        {
-          used_buffer = recv_buffer[i];
-        }
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          int s_i = get_socket_id(t_i);
-          int s_j = get_socket_offset(t_i);
-          VertexId partition_size = used_buffer[s_i]->count;
-          thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
-          thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
-          if (s_j == threads_per_socket - 1)
-          {
-            thread_state[t_i]->end = used_buffer[s_i]->count;
-          }
-          thread_state[t_i]->status = WORKING;
-        }
-#pragma omp parallel reduction(+ \
-                               : reducer)
-        {
-          R local_reducer = 0;
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          MsgUnit<M> *buffer = (MsgUnit<M> *)used_buffer[s_i]->data;
-          while (true)
-          {
-            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (b_i >= thread_state[thread_id]->end)
-              break;
-            VertexId begin_b_i = b_i;
-            VertexId end_b_i = b_i + basic_chunk;
-            if (end_b_i > thread_state[thread_id]->end)
-            {
-              end_b_i = thread_state[thread_id]->end;
-            }
-            for (b_i = begin_b_i; b_i < end_b_i; b_i++)
-            {
-              VertexId v_i = buffer[b_i].vertex;
-              M msg_data = buffer[b_i].msg_data;
-              local_reducer += dense_slot(v_i, msg_data);
-            }
-          }
-          thread_state[thread_id]->status = STEALING;
-          reducer += local_reducer;
-        }
-      }
-      overlap_time += MPI_Wtime();
-      all_overlap_time += overlap_time;
-      double wait_time = 0;
-      wait_time -= MPI_Wtime();
-      send_thread.join();
-      recv_thread.join();
-      wait_time += MPI_Wtime();
-      all_wait_time += wait_time;
-      delete[] send_queue;
-      delete[] recv_queue;
-      //      printf("con%d_%d\n",con,partition_offset[1]);
-    }
-
-    R global_reducer;
-    MPI_Datatype dt = get_mpi_data_type<R>();
-    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
-    stream_time += MPI_Wtime();
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
-  }
-
-  template <typename R, typename M>
-  R process_edges_with_GPU_aggregator(std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                      float *local_data_buffer, int feature_size,
-                                      Bitmap *active,
-                                      Bitmap *dense_selective = nullptr)
-  {
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-
-    double compute_time = 0;
-    compute_time -= MPI_Wtime();
-    for (int t_i = 0; t_i < threads; t_i++)
-    {
-      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
-      local_send_buffer[t_i]->count = 0;
-    }
-    int max_recv_buffer_size = partition_offset[1] - partition_offset[0];
-    for (int i = 0; i < partitions; i++)
-    {
-      for (int s_i = 0; s_i < sockets; s_i++)
-      {
-        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
-        send_buffer[i][s_i]->count = 0;
-        recv_buffer[i][s_i]->count = 0;
-        max_recv_buffer_size = std::max(max_recv_buffer_size, (int)(partition_offset[i + 1] - partition_offset[i]));
-      }
-    } //init the send and receive buffer
-    size_t basic_chunk = 64;
-    {
-#ifdef PRINT_DEBUG_MESSAGES
-      if (partition_id == 0)
-      {
-        printf("dense mode\n");
-      }
-#endif
-      int *send_queue = new int[partitions];
-      int *recv_queue = new int[partitions];
-      volatile int send_queue_size = 0;
-      volatile int recv_queue_size = 0;
-      std::mutex send_queue_mutex;
-      std::mutex recv_queue_mutex;
-
-      std::thread send_thread([&]() {
-        for (int step = 0; step < partitions; step++)
-        {
-          if (step == partitions - 1)
-          {
-            break;
-          }
-          while (true)
-          {
-            send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
-            send_queue_mutex.unlock();
-            if (!condition)
-              break;
-            __asm volatile("pause" ::
-                               : "memory");
-          }
-          int i = send_queue[step];
-          for (int s_i = 0; s_i < sockets; s_i++)
-          {
-            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
-          }
-        }
-      });
-      std::thread recv_thread([&]() {
-        std::vector<std::thread> threads;
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads.emplace_back([&](int i) {
-            for (int s_i = 0; s_i < sockets; s_i++)
-            {
-              MPI_Status recv_status;
-              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
-              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
-              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
-            }
-          },
-                               i);
-        }
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-
-          threads[step - 1].join();
-          recv_queue[recv_queue_size] = i;
-          recv_queue_mutex.lock();
-          recv_queue_size += 1;
-          recv_queue_mutex.unlock();
-        }
-        recv_queue[recv_queue_size] = partition_id;
-        recv_queue_mutex.lock();
-        recv_queue_size += 1;
-        recv_queue_mutex.unlock();
-      });
-      current_send_part_id = partition_id;
-      // 这先计算
-      for (int step = 0; step < partitions; step++)
-      {
-        current_send_part_id = (current_send_part_id + 1) % partitions;
-        int i = current_send_part_id;
-        //        if(partition_id==0){
-        //            printf("test current_send_id %d\n",i);
-        //        }
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
-          //          printf("Range %d\t%d\n",tuned_chunks_dense[i][t_i].curr,tuned_chunks_dense[i][t_i].end);
-        }
-        //这后计算.
-#pragma omp parallel
-        {
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          VertexId final_p_v_i = thread_state[thread_id]->end;
-          //          if(partition_id==1){
-          //              printf("%d\n",thread_state[thread_id]->end);
-          //          }
-          while (true)
-          {
-            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (begin_p_v_i >= final_p_v_i)
-              break;
-            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-            if (end_p_v_i > final_p_v_i)
-            {
-              end_p_v_i = final_p_v_i;
-            }
-            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-            {
-              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-            }
-          }
-          thread_state[thread_id]->status = STEALING;
-          for (int t_offset = 1; t_offset < threads; t_offset++)
-          {
-            int t_i = (thread_id + t_offset) % threads;
-            int s_i = get_socket_id(t_i);
-            while (thread_state[t_i]->status != STEALING)
-            {
-              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
-              if (begin_p_v_i >= thread_state[t_i]->end)
-                break;
-              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-              if (end_p_v_i > thread_state[t_i]->end)
-              {
-                end_p_v_i = thread_state[t_i]->end;
-              }
-              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-              {
-                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-              }
-            }
-          }
-        }
-#pragma omp parallel for
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          flush_local_send_buffer<M>(t_i);
-        }
-        if (i != partition_id)
-        {
-          send_queue[send_queue_size] = i;
-          send_queue_mutex.lock();
-          send_queue_size += 1;
-          send_queue_mutex.unlock();
-        }
-      }
-      compute_time += MPI_Wtime();
-      all_compute_time += compute_time;
-      double overlap_time = 0;
-      overlap_time -= MPI_Wtime();
-      float *gpu_memory_buffer = NULL;
-      //GPU based AGGREGATOR
-      //ALLOCATE MEMOPRY
-      allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
-      zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (1 + feature_size));
-
-      for (int step = 0; step < partitions; step++)
-      {
-        int wait_time = 0;
-        wait_time -= MPI_Wtime();
-        while (true)
-        {
-          recv_queue_mutex.lock();
-          bool condition = (recv_queue_size <= step);
-          recv_queue_mutex.unlock();
-          if (!condition)
-            break;
-          __asm volatile("pause" ::
-                             : "memory");
-        }
-        int i = recv_queue[step];
-        MessageBuffer **used_buffer;
-        if (i == partition_id)
-        {
-          used_buffer = send_buffer[i];
-        }
-        else
-        {
-          used_buffer = recv_buffer[i];
-        }
-        wait_time += MPI_Wtime();
-        all_recv_wait_time += wait_time;
-
-        //add GPU_aggregator
-        //copy data to gpu  size: dst:  used_buffer[s_i]->count*(feature_size+1)
-        for (int s_i = 0; s_i < sockets; s_i++)
-        {
-          //    printf("call new aggregator %d\n",used_buffer[s_i]->count);
-          if (used_buffer[s_i]->count > 0)
-          {
-            int recv_copy = 0;
-            recv_copy -= MPI_Wtime();
-            move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1));
-            recv_copy += MPI_Wtime();
-            all_recv_copy_time += recv_copy;
-            //printf("call new engine %d\n",used_buffer[s_i]->count);
-            int recv_kernel = 0;
-            recv_kernel -= MPI_Wtime();
-            aggregate_comm_result(local_data_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[partition_id]);
-            //printf("call new engine %d\n",used_buffer[s_i]->count);
-            recv_kernel += MPI_Wtime();
-            all_recv_kernel_time += recv_kernel;
-          }
-        }
-        //aggregate
-
-        //sync
-      }
-      FreeBuffer(gpu_memory_buffer);
-
-      overlap_time += MPI_Wtime();
-      all_overlap_time += overlap_time;
-      double wait_time = 0;
-      wait_time -= MPI_Wtime();
-      send_thread.join();
-      recv_thread.join();
-      wait_time += MPI_Wtime();
-      all_wait_time += wait_time;
-      delete[] send_queue;
-      delete[] recv_queue;
-      //      printf("con%d_%d\n",con,partition_offset[1]);
-    }
-
-    R global_reducer;
-    MPI_Datatype dt = get_mpi_data_type<R>();
-    stream_time += MPI_Wtime();
-
-    printf("process_edges took %lf (s)\n", stream_time);
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
-  }
-
- 
   
+
+    template <typename R, typename M>
+  R process_edges_backward(
+      std::function<void(VertexId, VertexAdjList<EdgeData>,VertexId)> dense_signal,
+      std::function<R(VertexId, M*)> dense_slot,
+      int feature_size,
+      Bitmap *active,
+      Bitmap *dense_selective = nullptr)
+  {
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+    R reducer = 0;
+
+    for (int i = 0; i < partitions; i++)
+    {
+      for (int s_i = 0; s_i < sockets; s_i++)
+      {
+        recv_buffer[i][s_i]->resize(sizeofM<M>(feature_size) * owned_vertices * sockets);
+        send_buffer[i][s_i]->resize(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        send_buffer[i][s_i]->count = 0;
+        recv_buffer[i][s_i]->count = 0;
+      }
+    } //init the send and receive buffer
+    size_t basic_chunk = 64;
+    {
+      // dense selective bitmap
+      if (dense_selective != nullptr && partitions > 1)
+      {
+        double sync_time = 0;
+        sync_time -= get_time();
+        std::thread send_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int recipient_id = (partition_id + step) % partitions;
+            MPI_Send(dense_selective->data + WORD_OFFSET(partition_offset[partition_id]), owned_vertices / 64, MPI_UNSIGNED_LONG, recipient_id, PassMessage, MPI_COMM_WORLD);
+          }
+        });
+        std::thread recv_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int sender_id = (partition_id - step + partitions) % partitions;
+            MPI_Recv(dense_selective->data + WORD_OFFSET(partition_offset[sender_id]), (partition_offset[sender_id + 1] - partition_offset[sender_id]) / 64, MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          }
+        });
+        send_thread.join();
+        recv_thread.join();
+        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
+        sync_time += get_time();
+#ifdef PRINT_DEBUG_MESSAGES
+        if (partition_id == 0)
+        {
+          printf("sync_time = %lf\n", sync_time);
+        }
+#endif
+      }
+#ifdef PRINT_DEBUG_MESSAGES
+      if (partition_id == 0)
+      {
+        printf("dense mode\n");
+      }
+#endif
+      int *send_queue = new int[partitions];
+      int *recv_queue = new int[partitions];
+      volatile int send_queue_size = 0;
+      volatile int recv_queue_size = 0;
+      std::mutex send_queue_mutex;
+      std::mutex recv_queue_mutex;
+
+      std::thread send_thread([&]() {
+        for (int step = 0; step < partitions; step++)
+        {
+          if (step == partitions - 1)
+          {
+            break;
+          }
+          while (true)
+          {
+            send_queue_mutex.lock();
+            bool condition = (send_queue_size <= step);
+            send_queue_mutex.unlock();
+            if (!condition)
+              break;
+            __asm volatile("pause" ::
+                               : "memory");
+          }
+          int i = send_queue[step];
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[i][s_i]->data, sizeofM<M>(feature_size) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        std::vector<std::thread> threads;
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads.emplace_back([&](int i) {
+            for (int s_i = 0; s_i < sockets; s_i++)
+            {
+              MPI_Status recv_status;
+              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
+            }
+          },
+                               i);
+        }
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads[step - 1].join();
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+        recv_queue[recv_queue_size] = partition_id;
+        recv_queue_mutex.lock();
+        recv_queue_size += 1;
+        recv_queue_mutex.unlock();
+      });
+      current_send_part_id = partition_id;
+      for (int step = 0; step < partitions; step++)
+      {
+        current_send_part_id = (current_send_part_id + 1) % partitions;
+        int i = current_send_part_id;
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          *thread_state[t_i] = tuned_chunks_dense_backward[i][t_i];
+        }
+#pragma omp parallel
+        {
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          VertexId final_p_v_i = thread_state[thread_id]->end;
+          while (true)
+          {
+            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (begin_p_v_i >= final_p_v_i)
+              break;
+            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+            if (end_p_v_i > final_p_v_i)
+            {
+              end_p_v_i = final_p_v_i;
+            }
+            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+            {
+              VertexId v_i = compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+              
+              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] +
+                      compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i]
+                      + compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id);
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          for (int t_offset = 1; t_offset < threads; t_offset++)
+          {
+            int t_i = (thread_id + t_offset) % threads;
+            int s_i = get_socket_id(t_i);
+            while (thread_state[t_i]->status != STEALING)
+            {
+              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
+              if (begin_p_v_i >= thread_state[t_i]->end)
+                break;
+              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+              if (end_p_v_i > thread_state[t_i]->end)
+              {
+                end_p_v_i = thread_state[t_i]->end;
+              }
+              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+              {
+                VertexId v_i = compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] + 
+                        compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i] + 
+                        compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id);
+              }
+            }
+          }
+        }
+#pragma omp parallel for
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          flush_local_send_buffer<M>(t_i);
+        }
+        if (i != partition_id)
+        {
+          send_queue[send_queue_size] = i;
+          send_queue_mutex.lock();
+          send_queue_size += 1;
+          send_queue_mutex.unlock();
+        }
+      }
+      for (int step = 0; step < partitions; step++)
+      {
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          int s_i = get_socket_id(t_i);
+          int s_j = get_socket_offset(t_i);
+          VertexId partition_size = used_buffer[s_i]->count;
+          thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
+          thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
+          if (s_j == threads_per_socket - 1)
+          {
+            thread_state[t_i]->end = used_buffer[s_i]->count;
+          }
+          thread_state[t_i]->status = WORKING;
+        }
+#pragma omp parallel reduction(+ \
+                               : reducer)
+        {
+          R local_reducer = 0;
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          char* buffer = used_buffer[s_i]->data;
+          while (true)
+          {
+            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (b_i >= thread_state[thread_id]->end)
+              break;
+            VertexId begin_b_i = b_i;
+            VertexId end_b_i = b_i + basic_chunk;
+            if (end_b_i > thread_state[thread_id]->end)
+            {
+              end_b_i = thread_state[thread_id]->end;
+            }
+            for (b_i = begin_b_i; b_i < end_b_i; b_i++)
+            {
+              long index= (long)b_i*(sizeof(M)*(feature_size)+sizeof(VertexId));
+              VertexId v_i = *((VertexId*)(buffer+index));
+              M* msg_data = (M*)(buffer+index+sizeof(VertexId));
+              local_reducer += dense_slot(v_i, msg_data);
+             
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          reducer += local_reducer;
+        }
+      }
+      send_thread.join();
+      recv_thread.join();
+      delete[] send_queue;
+      delete[] recv_queue;
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+
   template <typename R, typename M>
-  R compute_sync_explict(torch::Tensor &input_gpu_or_cpu,
+  R compute_sync_explict(NtsVar &input_gpu_or_cpu,
                                                          std::vector<CSC_segment_pinned *> &graph_partitions,
                                                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                                          float *local_data_buffer)//backward
@@ -3589,7 +3321,7 @@ public:
   
 
   template <typename R, typename M>
-  R compute_sync_lite(torch::Tensor &input_gpu_or_cpu,
+  R compute_sync_lite(NtsVar &input_gpu_or_cpu,
                                                       std::vector<CSC_segment_pinned *> &graph_partitions,
                                                       std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
                                                       float *local_data_buffer)
@@ -4066,7 +3798,7 @@ public:
     
     // process edges
   template <typename R, typename M>
-  R sync_compute(torch::Tensor &input_gpu_or_cpu,
+  R sync_compute(NtsVar &input_gpu_or_cpu,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
                  float *local_data_buffer)
@@ -4309,16 +4041,15 @@ public:
     return global_reducer;
   }
   
-  
-  
+ 
       // process edges
   template <typename R, typename M>
-  R sync_compute_edge_computation(torch::Tensor &input_origin,//forward computation
+  R sync_compute_edge_computation(NtsVar &input_origin,//forward computation
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
-                 std::function<torch::Tensor(torch::Tensor&)> PreComputation,
-                 std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,NtsScheduler* nts)> EdgeComputation,
-                 torch::Tensor &output)
+                 std::function<NtsVar(NtsVar&)> PreComputation,
+                 std::function<NtsVar(NtsVar&,NtsVar&,NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeComputation,
+                 NtsVar &output)
   {
     
       
@@ -4367,7 +4098,7 @@ public:
     Cuda_Stream *cuda_stream = new Cuda_Stream();
     allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
     allocate_gpu_buffer(&gpu_input_buffer, max_partition_size * (feature_size+1));
-    torch::Tensor input_transferred=PreComputation(input_origin);
+    NtsVar input_transferred=PreComputation(input_origin);
     
     {  
       int *send_queue = new int[partitions];
@@ -4463,7 +4194,7 @@ public:
             //printf("partition offset %d %d\n",partition_offset[i],partition_offset[i+1]);
             cuda_stream->deSerializeToGPU(gpu_input_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[i], partition_offset[i + 1], false);
             // torch::from_blob(graph->in_degree + graph->partition_offset[graph->partition_id], {embedding->rownum, 1});
-            torch::Tensor mirror_inputs=torch::from_blob(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size},at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
+            NtsVar mirror_inputs=Nts->NewKeyTensor(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size});//,at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
             
             Nts->InitBlock(graph_partitions[i],
                               rtminfo,
@@ -4474,8 +4205,8 @@ public:
                               cuda_stream
                              );
             encode_partition=i;// must specify the encode_partition, or the message will be flushed even though call encode function.
-            torch::Tensor mirror_inputs_transferred;
-            torch::Tensor message=  EdgeComputation(mirror_inputs,mirror_inputs_transferred,input_origin,input_transferred,Nts);
+            NtsVar mirror_inputs_transferred;
+            NtsVar message=  EdgeComputation(mirror_inputs,mirror_inputs_transferred,input_origin,input_transferred,Nts);
             Nts->GatherByDstFromSrc(output, mirror_inputs_transferred, message);
             
         }
@@ -4508,14 +4239,14 @@ public:
 
   
     template <typename R, typename M>
-  R compute_sync_edge_computation(torch::Tensor &input_grad,
-                                          torch::Tensor &dst_input,
+  R compute_sync_edge_computation(NtsVar &input_grad,
+                                          NtsVar &dst_input,
                                           std::vector<CSC_segment_pinned *> &graph_partitions,
                                           std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                          std::function<torch::Tensor(torch::Tensor&)> PreComputation,
-                                          std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,torch::Tensor&,torch::Tensor&,NtsScheduler* nts)> EdgeForward,
-                                          std::function<torch::Tensor(torch::Tensor&,torch::Tensor&,NtsScheduler* nts)> EdgeBackward,
-                                          torch::Tensor &output_grad)//backward
+                                          std::function<NtsVar(NtsVar&)> PreComputation,
+                                          std::function<NtsVar(NtsVar&,NtsVar&,NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeForward,
+                                          std::function<NtsVar(NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeBackward,
+                                          NtsVar &output_grad)//backward
   {
 
     int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
@@ -4552,7 +4283,7 @@ public:
     
     
     
-    float *local_data_buffer=output_grad.packed_accessor<float,2>().data();
+    float *local_data_buffer=Nts->getWritableBuffer(output_grad);
             
     float *gpu_memory_buffer = NULL;
     Cuda_Stream *cuda_stream = new Cuda_Stream();
@@ -4561,7 +4292,7 @@ public:
     
     zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
         
-    torch::Tensor dst_input_transferred =PreComputation(dst_input);
+    NtsVar dst_input_transferred =PreComputation(dst_input);
     
     
     size_t basic_chunk = 64;
@@ -4656,16 +4387,16 @@ public:
                                 current_send_part_id,
                                  layer_,
                                   cuda_stream); 
-            torch::Tensor src_input_transferred;//mark
-            torch::Tensor src_input;
-            torch::Tensor message=EdgeForward(src_input,src_input_transferred,dst_input,dst_input_transferred,Nts);
+            NtsVar src_input_transferred;//mark
+            NtsVar src_input;
+            NtsVar message=EdgeForward(src_input,src_input_transferred,dst_input,dst_input_transferred,Nts);
             
-            torch::Tensor src_inter_grad=Nts->NewLeafTensor(src_input_transferred);
-            torch::Tensor message_grad=Nts->NewLeafTensor(message);
+            NtsVar src_inter_grad=Nts->NewLeafTensor(src_input_transferred);
+            NtsVar message_grad=Nts->NewLeafTensor(message);
             
             Nts->GatherBySrcFromDst(src_inter_grad,input_grad,message);//4->3
             Nts->BackwardScatterGradBackToWeight(src_input_transferred, input_grad, message_grad);//4-2
-            torch::Tensor src_grad=EdgeBackward(message_grad,src_inter_grad,Nts); //(2,3)->1
+            NtsVar src_grad=EdgeBackward(message_grad,src_inter_grad,Nts); //(2,3)->1
             Nts->MoveResultOut(output_cpu_buffer,src_grad);
             
             cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
@@ -4831,435 +4562,7 @@ public:
 #endif
     return global_reducer;
   }
-
-
     
-    
-  
- 
-  template <typename R, typename M>
-  R compute_and_sync_with_GPU_aggregator_overlap(torch::Tensor &input_gpu_or_cpu,
-                                                 std::vector<CSC_segment_pinned *> &graph_partitions,
-                                                 std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                                                 float *local_data_buffer,
-                                                 int feature_size, bool process_local = false, int layer_ = 0, bool process_overlap = false)
-  {
-
-    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
-
-    if (partition_id == 0)
-    {
-      printf("layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
-    }
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-    //    printf("initialize not been finished %d\n", partition_id);
-    double compute_time = 0;
-    compute_time -= MPI_Wtime();
-    for (int t_i = 0; t_i < threads; t_i++)
-    {
-      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
-      local_send_buffer[t_i]->count = 0;
-    }
-    size_t max_recv_buffer_size = owned_vertices * sockets;
-    for (int i = 0; i < partitions; i++)
-    {
-      for (int s_i = 0; s_i < sockets; s_i++)
-      {
-        recv_buffer[i][s_i]->resize_pinned(sizeof(MsgUnit<M>) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize_pinned(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
-        send_buffer[i][s_i]->count = 0;
-        recv_buffer[i][s_i]->count = 0;
-        //max_recv_buffer_size = std::max(max_recv_buffer_size, (int)(partition_offset[i + 1] - partition_offset[i]));
-      }
-    } //init the send and receive buffer
-    //  printf("initialize send buffer finished %d\n", partition_id);
-    float *gpu_memory_buffer = NULL;
-    VertexId *index_gpu_input = NULL;
-    //index_gpu_input=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    VertexId *index_gpu_output = NULL;
-    //index_gpu_output=(VertexId*)cudaMallocGPU(vertices*sizeof(VertexId));
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
-    allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
-    zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));
-
-    size_t max_dstrange = 0, max_edge_size = 0;
-    for (int i = 0; i < graph_partitions.size(); i++)
-    {
-      max_edge_size = std::max(max_edge_size, (size_t)(graph_partitions[i]->edge_size));
-      max_dstrange = std::max(max_dstrange, (size_t)(graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0]));
-    };
-
-    weight_gpu_intergate = (float *)cudaMallocGPU(max_edge_size * sizeof(float));
-    row_indices_intergate = (VertexId *)cudaMallocGPU(max_edge_size * sizeof(VertexId));
-    column_offset_intergate = (VertexId *)cudaMallocGPU((max_dstrange + 1) * sizeof(VertexId));
-
-    VertexId *src;
-    VertexId *dst;
-    float *weight;
-
-    if (process_local)
-    {
-      index_gpu_output = (VertexId *)cudaMallocGPU(vertices * sizeof(VertexId));
-      index_gpu_input = (VertexId *)cudaMallocGPU(vertices * sizeof(VertexId));
-      graph_rep[layer_].rep_feature_gpu_buffer = (float *)cudaMallocGPU(((long)sizeof(float)) * graph_rep[layer_].rep_node_size * graph_rep[layer_].feature_size + 1);
-      src = (VertexId *)cudaMallocGPU(sizeof(VertexId) * graph_rep[layer_].rep_edge_size + 1);
-      dst = (VertexId *)cudaMallocGPU(sizeof(VertexId) * graph_rep[layer_].rep_edge_size + 1);
-      weight = (float *)cudaMallocGPU(sizeof(float) * graph_rep[layer_].rep_edge_size + 1);
-    }
-    size_t basic_chunk = 64;
-    {
-#ifdef PRINT_DEBUG_MESSAGES
-      if (partition_id == 0)
-      {
-        printf("dense mode\n");
-      }
-#endif
-      int *send_queue = new int[partitions];
-      int *recv_queue = new int[partitions];
-      volatile int send_queue_size = 0;
-      volatile int recv_queue_size = 0;
-      std::mutex send_queue_mutex;
-      std::mutex recv_queue_mutex;
-
-      std::thread send_thread([&]() {
-        for (int step = 0; step < partitions; step++)
-        {
-          if (step == partitions - 1)
-          {
-            break;
-          }
-          while (true)
-          {
-            send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
-            send_queue_mutex.unlock();
-            if (!condition)
-              break;
-            __asm volatile("pause" ::
-                               : "memory");
-          }
-          int i = send_queue[step];
-          for (int s_i = 0; s_i < sockets; s_i++)
-          {
-            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
-          }
-        }
-      });
-      std::thread recv_thread([&]() {
-        std::vector<std::thread> threads;
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads.emplace_back([&](int i) {
-            for (int s_i = 0; s_i < sockets; s_i++)
-            {
-              MPI_Status recv_status;
-              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
-              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
-              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
-            }
-          },
-                               i);
-        }
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-
-          threads[step - 1].join();
-          recv_queue[recv_queue_size] = i;
-          recv_queue_mutex.lock();
-          recv_queue_size += 1;
-          recv_queue_mutex.unlock();
-        }
-        recv_queue[recv_queue_size] = partition_id;
-        recv_queue_mutex.lock();
-        recv_queue_size += 1;
-        recv_queue_mutex.unlock();
-      });
-
-      if (process_overlap)
-      {
-
-        //pipeline
-        current_send_part_id = partition_id;
-
-        double cuda_sync_time = 0;
-        cuda_sync_time -= MPI_Wtime();
-        forward_gpu_CSC_partition(
-            input_gpu_or_cpu,
-            graph_partitions,
-            feature_size,
-            (current_send_part_id + 1) % partitions,
-            cuda_stream);
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        cuda_sync_time += MPI_Wtime();
-        this->all_cuda_sync_time += cuda_sync_time;
-      }
-      else
-      {
-
-        //no pipeline
-        for (int step = 0; step < partitions; step++)
-        {
-          //pipeline
-          //current_send_part_id = partition_id;
-          //no pipeline
-          current_send_part_id = (current_send_part_id + 1) % partitions;
-          double cuda_sync_time = 0;
-          cuda_sync_time -= MPI_Wtime();
-
-          forward_gpu_CSC_partition(
-              input_gpu_or_cpu,
-              graph_partitions,
-              feature_size,
-              (current_send_part_id + 1) % partitions,
-              cuda_stream);
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-
-          //no pipeline
-          cuda_sync_time += MPI_Wtime();
-          this->all_cuda_sync_time += cuda_sync_time;
-          //no pipeline
-        }
-      }
-      //printf("initialize send buffer finished %d\n", partition_id);
-
-      for (int step = 0; step < partitions; step++)
-      {
-        current_send_part_id = (current_send_part_id + 1) % partitions;
-        int i = current_send_part_id;
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
-        }
-        //这后计算.
-
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        //free_all_tmp();
-        if (current_send_part_id != partition_id)
-        {
-          printf("overlap\n");
-          double cuda_sync_time = 0;
-          cuda_sync_time -= MPI_Wtime();
-          if (process_overlap)
-          {
-            forward_gpu_CSC_partition(
-                input_gpu_or_cpu,
-                graph_partitions,
-                feature_size,
-                (current_send_part_id + 1) % partitions,
-                cuda_stream);
-          }
-          //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-          cuda_sync_time += MPI_Wtime();
-          this->all_cuda_sync_time += cuda_sync_time;
-        }
-        else
-        {
-          if (process_overlap)
-          {
-            double replication_time = 0;
-            replication_time -= MPI_Wtime();
-            if (process_local)
-            {
-              // if (partition_id == 0)
-              //  printf("process_replicate %d on layer %d\n", replication_threshold, layer_);
-              //MPI_Barrier(MPI_COMM_WORLD);
-              forward_gpu_local(graph_rep, local_data_buffer, cuda_stream, src, dst, weight, index_gpu_input, index_gpu_output, feature_size, layer_);
-              //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            }
-            replication_time += MPI_Wtime();
-            //MPI_Barrier(MPI_COMM_WORLD);
-            all_replication_time += replication_time;
-          }
-        }
-
-#pragma omp parallel
-        {
-          //printf("DEBUGstart%d\n",partition_id);
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          VertexId final_p_v_i = thread_state[thread_id]->end;
-
-          //printf("DEBUG %d %d %d %d\n",thread_state[thread_id]->end,s_i,thread_id,partition_id);
-
-          while (true)
-          {
-            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (begin_p_v_i >= final_p_v_i)
-              break;
-            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-            if (end_p_v_i > final_p_v_i)
-            {
-              end_p_v_i = final_p_v_i;
-            }
-            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-            {
-              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-            }
-          }
-          //  printf("Send initial has been finished %d\n", partition_id);
-          thread_state[thread_id]->status = STEALING;
-          for (int t_offset = 1; t_offset < threads; t_offset++)
-          {
-            int t_i = (thread_id + t_offset) % threads;
-            int s_i = get_socket_id(t_i);
-            while (thread_state[t_i]->status != STEALING)
-            {
-              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
-              if (begin_p_v_i >= thread_state[t_i]->end)
-                break;
-              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-              if (end_p_v_i > thread_state[t_i]->end)
-              {
-                end_p_v_i = thread_state[t_i]->end;
-              }
-              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-              {
-                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
-              }
-            }
-          }
-        }
-        //  printf("Send start %d\n", partition_id);
-#pragma omp parallel for
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          flush_local_send_buffer<M>(t_i);
-        }
-        if (i != partition_id)
-        {
-          //           for (int s_i=0;s_i<sockets;s_i++) {
-          //            send_buffer[i][s_i]->count=(partition_offset[i+1] - partition_offset[i]);
-          //          }
-          send_queue[send_queue_size] = i;
-          send_queue_mutex.lock();
-          send_queue_size += 1;
-          send_queue_mutex.unlock();
-        }
-      }
-
-      compute_time += MPI_Wtime();
-      all_compute_time += compute_time;
-
-      double overlap_time = 0;
-      overlap_time -= MPI_Wtime();
-      // //process_local
-      for (int step = 0; step < partitions; step++)
-      {
-        int wait_time = 0;
-        wait_time -= MPI_Wtime();
-        while (true)
-        {
-          recv_queue_mutex.lock();
-          bool condition = (recv_queue_size <= step);
-          recv_queue_mutex.unlock();
-          if (!condition)
-            break;
-          __asm volatile("pause" ::
-                             : "memory");
-        }
-        int i = recv_queue[step];
-        MessageBuffer **used_buffer;
-        if (i == partition_id)
-        {
-          used_buffer = send_buffer[i];
-        }
-        else
-        {
-          used_buffer = recv_buffer[i];
-        }
-        wait_time += MPI_Wtime();
-        all_recv_wait_time += wait_time;
-
-        //add GPU_aggregator
-        //copy data to gpu  size: dst:  used_buffer[s_i]->count*(feature_size+1)
-        for (int s_i = 0; s_i < sockets; s_i++)
-        {
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-          if (used_buffer[s_i]->count > 0)
-          {
-            int recv_copy = 0;
-            recv_copy -= MPI_Wtime();
-            cuda_stream->move_data_in(gpu_memory_buffer, (float *)used_buffer[s_i]->data, 0, used_buffer[s_i]->count, (feature_size + 1), false);
-            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            recv_copy += MPI_Wtime();
-            all_recv_copy_time += recv_copy;
-            int recv_kernel = 0;
-            recv_kernel -= MPI_Wtime();
-            cuda_stream->aggregate_comm_result(local_data_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[partition_id], false);
-            //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-            recv_kernel += MPI_Wtime();
-            all_recv_kernel_time += recv_kernel;
-          }
-        }
-        //aggregate
-
-        //sync
-      }
-      //printf("Send has been finished %d\n", partition_id);
-
-      overlap_time += MPI_Wtime();
-      all_overlap_time += overlap_time;
-
-      send_thread.join();
-      recv_thread.join();
-      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-
-      if (!process_overlap)
-      {
-        double replication_time = 0;
-        replication_time -= MPI_Wtime();
-        if (process_local)
-        {
-          //if (partition_id == 0)
-          //printf("process_replicate %d on layer %d\n", replication_threshold, layer_);
-          //MPI_Barrier(MPI_COMM_WORLD);
-          forward_gpu_local(graph_rep, local_data_buffer, cuda_stream, src, dst, weight, index_gpu_input, index_gpu_output, feature_size, layer_);
-          cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
-        }
-        replication_time += MPI_Wtime();
-        //MPI_Barrier(MPI_COMM_WORLD);
-        all_replication_time += replication_time;
-      }
-
-      //process_local
-      //  double wait_time=0;
-      //  wait_time-=MPI_Wtime();
-      FreeBuffer(gpu_memory_buffer);
-      cuda_stream->destory_Stream();
-      // wait_time+=MPI_Wtime();
-      // all_wait_time+=wait_time;
-
-      delete[] send_queue;
-      delete[] recv_queue;
-      if (process_local)
-      {
-        FreeEdge(src);
-        FreeEdge(dst);
-        FreeBuffer(weight);
-        FreeEdge(index_gpu_input);
-        FreeEdge(index_gpu_output);
-        FreeBuffer(graph_rep[layer_].rep_feature_gpu_buffer);
-      }
-      free_all_tmp();
-      //      printf("con%d_%d\n",con,partition_offset[1]);
-    }
-
-    R global_reducer;
-    stream_time += MPI_Wtime();
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
-  }
   void forward_gpu_local(graph_replication *graph_rep, float *local_data_buffer,
                          Cuda_Stream *cuda_stream, VertexId *src, VertexId *dst, float *weight, VertexId *index, VertexId *index_output, int feature_size, int layer_)
   {
@@ -5382,7 +4685,7 @@ public:
                                     src_start, src_end, dst_start, dst_end,
                                     graph_partitions[current_send_partition_id]->edge_size,
                                     graph_partitions[current_send_partition_id]->batch_size,
-                                    feature_size, false);
+                                    feature_size, rtminfo->with_weight);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
     all_kernel_time += kernel_time;
@@ -5402,7 +4705,7 @@ public:
   }
   
     void forward_gpu_CSC_partition(
-      torch::Tensor input_gpu_or_cpu,
+      NtsVar input_gpu_or_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
       int feature_size,
       int current_send_partition_id,
@@ -5457,16 +4760,15 @@ public:
     // std::cout<<"run one batch"<<std::endl;
     double kernel_time = 0;
     kernel_time -= MPI_Wtime();
-
-    cuda_stream->Gather_By_Dst_From_Src(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
-                                    output_gpu_buffered.packed_accessor<float, 2>().data(),
+    cuda_stream->Gather_By_Dst_From_Src(Nts->getWritableBuffer(input_gpu_or_cpu),
+                                    Nts->getWritableBuffer(output_gpu_buffered),
                                     weight_gpu_intergate, //data
                                     row_indices_intergate,
                                     column_offset_intergate, //graph
                                     src_start, src_end, dst_start, dst_end,
                                     graph_partitions[current_send_partition_id]->edge_size,
                                     graph_partitions[current_send_partition_id]->batch_size,
-                                    feature_size, false);
+                                    feature_size, rtminfo->with_weight);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
     all_kernel_time += kernel_time;
@@ -5475,7 +4777,7 @@ public:
     moveout_time -= MPI_Wtime();
 
     cuda_stream->move_result_out(output_cpu_buffer + (graph_partitions[current_send_partition_id]->dst_range[0] * feature_size),
-                                 output_gpu_buffered.packed_accessor<float, 2>().data(),
+                                 Nts->getWritableBuffer(output_gpu_buffered),
                                  graph_partitions[current_send_partition_id]->dst_range[0],
                                  graph_partitions[current_send_partition_id]->dst_range[1],
                                  feature_size, false);
@@ -5486,7 +4788,7 @@ public:
   }
     
     void backward_gpu_CSR_partition(
-      torch::Tensor input_gpu_or_cpu,
+      NtsVar input_gpu_or_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
       int feature_size,
       int current_send_partition_id,
@@ -5551,7 +4853,7 @@ public:
                                     src_start, src_end, //up
                                     graph_partitions[current_send_partition_id]->edge_size,
                                     graph_partitions[current_send_partition_id]->batch_size_backward,
-                                    feature_size, false);
+                                    feature_size, rtminfo->with_weight);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
     all_kernel_time += kernel_time;
@@ -5570,300 +4872,11 @@ public:
     all_moveout_time += moveout_time;
   }
     
-    
-
   void free_all_tmp()
   {
     FreeEdge(row_indices_intergate);
     FreeEdge(column_offset_intergate);
     FreeBuffer(weight_gpu_intergate);
-  }
-
-  template <typename R, typename M>
-  R process_edges_backward(
-      std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-      std::function<R(VertexId, M)> dense_slot,
-      Bitmap *active,
-      Bitmap *dense_selective = nullptr)
-  {
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-
-    for (int t_i = 0; t_i < threads; t_i++)
-    {
-      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
-      local_send_buffer[t_i]->count = 0;
-    }
-    R reducer = 0;
-    //    EdgeId active_edges = process_vertices<EdgeId>(
-    //      [&](VertexId vtx){
-    //        return (EdgeId)out_degree[vtx];
-    //      },
-    //      active
-    //    );
-    //    bool sparse = false;//(active_edges < edges / 20);
-    for (int i = 0; i < partitions; i++)
-    {
-      for (int s_i = 0; s_i < sockets; s_i++)
-      {
-        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
-        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
-        send_buffer[i][s_i]->count = 0;
-        recv_buffer[i][s_i]->count = 0;
-      }
-    } //init the send and receive buffer
-    size_t basic_chunk = 64;
-    {
-      // dense selective bitmap
-      if (dense_selective != nullptr && partitions > 1)
-      {
-        double sync_time = 0;
-        sync_time -= get_time();
-        std::thread send_thread([&]() {
-          for (int step = 1; step < partitions; step++)
-          {
-            int recipient_id = (partition_id + step) % partitions;
-            MPI_Send(dense_selective->data + WORD_OFFSET(partition_offset[partition_id]), owned_vertices / 64, MPI_UNSIGNED_LONG, recipient_id, PassMessage, MPI_COMM_WORLD);
-          }
-        });
-        std::thread recv_thread([&]() {
-          for (int step = 1; step < partitions; step++)
-          {
-            int sender_id = (partition_id - step + partitions) % partitions;
-            MPI_Recv(dense_selective->data + WORD_OFFSET(partition_offset[sender_id]), (partition_offset[sender_id + 1] - partition_offset[sender_id]) / 64, MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-          }
-        });
-        send_thread.join();
-        recv_thread.join();
-        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
-        sync_time += get_time();
-#ifdef PRINT_DEBUG_MESSAGES
-        if (partition_id == 0)
-        {
-          printf("sync_time = %lf\n", sync_time);
-        }
-#endif
-      }
-#ifdef PRINT_DEBUG_MESSAGES
-      if (partition_id == 0)
-      {
-        printf("dense mode\n");
-      }
-#endif
-      int *send_queue = new int[partitions];
-      int *recv_queue = new int[partitions];
-      volatile int send_queue_size = 0;
-      volatile int recv_queue_size = 0;
-      std::mutex send_queue_mutex;
-      std::mutex recv_queue_mutex;
-
-      std::thread send_thread([&]() {
-        for (int step = 0; step < partitions; step++)
-        {
-          if (step == partitions - 1)
-          {
-            break;
-          }
-          while (true)
-          {
-            send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
-            send_queue_mutex.unlock();
-            if (!condition)
-              break;
-            __asm volatile("pause" ::
-                               : "memory");
-          }
-          int i = send_queue[step];
-          for (int s_i = 0; s_i < sockets; s_i++)
-          {
-            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
-          }
-        }
-      });
-      std::thread recv_thread([&]() {
-        std::vector<std::thread> threads;
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads.emplace_back([&](int i) {
-            for (int s_i = 0; s_i < sockets; s_i++)
-            {
-              MPI_Status recv_status;
-              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
-              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
-              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
-            }
-          },
-                               i);
-        }
-        for (int step = 1; step < partitions; step++)
-        {
-          int i = (partition_id - step + partitions) % partitions;
-          threads[step - 1].join();
-          recv_queue[recv_queue_size] = i;
-          recv_queue_mutex.lock();
-          recv_queue_size += 1;
-          recv_queue_mutex.unlock();
-        }
-        recv_queue[recv_queue_size] = partition_id;
-        recv_queue_mutex.lock();
-        recv_queue_size += 1;
-        recv_queue_mutex.unlock();
-      });
-      current_send_part_id = partition_id;
-      for (int step = 0; step < partitions; step++)
-      {
-        current_send_part_id = (current_send_part_id + 1) % partitions;
-        int i = current_send_part_id;
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          *thread_state[t_i] = tuned_chunks_dense_backward[i][t_i];
-        }
-#pragma omp parallel
-        {
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          VertexId final_p_v_i = thread_state[thread_id]->end;
-          while (true)
-          {
-            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (begin_p_v_i >= final_p_v_i)
-              break;
-            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-            if (end_p_v_i > final_p_v_i)
-            {
-              end_p_v_i = final_p_v_i;
-            }
-            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-            {
-              VertexId v_i = compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
-              //VertexId v_i = this->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
-              // if(v_i==0)
-              //   dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i+1].index));
-              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] + compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i] + compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index));
-            }
-          }
-          thread_state[thread_id]->status = STEALING;
-          for (int t_offset = 1; t_offset < threads; t_offset++)
-          {
-            int t_i = (thread_id + t_offset) % threads;
-            int s_i = get_socket_id(t_i);
-            while (thread_state[t_i]->status != STEALING)
-            {
-              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
-              if (begin_p_v_i >= thread_state[t_i]->end)
-                break;
-              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
-              if (end_p_v_i > thread_state[t_i]->end)
-              {
-                end_p_v_i = thread_state[t_i]->end;
-              }
-              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
-              {
-                VertexId v_i = compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
-                // VertexId v_i = compressed_outgoing_adj_index[s_i][p_v_i].vertex;
-                //  dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i+1].index));
-                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] + compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i] + compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index));
-              }
-            }
-          }
-        }
-#pragma omp parallel for
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          flush_local_send_buffer<M>(t_i);
-        }
-        if (i != partition_id)
-        {
-          send_queue[send_queue_size] = i;
-          send_queue_mutex.lock();
-          send_queue_size += 1;
-          send_queue_mutex.unlock();
-        }
-      }
-      for (int step = 0; step < partitions; step++)
-      {
-        while (true)
-        {
-          recv_queue_mutex.lock();
-          bool condition = (recv_queue_size <= step);
-          recv_queue_mutex.unlock();
-          if (!condition)
-            break;
-          __asm volatile("pause" ::
-                             : "memory");
-        }
-        int i = recv_queue[step];
-        MessageBuffer **used_buffer;
-        if (i == partition_id)
-        {
-          used_buffer = send_buffer[i];
-        }
-        else
-        {
-          used_buffer = recv_buffer[i];
-        }
-        for (int t_i = 0; t_i < threads; t_i++)
-        {
-          int s_i = get_socket_id(t_i);
-          int s_j = get_socket_offset(t_i);
-          VertexId partition_size = used_buffer[s_i]->count;
-          thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
-          thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
-          if (s_j == threads_per_socket - 1)
-          {
-            thread_state[t_i]->end = used_buffer[s_i]->count;
-          }
-          thread_state[t_i]->status = WORKING;
-        }
-#pragma omp parallel reduction(+ \
-                               : reducer)
-        {
-          R local_reducer = 0;
-          int thread_id = omp_get_thread_num();
-          int s_i = get_socket_id(thread_id);
-          MsgUnit<M> *buffer = (MsgUnit<M> *)used_buffer[s_i]->data;
-          while (true)
-          {
-            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-            if (b_i >= thread_state[thread_id]->end)
-              break;
-            VertexId begin_b_i = b_i;
-            VertexId end_b_i = b_i + basic_chunk;
-            if (end_b_i > thread_state[thread_id]->end)
-            {
-              end_b_i = thread_state[thread_id]->end;
-            }
-            for (b_i = begin_b_i; b_i < end_b_i; b_i++)
-            {
-              VertexId v_i = buffer[b_i].vertex;
-              M msg_data = buffer[b_i].msg_data;
-              local_reducer += dense_slot(v_i, msg_data);
-            }
-          }
-          thread_state[thread_id]->status = STEALING;
-          reducer += local_reducer;
-        }
-      }
-      send_thread.join();
-      recv_thread.join();
-      delete[] send_queue;
-      delete[] recv_queue;
-    }
-
-    R global_reducer;
-    MPI_Datatype dt = get_mpi_data_type<R>();
-    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
-    stream_time += MPI_Wtime();
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
   }
 
   void generate_backward_structure()
@@ -6968,6 +5981,565 @@ public:
       graph_rep[0].weight_rep[i] = 1;
     }
   }
+  
+    template <typename R, typename M>
+  R process_edges(std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
+                  std::function<R(VertexId, M)> dense_slot,
+                  Bitmap *active,
+                  Bitmap *dense_selective = nullptr)
+  {
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    int con = 0;
+
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+    R reducer = 0;
+    for (int i = 0; i < partitions; i++)
+    {
+      for (int s_i = 0; s_i < sockets; s_i++)
+      {
+        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
+        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        send_buffer[i][s_i]->count = 0;
+        recv_buffer[i][s_i]->count = 0;
+      }
+    } //init the send and receive buffer
+    size_t basic_chunk = 64;
+    {
+      // dense selective bitmap
+      if (dense_selective != nullptr && partitions > 1)
+      {
+        double sync_time = 0;
+        sync_time -= get_time();
+        std::thread send_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int recipient_id = (partition_id + step) % partitions;
+            MPI_Send(dense_selective->data + WORD_OFFSET(partition_offset[partition_id]), owned_vertices / 64, MPI_UNSIGNED_LONG, recipient_id, PassMessage, MPI_COMM_WORLD);
+          }
+        });
+        std::thread recv_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int sender_id = (partition_id - step + partitions) % partitions;
+            MPI_Recv(dense_selective->data + WORD_OFFSET(partition_offset[sender_id]), (partition_offset[sender_id + 1] - partition_offset[sender_id]) / 64, MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          }
+        });
+        send_thread.join();
+        recv_thread.join();
+        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
+        sync_time += get_time();
+      }
+#ifdef PRINT_DEBUG_MESSAGES
+      if (partition_id == 0)
+      {
+        printf("dense mode\n");
+      }
+#endif
+      int *send_queue = new int[partitions];
+      int *recv_queue = new int[partitions];
+      volatile int send_queue_size = 0;
+      volatile int recv_queue_size = 0;
+      std::mutex send_queue_mutex;
+      std::mutex recv_queue_mutex;
+
+      std::thread send_thread([&]() {
+        for (int step = 0; step < partitions; step++)
+        {
+          if (step == partitions - 1)
+          {
+            break;
+          }
+          while (true)
+          {
+            send_queue_mutex.lock();
+            bool condition = (send_queue_size <= step);
+            send_queue_mutex.unlock();
+            if (!condition)
+              break;
+            __asm volatile("pause" ::
+                               : "memory");
+          }
+          int i = send_queue[step];
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        std::vector<std::thread> threads;
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads.emplace_back([&](int i) {
+            for (int s_i = 0; s_i < sockets; s_i++)
+            {
+              MPI_Status recv_status;
+              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
+            }
+          },
+                               i);
+        }
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads[step - 1].join();
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+        recv_queue[recv_queue_size] = partition_id;
+        recv_queue_mutex.lock();
+        recv_queue_size += 1;
+        recv_queue_mutex.unlock();
+      });
+      current_send_part_id = partition_id;
+      for (int step = 0; step < partitions; step++)
+      {
+        current_send_part_id = (current_send_part_id + 1) % partitions;
+        int i = current_send_part_id;
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
+          //          printf("Range %d\t%d\n",tuned_chunks_dense[i][t_i].curr,tuned_chunks_dense[i][t_i].end);
+        }
+
+#pragma omp parallel
+        {
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          VertexId final_p_v_i = thread_state[thread_id]->end;
+          while (true)
+          {
+            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (begin_p_v_i >= final_p_v_i)
+              break;
+            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+            if (end_p_v_i > final_p_v_i)
+            {
+              end_p_v_i = final_p_v_i;
+            }
+            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+            {
+              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          for (int t_offset = 1; t_offset < threads; t_offset++)
+          {
+            int t_i = (thread_id + t_offset) % threads;
+            int s_i = get_socket_id(t_i);
+            while (thread_state[t_i]->status != STEALING)
+            {
+              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
+              if (begin_p_v_i >= thread_state[t_i]->end)
+                break;
+              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+              if (end_p_v_i > thread_state[t_i]->end)
+              {
+                end_p_v_i = thread_state[t_i]->end;
+              }
+              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+              {
+                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+              }
+            }
+          }
+        }
+#pragma omp parallel for
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          flush_local_send_buffer<M>(t_i);
+        }
+        if (i != partition_id)
+        {
+          send_queue[send_queue_size] = i;
+          send_queue_mutex.lock();
+          send_queue_size += 1;
+          send_queue_mutex.unlock();
+        }
+      }
+      for (int step = 0; step < partitions; step++)
+      {
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          int s_i = get_socket_id(t_i);
+          int s_j = get_socket_offset(t_i);
+          VertexId partition_size = used_buffer[s_i]->count;
+          thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
+          thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
+          if (s_j == threads_per_socket - 1)
+          {
+            thread_state[t_i]->end = used_buffer[s_i]->count;
+          }
+          thread_state[t_i]->status = WORKING;
+        }
+#pragma omp parallel reduction(+ \
+                               : reducer)
+        {
+          R local_reducer = 0;
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          MsgUnit<M> *buffer = (MsgUnit<M> *)used_buffer[s_i]->data;
+          while (true)
+          {
+            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (b_i >= thread_state[thread_id]->end)
+              break;
+            VertexId begin_b_i = b_i;
+            VertexId end_b_i = b_i + basic_chunk;
+            if (end_b_i > thread_state[thread_id]->end)
+            {
+              end_b_i = thread_state[thread_id]->end;
+            }
+            for (b_i = begin_b_i; b_i < end_b_i; b_i++)
+            {
+              VertexId v_i = buffer[b_i].vertex;
+              M msg_data = buffer[b_i].msg_data;
+              local_reducer += dense_slot(v_i, msg_data);
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          reducer += local_reducer;
+        }
+      }
+      send_thread.join();
+      recv_thread.join();
+      delete[] send_queue;
+      delete[] recv_queue;
+      //      printf("con%d_%d\n",con,partition_offset[1]);
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+    
+  template <typename R, typename M>
+  R process_edges_simple(std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
+                         std::function<R(VertexId, M)> dense_slot,
+                         Bitmap *active = nullptr,
+                         Bitmap *dense_selective = nullptr)
+  {
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+
+    double compute_time = 0;
+    compute_time -= MPI_Wtime();
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      local_send_buffer[t_i]->resize(sizeof(MsgUnit<M>) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+    R reducer = 0;
+    for (int i = 0; i < partitions; i++)
+    {
+      for (int s_i = 0; s_i < sockets; s_i++)
+      {
+        recv_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * owned_vertices * sockets);
+        send_buffer[i][s_i]->resize(sizeof(MsgUnit<M>) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+        send_buffer[i][s_i]->count = 0;
+        recv_buffer[i][s_i]->count = 0;
+      }
+    } //init the send and receive buffer
+    size_t basic_chunk = 64;
+    {
+      // dense selective bitmap
+      if (dense_selective != nullptr && partitions > 1)
+      {
+        double sync_time = 0;
+        sync_time -= get_time();
+        std::thread send_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int recipient_id = (partition_id + step) % partitions;
+            MPI_Send(dense_selective->data + WORD_OFFSET(partition_offset[partition_id]), owned_vertices / 64, MPI_UNSIGNED_LONG, recipient_id, PassMessage, MPI_COMM_WORLD);
+          }
+        });
+        std::thread recv_thread([&]() {
+          for (int step = 1; step < partitions; step++)
+          {
+            int sender_id = (partition_id - step + partitions) % partitions;
+            MPI_Recv(dense_selective->data + WORD_OFFSET(partition_offset[sender_id]), (partition_offset[sender_id + 1] - partition_offset[sender_id]) / 64, MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          }
+        });
+        send_thread.join();
+        recv_thread.join();
+        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
+        sync_time += get_time();
+      }
+#ifdef PRINT_DEBUG_MESSAGES
+      if (partition_id == 0)
+      {
+        printf("dense mode\n");
+      }
+#endif
+      int *send_queue = new int[partitions];
+      int *recv_queue = new int[partitions];
+      volatile int send_queue_size = 0;
+      volatile int recv_queue_size = 0;
+      std::mutex send_queue_mutex;
+      std::mutex recv_queue_mutex;
+
+      std::thread send_thread([&]() {
+        for (int step = 0; step < partitions; step++)
+        {
+          if (step == partitions - 1)
+          {
+            break;
+          }
+          while (true)
+          {
+            send_queue_mutex.lock();
+            bool condition = (send_queue_size <= step);
+            send_queue_mutex.unlock();
+            if (!condition)
+              break;
+            __asm volatile("pause" ::
+                               : "memory");
+          }
+          int i = send_queue[step];
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[i][s_i]->data, sizeof(MsgUnit<M>) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        std::vector<std::thread> threads;
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads.emplace_back([&](int i) {
+            for (int s_i = 0; s_i < sockets; s_i++)
+            {
+              MPI_Status recv_status;
+              MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+              MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+              MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              recv_buffer[i][s_i]->count /= sizeof(MsgUnit<M>);
+            }
+          },
+                               i);
+        }
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          threads[step - 1].join();
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+        recv_queue[recv_queue_size] = partition_id;
+        recv_queue_mutex.lock();
+        recv_queue_size += 1;
+        recv_queue_mutex.unlock();
+      });
+      current_send_part_id = partition_id;
+      for (int step = 0; step < partitions; step++)
+      {
+        current_send_part_id = (current_send_part_id + 1) % partitions;
+        int i = current_send_part_id;
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          *thread_state[t_i] = tuned_chunks_dense[i][t_i];
+          //          printf("Range %d\t%d\n",tuned_chunks_dense[i][t_i].curr,tuned_chunks_dense[i][t_i].end);
+        }
+
+#pragma omp parallel
+        {
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          VertexId final_p_v_i = thread_state[thread_id]->end;
+          //          if(partition_id==1){
+          //              printf("%d\n",thread_state[thread_id]->end);
+          //          }
+          while (true)
+          {
+            VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (begin_p_v_i >= final_p_v_i)
+              break;
+            VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+            if (end_p_v_i > final_p_v_i)
+            {
+              end_p_v_i = final_p_v_i;
+            }
+            for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+            {
+              VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+              dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          for (int t_offset = 1; t_offset < threads; t_offset++)
+          {
+            int t_i = (thread_id + t_offset) % threads;
+            int s_i = get_socket_id(t_i);
+            while (thread_state[t_i]->status != STEALING)
+            {
+              VertexId begin_p_v_i = __sync_fetch_and_add(&thread_state[t_i]->curr, basic_chunk);
+              if (begin_p_v_i >= thread_state[t_i]->end)
+                break;
+              VertexId end_p_v_i = begin_p_v_i + basic_chunk;
+              if (end_p_v_i > thread_state[t_i]->end)
+              {
+                end_p_v_i = thread_state[t_i]->end;
+              }
+              for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++)
+              {
+                VertexId v_i = compressed_incoming_adj_index[s_i][p_v_i].vertex;
+                dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i].index, incoming_adj_list[s_i] + compressed_incoming_adj_index[s_i][p_v_i + 1].index));
+              }
+            }
+          }
+        }
+#pragma omp parallel for
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          flush_local_send_buffer<M>(t_i);
+        }
+        if (i != partition_id)
+        {
+          send_queue[send_queue_size] = i;
+          send_queue_mutex.lock();
+          send_queue_size += 1;
+          send_queue_mutex.unlock();
+        }
+      }
+      compute_time += MPI_Wtime();
+      all_compute_time += compute_time;
+      double overlap_time = 0;
+      overlap_time -= MPI_Wtime();
+      for (int step = 0; step < partitions; step++)
+      {
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        for (int t_i = 0; t_i < threads; t_i++)
+        {
+          int s_i = get_socket_id(t_i);
+          int s_j = get_socket_offset(t_i);
+          VertexId partition_size = used_buffer[s_i]->count;
+          thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
+          thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
+          if (s_j == threads_per_socket - 1)
+          {
+            thread_state[t_i]->end = used_buffer[s_i]->count;
+          }
+          thread_state[t_i]->status = WORKING;
+        }
+#pragma omp parallel reduction(+ \
+                               : reducer)
+        {
+          R local_reducer = 0;
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          MsgUnit<M> *buffer = (MsgUnit<M> *)used_buffer[s_i]->data;
+          while (true)
+          {
+            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+            if (b_i >= thread_state[thread_id]->end)
+              break;
+            VertexId begin_b_i = b_i;
+            VertexId end_b_i = b_i + basic_chunk;
+            if (end_b_i > thread_state[thread_id]->end)
+            {
+              end_b_i = thread_state[thread_id]->end;
+            }
+            for (b_i = begin_b_i; b_i < end_b_i; b_i++)
+            {
+              VertexId v_i = buffer[b_i].vertex;
+              M msg_data = buffer[b_i].msg_data;
+              local_reducer += dense_slot(v_i, msg_data);
+            }
+          }
+          thread_state[thread_id]->status = STEALING;
+          reducer += local_reducer;
+        }
+      }
+      overlap_time += MPI_Wtime();
+      all_overlap_time += overlap_time;
+      double wait_time = 0;
+      wait_time -= MPI_Wtime();
+      send_thread.join();
+      recv_thread.join();
+      wait_time += MPI_Wtime();
+      all_wait_time += wait_time;
+      delete[] send_queue;
+      delete[] recv_queue;
+      //      printf("con%d_%d\n",con,partition_offset[1]);
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+  
 };
 
 #endif
