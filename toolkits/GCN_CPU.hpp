@@ -149,9 +149,12 @@ void Backward(){
     vertexBackward();
     NtsVar grad_to_Y=Y[i].grad();
     gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
+//        if(graph->partition_id==0){
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[0]<<"X_grad:"<<X_grad[0][0]<<"grad_to_Y:"<<grad_to_Y[0][0]<<std::endl;
+//    }
     }
     for(int i=0;i<P.size()-1;i++){
-        P[i]->all_reduce_to_gradient(P[i]->W.cpu());
+        P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
         P[i]->learnC2C_with_decay(learn_rate,weight_decay);
     }
     

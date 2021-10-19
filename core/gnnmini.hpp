@@ -202,7 +202,7 @@ public:
         std::string str;
         std::ifstream input("cora.content", std::ios::in);
         //std::ofstream outputl("cora.labeltable",std::ios::out);
-       // ID    F   F   F   F   F   F   F   
+       // ID    F   F   F   F   F   F   F   L
         if (!input.is_open())
         {
             //cout<<"open file fail!"<<endl;
@@ -289,9 +289,10 @@ public:
         memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         float* output_buffer=new float[feature_size*graph_->threads];
+        memset(output_buffer,0,sizeof(float)*feature_size*graph_->threads);//=new float[feature_size*graph_->threads];
         graph_->process_edges_forward<int,float>( // For EACH Vertex Processing
             [&](VertexId dst, VertexAdjList<Empty> incoming_adj,VertexId thread_id) {
-                float* local_output_buffer=output_buffer;//+feature_size*thread_id;
+                float* local_output_buffer=output_buffer+feature_size*thread_id;
                 memset(local_output_buffer,0,sizeof(float)*feature_size);
                 for (AdjUnit<Empty> *ptr = incoming_adj.begin; ptr != incoming_adj.end; ptr++)
                 { //pull model
