@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(GNNmini)
-set(CMAKE_PREFIX_PATH "/path/to/GPU_libtorch/libtorch/")
+set(CMAKE_PREFIX_PATH "/home/wangqg/GNNmini/GPU_libtorch/libtorch-1-9/libtorch")
 set(ENV{LANG} "C")
 find_package(MPI REQUIRED)
 find_package(Torch REQUIRED)
@@ -23,16 +23,16 @@ set(EXTRA_LIBS ${EXTRA_LIBS} cuda_propagate)
 
 include_directories(
 ${CMAKE_CURRENT_SOURCE_DIR}
-/path/to/NeutronStar/core
-/path/to/NeutronStar/comm
-/path/to/NeutronStar/cuda
+/home/wangqg/Desktop/de/ded/NeutronStarLite/core
+/home/wangqg/Desktop/de/ded/NeutronStarLite/comm
+/home/wangqg/Desktop/de/ded/NeutronStarLite/cuda
 ${MPI_INCLUDE_PATH}
 )
 set(CMAKE_CXX_FLAGS "-O3 -Wall -std=c++14 -g -fopenmp -march=native")
 add_subdirectory(core)
 
 #add_executable(myfistapp myfistapp.cpp)
-add_executable(myfistapp toolkits/pagerank.cpp)
-target_link_libraries(myfistapp  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} core numa)
+add_executable(nts toolkits/pagerank.cpp)
+target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} core numa)
 
 
