@@ -1,7 +1,7 @@
 #i!/bin/bash
 make -j4
 
-mpiexec -np 2 ./myfistapp ./edge 875713 10 GCN 32-32-16 0 overlap
+mpiexec -np 2 ./nts./edge 875713 10 GCN 32-32-16 0 overlap
 #mpiexec -hostfile hostfile -np $1 ./myfistapp ./edge 875713 $2 $3 $4 $5 $6
 #mpiexec -hostfile hostfile -np $1 ./myfistapp ../LargeData/pokec_edge_binary 1632803 $2 $3 $4 $5 $6
 #mpiexec -hostfile hostfile -np $1 ./myfistapp ./skitter_edge_binary 1696415 $2 $3 $4 $5 $6
