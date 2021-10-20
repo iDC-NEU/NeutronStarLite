@@ -130,6 +130,26 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 				src_start, dst_start, batch_size, feature_size);
         }
 }
+//template <typename T_v,typename T_l>
+//__global__ void scatter_grad_back_to_weight(const T_l *src, const T_l *dst,
+// 		const T_v* input, const T_v* output_grad, T_v* weight_grad,
+// 		T_l src_s_,T_l dst_s_,
+// 		T_l batch_size_, T_l feature_size_)
+
+void Cuda_Stream::Scatter_Grad_Back_To_Weight(float* input,float* output_grad,float* weight_grad,//data 
+        long* src,long *dst,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size,bool sync){
+        const int THREAD_SIZE=128;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=128;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+		scatter_grad_back_to_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+			src, dst, input, output_grad, weight_grad, 
+				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
+
+}
 
 void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,float* weight_forward,//data 
         VertexId_CUDA* src,VertexId_CUDA *dst,//graph
