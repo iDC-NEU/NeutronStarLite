@@ -282,6 +282,38 @@ public:
                     (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
                     
     }
+    
+    void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &graph_partitions)
+    {
+        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        
+//        std::vector<CSC_segment_pinned *> &graph_partitions,
+//                                int feature_size,
+//                                Bitmap *active, 
+        graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+            [&](VertexId src) {
+                    graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                },
+            [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
+                VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
+                for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
+                    VertexId src=subgraph->row_indices[idx];
+                    VertexId src_trans=src-graph_->partition_offset[recv_id];
+                    float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
+                    float* local_output=Y_buffer+dst_trans*feature_size;
+                    comp(local_input,local_output,norm_degree(src,dst),feature_size);
+                }
+            },
+            graph_partitions,
+            feature_size,
+            active_);
+    }
+    
+    
+    
     void PropagateForwardCPU(NtsVar &X, NtsVar &Y)
     {
         float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
@@ -524,37 +556,34 @@ public:
        Process_GPU_overlap_explict(X,Y,graph_partitions);
        
     }
-   void generate_Forward_Segment_Tensor_pinned(std::vector<CSC_segment_pinned *> &graph_partitions, bool overlap = false)
+   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, bool overlap = false)
     {
         graph_partitions.clear();
         int *tmp_column_offset = new int[graph_->vertices + 1];
         int *tmp_row_offset=new int[graph_->vertices + 1];
-        memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));///
-        memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));///
-        //std::cout << graph->graph_shard.size() << " " << std::endl;
-        for (int i = 0; i < graph_->graph_shard.size(); i++)
+        memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));//
+        memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));//
+        for (int i = 0; i < graph_->graph_shard_in.size(); i++)
         {
             //int i=0;
             graph_partitions.push_back(new CSC_segment_pinned);
             memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
             memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
-            graph_partitions[i]->edge_size = graph_->graph_shard[i]->numofedges;
-            graph_partitions[i]->dst_range[0] = graph_->graph_shard[i]->src_range[0];
-            graph_partitions[i]->dst_range[1] = graph_->graph_shard[i]->src_range[1];
-            graph_partitions[i]->src_range[0] = graph_->graph_shard[i]->dst_range[0];
-            graph_partitions[i]->src_range[1] = graph_->graph_shard[i]->dst_range[1];
-            long column_offset_size = graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0] + 1;
+            graph_partitions[i]->edge_size = graph_->graph_shard_in[i]->numofedges;
+            graph_partitions[i]->dst_range[0] = graph_->graph_shard_in[i]->dst_range[0]; //all src is the same
+            graph_partitions[i]->dst_range[1] = graph_->graph_shard_in[i]->dst_range[1];
+            graph_partitions[i]->src_range[0] = graph_->graph_shard_in[i]->src_range[0]; //all dst is the same
+            graph_partitions[i]->src_range[1] = graph_->graph_shard_in[i]->src_range[1];
             
+            long column_offset_size = graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0] + 1;
             long row_offset_size = graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0] + 1;///
             
-            graph_partitions[i]->batch_size = column_offset_size-1;
             graph_partitions[i]->batch_size_forward = column_offset_size-1;
             graph_partitions[i]->batch_size_backward = row_offset_size-1;
-            
             graph_partitions[i]->feature_size = graph_->gnnctx->layer_size[0];
             graph_partitions[i]->column_offset = (VertexId *)cudaMallocPinned(column_offset_size * sizeof(VertexId));                 //torch::zeros({1,column_offset_size},torch::kInt32);
             graph_partitions[i]->row_indices = (VertexId *)cudaMallocPinned((graph_partitions[i]->edge_size + 1) * sizeof(VertexId));
-            graph_partitions[i]->edge_weight = (float *)cudaMallocPinned((graph_partitions[i]->edge_size + 1) * sizeof(VertexId));
+            graph_partitions[i]->edge_weight_forward = (float *)cudaMallocPinned((graph_partitions[i]->edge_size + 1) * sizeof(VertexId));
             
             graph_partitions[i]->row_offset = (VertexId *)cudaMallocPinned(row_offset_size * sizeof(VertexId));///
             graph_partitions[i]->column_indices = (VertexId *)cudaMallocPinned((graph_partitions[i]->edge_size + 1) * sizeof(VertexId));///
@@ -566,7 +595,7 @@ public:
             
             graph_partitions[i]->column_offset_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->column_offset);
             graph_partitions[i]->row_indices_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->row_indices);
-            graph_partitions[i]->edge_weight_gpu = (float *)getDevicePointer(graph_partitions[i]->edge_weight);
+            graph_partitions[i]->edge_weight_forward_gpu = (float *)getDevicePointer(graph_partitions[i]->edge_weight_forward);
             
             graph_partitions[i]->row_offset_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->row_offset);///
             graph_partitions[i]->column_indices_gpu = (VertexId *)getDevicePointer(graph_partitions[i]->column_indices);///
@@ -576,11 +605,11 @@ public:
             graph_partitions[i]->source_gpu = (long *)getDevicePointer(graph_partitions[i]->source);///
             graph_partitions[i]->destination_gpu = (long *)getDevicePointer(graph_partitions[i]->destination);///
             
-            //   std::cout<<"generate_edge_list"<<column_offset_size<<" "<<std::endl;
+
             for (int j = 0; j < graph_partitions[i]->edge_size; j++)
             {
-                VertexId v_dst_m = graph_->graph_shard[i]->src_delta[j];
-                VertexId v_src_m = graph_->graph_shard[i]->dst_delta[j];
+                VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
+                VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
                 VertexId v_dst   = v_dst_m-graph_partitions[i]->dst_range[0];
                 VertexId v_src   = v_src_m-graph_partitions[i]->src_range[0];
                 
@@ -603,8 +632,8 @@ public:
             for (int j = 0; j < graph_partitions[i]->edge_size; j++)
             {
                 //if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
-                VertexId v_dst_m = graph_->graph_shard[i]->src_delta[j];
-                VertexId v_src_m = graph_->graph_shard[i]->dst_delta[j];
+                VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
+                VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
                 VertexId v_dst   = v_dst_m-graph_partitions[i]->dst_range[0];
                 VertexId v_src   = v_src_m-graph_partitions[i]->src_range[0];
                 
@@ -613,7 +642,7 @@ public:
                 graph_partitions[i]->destination[tmp_column_offset[v_dst]] = (long)(v_dst_m);
                 
                 graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
-                graph_partitions[i]->edge_weight[tmp_column_offset[v_dst]++] = norm_degree(v_src_m,v_dst_m);
+                graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] = norm_degree(v_src_m,v_dst_m);
                             
                 graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m;///
                 graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = norm_degree(v_src_m,v_dst_m);
@@ -623,7 +652,7 @@ public:
             int max_batch_size = 0;
             for (int i = 0; i < graph_partitions.size(); i++)
             {
-                max_batch_size = std::max(max_batch_size, graph_partitions[i]->batch_size);
+                max_batch_size = std::max(max_batch_size, graph_partitions[i]->batch_size_forward);
             }
             graph_->output_gpu_buffered =graph_->Nts->NewLeafTensor({max_batch_size, graph_->gnnctx->max_layer},torch::DeviceType::CUDA);
         }

@@ -169,10 +169,10 @@ public:
   int featureSize;
 
   //graph reorganization
-  COOChunk *_graph_cpu;
-  COOChunk *_graph_cpu_backward;
-  std::vector<COOChunk *> graph_shard;
-  std::vector<COOChunk *> graph_shard_backward;
+  COOChunk *_graph_cpu_in;
+  COOChunk *_graph_cpu_out;
+  std::vector<COOChunk *> graph_shard_in;
+  std::vector<COOChunk *> graph_shard_out;
   std::string filename;
 
   int partition_id;
@@ -267,6 +267,9 @@ public:
 
   float *weight_gpu_intergate;
   NtsVar output_gpu_buffered;
+  
+  //cpu data;
+  std::vector<VertexId>cpu_recv_message_index;
 
   //timer
   double all_wait_time;
@@ -2558,6 +2561,199 @@ public:
   }
   
 
+  // process edges
+  template <typename R, typename M>
+  R process_edges_forward_debug(std::function<void(VertexId)> sparse_signal, 
+                                std::function<void(VertexId, CSC_segment_pinned* ,char* ,std::vector<VertexId>& ,VertexId)> sparse_slot,
+                                std::vector<CSC_segment_pinned *> &graph_partitions,
+                                int feature_size,
+                                Bitmap *active, 
+                                Bitmap *dense_selective = nullptr)
+  {
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    
+    for (int t_i = 0; t_i < threads; t_i++)
+    {
+      local_send_buffer[t_i]->resize(sizeofM<M>(feature_size) * local_send_buffer_limit);
+      local_send_buffer[t_i]->count = 0;
+    }
+    R reducer = 0;
+      for (int i = 0; i < partitions; i++)
+      {
+        for (int s_i = 0; s_i < sockets; s_i++)
+        {
+          recv_buffer[i][s_i]->resize(sizeofM<M>(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+          send_buffer[i][s_i]->resize(sizeofM<M>(feature_size) * owned_vertices * sockets);
+          send_buffer[i][s_i]->count = 0;
+          recv_buffer[i][s_i]->count = 0;
+        }
+      }
+    size_t basic_chunk = 64;
+    {
+      int *recv_queue = new int[partitions];
+      int recv_queue_size = 0;
+      std::mutex recv_queue_mutex;
+      current_send_part_id = partition_id;
+      
+#pragma omp parallel for
+      for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk)
+      {
+        VertexId v_i = begin_v_i;
+        unsigned long word = active->data[WORD_OFFSET(v_i)];
+        while (word != 0)
+        {
+          if (word & 1)
+          {
+            sparse_signal(v_i);
+          }
+          v_i++;
+          word = word >> 1;
+        }
+      }
+#pragma omp parallel for
+      for (int t_i = 0; t_i < threads; t_i++)
+      {
+        this->flush_local_send_buffer_buffer(t_i,feature_size);
+      }
+      recv_queue[recv_queue_size] = partition_id;
+      recv_queue_mutex.lock();
+      recv_queue_size += 1;
+      recv_queue_mutex.unlock();
+      std::thread send_thread([&]() {
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id - step + partitions) % partitions;
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Send(send_buffer[partition_id][s_i]->data, sizeofM<M>(feature_size) * send_buffer[partition_id][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+      });
+      std::thread recv_thread([&]() {
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id + step) % partitions;
+          for (int s_i = 0; s_i < sockets; s_i++)
+          {
+            MPI_Status recv_status;
+            MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+            MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+            MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            recv_buffer[i][s_i]->count /= sizeofM<M>(feature_size);
+          }
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        }
+      });
+      for (int step = 0; step < partitions; step++)
+      {
+        while (true)
+        {
+          recv_queue_mutex.lock();
+          bool condition = (recv_queue_size <= step);
+          recv_queue_mutex.unlock();
+          if (!condition)
+            break;
+          __asm volatile("pause" ::
+                             : "memory");
+        }
+        int i = recv_queue[step];
+        cpu_recv_message_index.resize(partition_offset[i+1]-partition_offset[i]);
+        memset(cpu_recv_message_index.data(),0,sizeof(VertexId)*cpu_recv_message_index.size());
+        MessageBuffer **used_buffer;
+        if (i == partition_id)
+        {
+          used_buffer = send_buffer[i];
+        }
+        else
+        {
+          used_buffer = recv_buffer[i];
+        }
+        for (int s_i = 0; s_i < sockets; s_i++)
+        {
+          char *buffer = used_buffer[s_i]->data;
+          size_t buffer_size = used_buffer[s_i]->count;
+          for (int t_i = 0; t_i < threads; t_i++)
+          {
+            // int s_i = get_socket_id(t_i);
+            int s_j = get_socket_offset(t_i);
+            VertexId partition_size = buffer_size;
+            thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
+            thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
+            if (s_j == threads_per_socket - 1)
+            {
+              thread_state[t_i]->end = buffer_size;
+            }
+            thread_state[t_i]->status = WORKING;
+          }
+#pragma omp parallel reduction(+ \
+                               : reducer)
+          {
+            R local_reducer = 0;
+            int thread_id = omp_get_thread_num();
+            int s_i = get_socket_id(thread_id);
+            while (true)
+            {
+              VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+              if (b_i >= thread_state[thread_id]->end)
+                break;
+              VertexId begin_b_i = b_i;
+              VertexId end_b_i = b_i + basic_chunk;
+              if (end_b_i > thread_state[thread_id]->end)
+              {
+                end_b_i = thread_state[thread_id]->end;
+              }
+              for (b_i = begin_b_i; b_i < end_b_i; b_i++)
+              {
+//                VertexId v_i = buffer[b_i].vertex;
+//                M msg_data = buffer[b_i].msg_data;
+                long index= (long)b_i*sizeofM<M>(feature_size);
+                VertexId v_i = *((VertexId*)(buffer+index));
+                M* msg_data = (M*)(buffer+index+sizeof(VertexId));
+                if (outgoing_adj_bitmap[s_i]->get_bit(v_i))
+                {
+                    VertexId v_trans=v_i-partition_offset[i];
+                    cpu_recv_message_index[v_trans]=b_i;
+                  //local_reducer += sparse_slot(v_i, msg_data, VertexAdjList<EdgeData>(outgoing_adj_list[s_i] + outgoing_adj_index[s_i][v_i], outgoing_adj_list[s_i] + outgoing_adj_index[s_i][v_i + 1]));
+                }
+              }
+            }
+            for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk){
+                VertexId v_i = begin_v_i;
+                unsigned long word = active->data[WORD_OFFSET(v_i)];
+                while (word != 0){
+                    if (word & 1){
+                    sparse_slot(v_i,graph_partitions[i],buffer,cpu_recv_message_index,i);
+                    }
+                    v_i++;
+                    word = word >> 1;
+                }
+            }
+            reducer += local_reducer;
+          }
+        }
+      }
+      send_thread.join();
+      recv_thread.join();
+      delete[] recv_queue;
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+   
     template <typename R, typename M>
   R process_edges_backward(
       std::function<void(VertexId, VertexAdjList<EdgeData>,VertexId)> dense_signal,
@@ -4636,7 +4832,7 @@ public:
     int dst_range = graph_partitions[current_send_partition_id]->dst_range[1] - graph_partitions[current_send_partition_id]->dst_range[0];
 
     cuda_stream->move_data_in(weight_gpu_intergate,
-                              graph_partitions[current_send_partition_id]->edge_weight,
+                              graph_partitions[current_send_partition_id]->edge_weight_forward,
                               0,
                               graph_partitions[current_send_partition_id]->edge_size,
                               1, false);
@@ -4684,7 +4880,7 @@ public:
                                     column_offset_intergate, //graph
                                     src_start, src_end, dst_start, dst_end,
                                     graph_partitions[current_send_partition_id]->edge_size,
-                                    graph_partitions[current_send_partition_id]->batch_size,
+                                    graph_partitions[current_send_partition_id]->batch_size_forward,
                                     feature_size, rtminfo->with_weight);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
@@ -4720,7 +4916,7 @@ public:
     int dst_range = graph_partitions[current_send_partition_id]->dst_range[1] - graph_partitions[current_send_partition_id]->dst_range[0];
 
     cuda_stream->move_data_in(weight_gpu_intergate,
-                              graph_partitions[current_send_partition_id]->edge_weight,
+                              graph_partitions[current_send_partition_id]->edge_weight_forward,
                               0,
                               graph_partitions[current_send_partition_id]->edge_size,
                               1, false);
@@ -4767,7 +4963,7 @@ public:
                                     column_offset_intergate, //graph
                                     src_start, src_end, dst_start, dst_end,
                                     graph_partitions[current_send_partition_id]->edge_size,
-                                    graph_partitions[current_send_partition_id]->batch_size,
+                                    graph_partitions[current_send_partition_id]->batch_size_forward,
                                     feature_size, rtminfo->with_weight);
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
@@ -4886,15 +5082,15 @@ public:
     long bytes_to_read = lseek(fin, 0, SEEK_END);
     long read_bytes = 0;
 
-    for (int i = 0; i < sockets; i++)
-    {
-      numa_free(outgoing_adj_index[i], sizeof(EdgeId) * (vertices + 1));
-      outgoing_adj_bitmap[i]->~Bitmap();
-      numa_free(outgoing_adj_list[i], sizeof(AdjUnit<EdgeData>) * outgoing_edges[i]);
-      numa_free(compressed_outgoing_adj_index[i], sizeof(CompressedAdjIndexUnit) * compressed_outgoing_adj_vertices[i]);
-    }
-    free(outgoing_edges);
-    free(compressed_outgoing_adj_vertices);
+//    for (int i = 0; i < sockets; i++)
+//    {
+//      numa_free(outgoing_adj_index[i], sizeof(EdgeId) * (vertices + 1));
+//      outgoing_adj_bitmap[i]->~Bitmap();
+//      numa_free(outgoing_adj_list[i], sizeof(AdjUnit<EdgeData>) * outgoing_edges[i]);
+//      numa_free(compressed_outgoing_adj_index[i], sizeof(CompressedAdjIndexUnit) * compressed_outgoing_adj_vertices[i]);
+//    }
+//    free(outgoing_edges);
+//    free(compressed_outgoing_adj_vertices);
 
     int start = partition_offset[partition_id];
     int row_num = partition_offset[partition_id + 1] - start;
@@ -5039,8 +5235,6 @@ public:
             {
               incoming_adj_list_backward[s_i][pos].edge_data = read_edge_buffer[e_i].edge_data;
             }
-
-            //    printf("%d %d\t",pos,dst);
           }
         }
       }
@@ -5068,8 +5262,8 @@ public:
       {
         if (incoming_adj_index[i_s][vtx + 1] == 0)
           incoming_adj_index[i_s][vtx + 1] = incoming_adj_index[i_s][vtx];
-        if (incoming_adj_index_backward[i_s][vtx + 1] == 0)
-          incoming_adj_index_backward[i_s][vtx + 1] = incoming_adj_index_backward[i_s][vtx];
+        if (outgoing_adj_index[i_s][vtx + 1] == 0)
+          outgoing_adj_index[i_s][vtx + 1] = outgoing_adj_index[i_s][vtx];
       }
     }
     for (VertexId vtx = 0; vtx < vertices; vtx++)
@@ -5080,161 +5274,80 @@ public:
         out_degree_for_backward[vtx] = 1; //local
     }
 
-    _graph_cpu = new COOChunk();
-    VertexId edge_size = 0; //(VertexId)incoming_adj_index[sockets-1][vertices];
+    _graph_cpu_in = new COOChunk();
+    
+    VertexId edge_size_in=0;
     for (int i = 0; i < sockets; i++)
     {
-      edge_size += (VertexId)incoming_adj_index[i][vertices];
+      edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
     }
-    _graph_cpu->dstList = new VertexId[edge_size];
-    _graph_cpu->srcList = new VertexId[edge_size];
-    _graph_cpu->numofedges = edge_size;
+    
+    _graph_cpu_in->dstList = new VertexId[edge_size_in];
+    _graph_cpu_in->srcList = new VertexId[edge_size_in];
+    _graph_cpu_in->numofedges = edge_size_in;
 
-    int write_position = 0;
-    for (int k = 0; k < sockets; k++)
+    int write_position_in = 0;
+    for (int k = 0; k < sockets; k++){
       for (VertexId vtx = 0; vtx < vertices; vtx++)
       {
-        for (int i = incoming_adj_index[k][vtx]; i < incoming_adj_index[k][vtx + 1]; i++)
+        for (int i = outgoing_adj_index[k][vtx]; i < outgoing_adj_index[k][vtx + 1]; i++)
         {
-          _graph_cpu->dstList[write_position] = vtx;
-          _graph_cpu->srcList[write_position++] = incoming_adj_list[k][i].neighbour;
+          _graph_cpu_in->srcList[write_position_in] = vtx;
+          _graph_cpu_in->dstList[write_position_in++] = outgoing_adj_list[k][i].neighbour;
         }
+        
       }
+    }
     if (partition_id == 0)
       printf("GNNmini::Preprocessing[Generate Edges]\n");
-  }
-  void reorder_COO(int batch_size)
-  { //replication
-    graph_shard.clear();
-
-    VertexId edge_size = (VertexId)incoming_adj_index[0][vertices];
-    int blocks_v_num = batch_size;
-    int src_blocks = owned_vertices / blocks_v_num + (int)((owned_vertices % blocks_v_num) > 0);
-    int dst_blocks = vertices / blocks_v_num + (int)((vertices % blocks_v_num) > 0);
-    for (int i = 0; i < src_blocks * dst_blocks; i++)
-    {
-      graph_shard.push_back(new COOChunk());
-      graph_shard[i]->src_range[0] = i / dst_blocks * blocks_v_num + partition_offset[partition_id];
-      graph_shard[i]->src_range[1] = std::min((1 + i / dst_blocks) * blocks_v_num, (int)owned_vertices) + partition_offset[partition_id];
-      graph_shard[i]->dst_range[0] = i % dst_blocks * blocks_v_num;
-      graph_shard[i]->dst_range[1] = std::min((1 + i % dst_blocks) * blocks_v_num, (int)vertices);
-      //if(partition_id==1)std::cout<<"test in reorder "<<" "<<batch_size<<graph_shard[i]->src_range[0]<<" "<<graph_shard[i]->src_range[1]<<std::endl;
-    }
-    //std::cout<<this->partition_id<<" "<<batch_size<<" "<<src_blocks<<" "<<dst_blocks<<std::endl;
-    // std::cout<<_graph_cpu->srcList[0]<<"????"<<partition_offset[partition_id+1]<<" "<<this->edges<<std::endl;
-
-    for (int i = 0; i < edge_size; i++)
-    {
-      // if(_graph_cpu->src()[i]>=2208){
-      //   std::cout<<"overflow id:"<<_graph_cpu->src()[i]<<" "<<i<<std::endl;
-      // }
-      int src_bucket = (_graph_cpu->srcList[i] - partition_offset[partition_id]) / blocks_v_num;
-      int dst_bucket = (_graph_cpu->dstList[i]) / blocks_v_num;
-      // if(partition_id==1)
-      // std::cout<<_graph_cpu->srcList[i]<<" "<<partition_offset[partition_id]<<std::endl;
-      graph_shard[src_bucket * dst_blocks + dst_bucket]->numofedges += 1;
-    }
-    for (int i = 0; i < src_blocks * dst_blocks; i++)
-    {
-      graph_shard[i]->src_delta = new VertexId[graph_shard[i]->numofedges];
-      graph_shard[i]->dst_delta = new VertexId[graph_shard[i]->numofedges];
-      //  std::cout<<graph_shard[i]->numofedges<<" ";
-    }
-    std::cout << std::endl;
-
-    for (int i = 0; i < edge_size; i++)
-    {
-      int source = _graph_cpu->src()[i];
-      int destination = _graph_cpu->dst()[i];
-      int bucket_s = (source - partition_offset[partition_id]) / blocks_v_num;
-      int bucket_d = (destination) / blocks_v_num;
-      int offset = graph_shard[bucket_s * dst_blocks + bucket_d]->counter++;
-      graph_shard[bucket_s * dst_blocks + bucket_d]->src_delta[offset] = source;
-      graph_shard[bucket_s * dst_blocks + bucket_d]->dst_delta[offset] = destination;
-    }
   }
 
   void reorder_COO_W2W()
   { //replication
-    graph_shard.clear();
-
-    VertexId edge_size = (VertexId)incoming_adj_index[0][vertices];
-    int dst_blocks = partitions;
-    for (int i = 0; i < dst_blocks; i++)
+    graph_shard_out.clear();
+    graph_shard_in.clear();
+    VertexId edge_size_out = 0; //(VertexId)incoming_adj_index[sockets-1][vertices];
+    VertexId edge_size_in=0;
+    for (int i = 0; i < sockets; i++)
     {
-      graph_shard.push_back(new COOChunk());
-      graph_shard[i]->src_range[0] = partition_offset[partition_id];
-      graph_shard[i]->src_range[1] = partition_offset[partition_id + 1];
-      graph_shard[i]->dst_range[0] = partition_offset[i];
-      graph_shard[i]->dst_range[1] = partition_offset[i + 1];
+      edge_size_out += (VertexId)incoming_adj_index[i][vertices];
+      edge_size_in += (VertexId)incoming_adj_index_backward[i][vertices];
     }
-    for (int i = 0; i < edge_size; i++)
+    
+    int src_blocks = partitions;
+    for (int i = 0; i < src_blocks; i++)
     {
-      int dst_bucket = this->get_partition_id(_graph_cpu->dstList[i]);
-      graph_shard[dst_bucket]->numofedges += 1;
+      graph_shard_in.push_back(new COOChunk());
+      graph_shard_in[i]->dst_range[0] = partition_offset[partition_id];
+      graph_shard_in[i]->dst_range[1] = partition_offset[partition_id + 1];
+      graph_shard_in[i]->src_range[0] = partition_offset[i];
+      graph_shard_in[i]->src_range[1] = partition_offset[i + 1];
     }
-    for (int i = 0; i < dst_blocks; i++)
+    for (int i = 0; i < edge_size_in; i++)
     {
-      graph_shard[i]->src_delta = new VertexId[graph_shard[i]->numofedges];
-      graph_shard[i]->dst_delta = new VertexId[graph_shard[i]->numofedges];
-      //  std::cout<<graph_shard[i]->numofedges<<" ";
+      int src_bucket = this->get_partition_id(_graph_cpu_in->srcList[i]);
+      graph_shard_in[src_bucket]->numofedges += 1;
     }
-    //std::cout << std::endl;
-
-    for (int i = 0; i < edge_size; i++)
+    for (int i = 0; i < src_blocks; i++)
     {
-      int source = _graph_cpu->src()[i];
-      int destination = _graph_cpu->dst()[i];
-      int bucket_d = this->get_partition_id(_graph_cpu->dstList[i]);
-      int offset = graph_shard[bucket_d]->counter++;
-      graph_shard[bucket_d]->src_delta[offset] = source;
-      graph_shard[bucket_d]->dst_delta[offset] = destination;
+      graph_shard_in[i]->src_delta = new VertexId[graph_shard_in[i]->numofedges];
+      graph_shard_in[i]->dst_delta = new VertexId[graph_shard_in[i]->numofedges];
+      graph_shard_in[i]->counter=0;
     }
+    for (int i = 0; i < edge_size_in; i++)
+    {
+      int source = _graph_cpu_in->src()[i];
+      int destination = _graph_cpu_in->dst()[i];
+      int bucket_s = this->get_partition_id(source);
+      int offset = graph_shard_in[bucket_s]->counter++;
+      graph_shard_in[bucket_s]->src_delta[offset] = source;
+      graph_shard_in[bucket_s]->dst_delta[offset] = destination;
+    }
+    
+   
+    
     if (partition_id == 0)
       printf("GNNmini::Preprocessing[Reorganize Edges]\n");
-  }
-
-  void reorder_COO_W2partition(int batch_size)
-  { //replication
-    graph_shard.clear();
-
-    VertexId edge_size = (VertexId)incoming_adj_index[0][vertices];
-
-    int dst_blocks = vertices / (batch_size) + 1;
-    //printf("here is the problem %d %d\n",batch_size, vertices);
-    for (int i = 0; i < (dst_blocks); i++)
-    {
-      graph_shard.push_back(new COOChunk());
-      graph_shard[i]->src_range[0] = partition_offset[partition_id];
-      graph_shard[i]->src_range[1] = partition_offset[partition_id + 1];
-      graph_shard[i]->dst_range[0] = i * batch_size;
-      graph_shard[i]->dst_range[1] = std::min((i + 1) * batch_size, (int)(vertices));
-      //      if(partition_id==0)
-      //      printf("here is the problem %d %d\n",graph_shard[i]->dst_range[0], graph_shard[i]->dst_range[1]);
-    }
-    for (int i = 0; i < edge_size; i++)
-    {
-      int dst_bucket = _graph_cpu->dstList[i] / batch_size;
-      graph_shard[dst_bucket]->numofedges += 1;
-    }
-    for (int i = 0; i < dst_blocks; i++)
-    {
-      graph_shard[i]->src_delta = new VertexId[graph_shard[i]->numofedges];
-      graph_shard[i]->dst_delta = new VertexId[graph_shard[i]->numofedges];
-      //  std::cout<<graph_shard[i]->numofedges<<" ";
-    }
-    std::cout << std::endl;
-
-    for (int i = 0; i < edge_size; i++)
-    {
-      int source = _graph_cpu->src()[i];
-      int destination = _graph_cpu->dst()[i];
-      int bucket_d = _graph_cpu->dstList[i] / batch_size;
-      int offset = graph_shard[bucket_d]->counter++;
-      graph_shard[bucket_d]->src_delta[offset] = source;
-      graph_shard[bucket_d]->dst_delta[offset] = destination;
-    }
-    //    printf("finish rep+++++++++++++++++++\n");
   }
 
   void read_whole_graph(VertexId *column_offset, VertexId *row_indices, int vertices, int edges, std::string path)

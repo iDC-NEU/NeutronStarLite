@@ -82,6 +82,74 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 typedef struct graph_Tensor_Segment_pinned
 {
+    
+    
+  VertexId *column_offset;     //VertexNumber
+  VertexId *row_indices;       //edge_size also the source nodes
+  VertexId *row_offset;     //VertexNumber
+  VertexId *column_indices;  
+  long *source;
+  long *destination;
+  float *edge_weight_forward;          //edge_size
+  float *edge_weight_backward;
+  
+  
+  VertexId *column_offset_gpu; //VertexNumber
+  VertexId *row_indices_gpu;
+  VertexId *row_offset_gpu; //VertexNumber
+  VertexId *column_indices_gpu;   //edge_size
+  
+  long *source_gpu;
+  long *destination_gpu;
+  float *edge_weight_forward_gpu;      //edge_size
+  float *edge_weight_backward_gpu;      //edge_size
+  
+  int edge_size;
+  int batch_size_forward;
+  int batch_size_backward;
+  
+  int input_size;
+  int output_size;
+  int feature_size;
+  int src_range[2];
+  int dst_range[2];
+} CSC_segment_pinned;
+
+//typedef struct graph_Tensor_Segment_pinned
+//{
+//  std::vector<VertexId> column_offset;     //VertexNumber
+//  std::vector<VertexId> row_indices;       //edge_size also the source nodes
+//  std::vector<VertexId> row_offset;     //VertexNumber
+//  std::vector<VertexId> column_indices;  
+//  std::vector<VertexId> source;
+//  std::vector<VertexId> destination;
+//  std::vector<VertexId> edge_weight;          //edge_size
+//  std::vector<VertexId> edge_weight_backward;
+//  long *destination_gpu;
+//  long *source_gpu;
+//  VertexId *column_offset_gpu; //VertexNumber
+//  VertexId *row_indices_gpu;   //edge_size
+//  float *edge_weight_gpu;      //edge_size
+//  VertexId *row_offset_gpu; //VertexNumber
+//  VertexId *column_indices_gpu;   //edge_size
+//  float *edge_weight_backward_gpu;      //edge_size
+//  
+//  int edge_size;
+//  int batch_size;
+//  int batch_size_forward;
+//  int batch_size_backward;
+//  int input_size;
+//  int output_size;
+//  int feature_size;
+//  int src_range[2];
+//  int dst_range[2];
+//} CSC_segment_pinned;
+
+
+
+
+typedef struct graph_Tensor_Segment_pinned1
+{
   VertexId *column_offset;     //VertexNumber
   VertexId *row_indices;       //edge_size also the source nodes
   VertexId *row_offset;     //VertexNumber
@@ -107,7 +175,7 @@ typedef struct graph_Tensor_Segment_pinned
   int feature_size;
   int src_range[2];
   int dst_range[2];
-} CSC_segment_pinned;
+} graph_seg_for_event;
 
 typedef struct rep_graph
 {
