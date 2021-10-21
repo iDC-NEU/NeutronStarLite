@@ -311,7 +311,36 @@ public:
             feature_size,
             active_);
     }
-    
+        void PropagateBackwardCPU_debug(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
+    {       
+        float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
+        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
+        memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
+        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        float* output_buffer=new float[feature_size*graph_->threads];
+        graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
+            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
+                float* local_output_buffer=output_buffer+feature_size*thread_id;
+                memset(local_output_buffer,0,sizeof(float)*feature_size);
+                VertexId src_trans=src-graph_->partition_offset[recv_id];
+                int degree=subgraphs[recv_id]->row_offset[src_trans+1]-subgraphs[recv_id]->row_offset[src_trans];
+                for(long d_idx=subgraphs[recv_id]->row_offset[src_trans];d_idx<subgraphs[recv_id]->row_offset[src_trans+1];d_idx++){
+                    VertexId dst = subgraphs[recv_id]->column_indices[d_idx];
+                    VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
+                    float* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
+                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);        
+                }
+                if(degree>=0){
+                graph_->emit_buffer(src, local_output_buffer,feature_size);
+                }
+            },
+            [&](VertexId src, float* msg) {
+                acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
+                return 0;
+            },
+            feature_size,
+            active_);
+    }
     
     
     void PropagateForwardCPU(NtsVar &X, NtsVar &Y)
@@ -350,7 +379,7 @@ public:
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         float* output_buffer=new float[feature_size*graph_->threads];
         graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
-            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id) {           //pull
+            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
                 float* local_output_buffer=output_buffer+feature_size*thread_id;
                 memset(local_output_buffer,0,sizeof(float)*feature_size);
                 for (AdjUnit<Empty> *ptr = outgoing_adj.begin; ptr != outgoing_adj.end; ptr++)

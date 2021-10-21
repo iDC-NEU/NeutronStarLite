@@ -2756,7 +2756,7 @@ public:
    
     template <typename R, typename M>
   R process_edges_backward(
-      std::function<void(VertexId, VertexAdjList<EdgeData>,VertexId)> dense_signal,
+      std::function<void(VertexId, VertexAdjList<EdgeData>,VertexId,VertexId)> dense_signal,
       std::function<R(VertexId, M*)> dense_slot,
       int feature_size,
       Bitmap *active,
@@ -2912,7 +2912,7 @@ public:
               
               dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] +
                       compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i]
-                      + compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id);
+                      + compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id,i);
             }
           }
           thread_state[thread_id]->status = STEALING;
@@ -2935,7 +2935,7 @@ public:
                 VertexId v_i = compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
                 dense_signal(v_i, VertexAdjList<EdgeData>(incoming_adj_list_backward[s_i] + 
                         compressed_incoming_adj_index_backward[s_i][p_v_i].index, incoming_adj_list_backward[s_i] + 
-                        compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id);
+                        compressed_incoming_adj_index_backward[s_i][p_v_i + 1].index),thread_id,i);
               }
             }
           }

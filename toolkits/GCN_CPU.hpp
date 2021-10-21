@@ -148,7 +148,8 @@ void Backward(){
     graph->rtminfo->curr_layer = i;
     vertexBackward();
     NtsVar grad_to_Y=Y[i].grad();
-    gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
+    //gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
+    gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
     }
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
