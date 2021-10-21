@@ -64,7 +64,7 @@ public:
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->generate_Forward_Segment_Tensor_pinned(subgraphs, true);
+        gt->GenerateGraphSegment(subgraphs, true);
         //if (graph->config->process_local)
         double load_rep_time = 0;
         load_rep_time -= get_time();

@@ -66,7 +66,7 @@ public:
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->generate_Forward_Segment_Tensor_pinned(subgraphs, true);
+        gt->GenerateGraphSegment(subgraphs, true);
         //if (graph->config->process_local)
         double load_rep_time = 0;
         load_rep_time -= get_time();
@@ -149,9 +149,6 @@ void Backward(){
     vertexBackward();
     NtsVar grad_to_Y=Y[i].grad();
     gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
-//        if(graph->partition_id==0){
-//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[0]<<"X_grad:"<<X_grad[0][0]<<"grad_to_Y:"<<grad_to_Y[0][0]<<std::endl;
-//    }
     }
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
@@ -165,7 +162,8 @@ void Forward(){
     graph->rtminfo->forward = true;    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
     graph->rtminfo->curr_layer = i;
-    gt->PropagateForwardCPU(X[i], Y[i]);
+    //gt->PropagateForwardCPU(X[i], Y[i]);
+    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
     X[i+1]=vertexForward(Y[i],X[i]);
     }
     loss=X[graph->gnnctx->layer_size.size()-1];
@@ -178,7 +176,7 @@ void Forward(){
 {
     if (graph->partition_id == 0)
         printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
-        graph->print_info();
+       // graph->print_info();
         
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++){
