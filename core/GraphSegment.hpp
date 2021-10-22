@@ -38,16 +38,9 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/bitmap.hpp"
 #include "core/constants.hpp"
 #include "core/filesystem.hpp"
-#include "core/mpi.hpp"
 #include "core/time.hpp"
 #include "core/type.hpp"
 #include "cuda/test.hpp"
-
-#include "torch/torch.h"
-#include "torch/csrc/autograd/generated/variable_factories.h"
-#include "torch/nn/module.h"
-#include "torch/csrc/api/include/torch/cuda.h"
-#include "ATen/ATen.h"
 
 //
 //typedef struct graph_Tensor_Segment
@@ -88,11 +81,14 @@ typedef struct graph_Tensor_Segment_pinned
   VertexId *row_indices;       //edge_size also the source nodes
   VertexId *row_offset;     //VertexNumber
   VertexId *column_indices;  
+  
   long *source;
   long *destination;
   float *edge_weight_forward;          //edge_size
   float *edge_weight_backward;
   
+  VertexId *source_compact_index;
+  VertexId *destination_compact_index;
   
   VertexId *column_offset_gpu; //VertexNumber
   VertexId *row_indices_gpu;
@@ -107,12 +103,15 @@ typedef struct graph_Tensor_Segment_pinned
   int edge_size;
   int batch_size_forward;
   int batch_size_backward;
-  
   int input_size;
   int output_size;
   int feature_size;
   int src_range[2];
   int dst_range[2];
+  Bitmap* source_active;
+  Bitmap* destination_active;
+  std::vector<Bitmap*> out_active;
+  
 } CSC_segment_pinned;
 
 //typedef struct graph_Tensor_Segment_pinned
