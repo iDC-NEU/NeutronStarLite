@@ -189,6 +189,15 @@ void Forward(){
         
         Forward();
         Backward();     
+//        graph->rtminfo->forward = true;
+//    graph->rtminfo->curr_layer=0;
+//     gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
+//    if(graph->partition_id==0){
+//        int test=15;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//    } 
+
+     
         if (graph->partition_id == 0)
             std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;       
     }
