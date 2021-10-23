@@ -67,15 +67,8 @@ public:
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
         gt->GenerateGraphSegment(subgraphs, true);
-        //if (graph->config->process_local)
-        double load_rep_time = 0;
-        load_rep_time -= get_time();
-        graph->load_replicate3(graph->gnnctx->layer_size);
-        load_rep_time += get_time();
-        if (graph->partition_id == 0)
-        printf("#load_rep_time=%lf(s)\n", load_rep_time);
-        graph->init_blockinfo();
-        graph->init_message_map_amount();
+        gt->GenerateMessageBitmap(subgraphs);
+        gt->TestGeneratedBitmap(subgraphs);
         graph->init_message_buffer();
     }
     void init_nn(){

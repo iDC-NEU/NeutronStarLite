@@ -65,15 +65,7 @@ public:
         graph->reorder_COO_W2W();
         gt = new GTensor<ValueType, long>(graph, active);
         gt->GenerateGraphSegment(subgraphs, true);
-        //if (graph->config->process_local)
-        double load_rep_time = 0;
-        load_rep_time -= get_time();
-        graph->load_replicate3(graph->gnnctx->layer_size);
-        load_rep_time += get_time();
-        if (graph->partition_id == 0)
-        printf("#load_rep_time=%lf(s)\n", load_rep_time);
-        graph->init_blockinfo();
-        graph->init_message_map_amount();
+        gt->GenerateMessageBitmap(subgraphs);
         graph->init_message_buffer();
     }
     void init_nn(){
@@ -227,8 +219,8 @@ void Forward(){
 /*GPU dist*/ void run()
 {
     if (graph->partition_id == 0)
-        printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
-        graph->print_info();
+        printf("GNNmini::Engine[Dist.GPU.GATimpl] running [%d] Epochs\n",iterations);
+//        graph->print_info();
 
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++){

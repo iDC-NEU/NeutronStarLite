@@ -73,8 +73,6 @@ public:
         load_rep_time += get_time();
         if (graph->partition_id == 0)
         printf("#load_rep_time=%lf(s)\n", load_rep_time);
-        graph->init_blockinfo();
-        graph->init_message_map_amount();
         graph->init_message_buffer();
 
     }
