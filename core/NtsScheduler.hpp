@@ -55,12 +55,22 @@ typedef torch::DeviceType NtsDevide;
 
 namespace AGGTYPE{    
 enum{
-    S2D,
-    S2DP,
-    S2DW,
-    M2D,
-    M2DP,
-    M2DW
+/* S: from Source
+ * M: from Message
+ * D: to Destination
+ * P: edge weight require parameter
+ * W: edge weight require no parameter
+ * s: scalar type edge weight/parameter
+ * t: tensor type edge weight/parameter   
+ */
+    SD,  
+    SPsD,
+    SPtD,
+    SWD,
+    MD,
+    MPsD,
+    MPtD,
+    MWD,
 };
 }
 class NtsScheduler{
