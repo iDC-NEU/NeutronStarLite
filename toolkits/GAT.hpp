@@ -123,39 +123,39 @@ NtsVar vertexForward(NtsVar &a, NtsVar &x){
     }
 }
                              //grad to message            //grad to src   
-  NtsVar edge_Backward(NtsVar &message_grad, NtsVar &src_grad, NtsScheduler* nts){
-      I_data["msg_grad_1"]=at::_sparse_softmax_backward_data(
+NtsVar edge_Backward(NtsVar &message_grad, NtsVar &src_grad, NtsScheduler* nts){
+      I_data["msg_grad"]=at::_sparse_softmax_backward_data(
                nts->PrepareMessage(message_grad),
-                I_data["atten"],nts->BYDST(),I_data["w"]);
-      I_data["msg"].backward(I_data["msg_grad_1"].coalesce().values(),true);
-      I_data["src_data"].backward(src_grad,true);
-      return I_data["fetched_src_data"].grad();
+                I_data["atten"],
+                 nts->BYDST(),
+                  I_data["w"]);
+      I_data["msg"].backward(I_data["msg_grad"].coalesce().values(),true);
+      I_data["src_trans"].backward(src_grad,true);
+      return I_data["src"].grad();
     
  }
-  NtsVar edge_Forward(NtsVar &src_input, NtsVar &src_input_transfered, 
+NtsVar edge_Forward(NtsVar &src_input, NtsVar &src_input_transfered, 
                              NtsVar &dst_input, NtsVar &dst_input_transfered, 
-                                                                        NtsScheduler* nts){
-      size_t layer =graph->rtminfo->curr_layer;
+                                    NtsScheduler* nts){
+     size_t layer =graph->rtminfo->curr_layer;
      if(graph->rtminfo->forward==true){
-        nts->SerializeToCPU("cached_src_data",src_input);
-        I_data["src_data"]=P[layer*2]->forward(src_input);
+         I_data["src"]=src_input;
+        nts->SerializeToCPU("src_cached",src_input);
+     }else{
+         I_data["src"]=nts->DeSerializeFromCPU("src_cached");
      }
-     else{
-        I_data["fetched_src_data"]=nts->DeSerializeFromCPU("cached_src_data");
-        I_data["src_data"]=P[layer*2]->forward(I_data["fetched_src_data"]);
-     }
-      
-        src_input_transfered=I_data["src_data"];
-        I_data["dst_data"]=dst_input_transfered;//finish apply W
-        I_data["msg"]=torch::cat({nts->ScatterSrc(I_data["src_data"]),
-                                   nts->ScatterDst(I_data["dst_data"])}
-                                   ,1);
+     I_data["src_trans"]=P[layer*2]->forward(I_data["src"]);
+     I_data["dst_trans"]=dst_input_transfered;//finish apply W
+     I_data["msg"]=torch::cat({nts->ScatterSrc(I_data["src_trans"]),
+                                nts->ScatterDst(I_data["dst_trans"])},1);
                                    
-        I_data["msg"]=torch::leaky_relu(torch::exp(P[layer*2+1]->forward(I_data["msg"])),1.0);  
-        I_data["w"]=nts->PrepareMessage(I_data["msg"]);
-        I_data["atten"]=at::_sparse_softmax(I_data["w"],graph->Nts->BYDST());
-        return I_data["atten"].coalesce().values();    
-     }
+     I_data["msg"]=torch::leaky_relu(torch::exp(P[layer*2+1]->forward(I_data["msg"])),1.0);  
+     I_data["w"]=nts->PrepareMessage(I_data["msg"]);
+     I_data["atten"]=at::_sparse_softmax(I_data["w"],graph->Nts->BYDST());
+     
+     src_input_transfered=I_data["src_trans"];
+     return I_data["atten"].coalesce().values();    
+}
  
 void vertexBackward(){
     
