@@ -53,6 +53,16 @@ typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
 typedef torch::DeviceType NtsDevide;
 
+namespace AGGTYPE{    
+enum{
+    S2D,
+    S2DP,
+    S2DW,
+    M2D,
+    M2DP,
+    M2DW
+};
+}
 class NtsScheduler{
 public:
     NtsScheduler(){
@@ -109,10 +119,21 @@ public:
                                column_offset_from_pinned, //graph
                                src_start, src_end, dst_start, dst_end,
                                E,
-                               subgraph->batch_size,
+                               subgraph->batch_size_forward,
                                feature_size, rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
+    inline void AggregateForward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
+        GatherByDstFromMessage(output, input_src, weight);
+    }
+    
+    //BackwardScatterGradBackToWeight(torch::Tensor &input_src,torch::Tensor &grad_output, torch::Tensor &message_grad){
+    inline void AggregateBackward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight, 
+                                                   torch::Tensor &grad_output, torch::Tensor &message_grad){
+        GatherBySrcFromDst(output,input_src,weight);
+        BackwardScatterGradBackToWeight(input_src, grad_output,message_grad);
+    }
+    
     
     inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
         float *input_buffer=getWritableBuffer(input_src);
@@ -161,7 +182,7 @@ public:
                                (VertexId)src_start, (VertexId)src_end, 
                                (VertexId)dst_start, (VertexId)dst_end,
                                (VertexId)subgraph->edge_size,
-                               (VertexId)subgraph->batch_size,
+                               (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
                                rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
@@ -183,7 +204,7 @@ public:
                                (VertexId)src_start, (VertexId)src_end, 
                                (VertexId)dst_start, (VertexId)dst_end,
                                (VertexId)subgraph->edge_size,
-                               (VertexId)subgraph->batch_size,
+                               (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
                                false);
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();   
@@ -346,10 +367,6 @@ struct GnnUnit : torch::nn::Module
     //gpu_processor *gp;
     GnnUnit(size_t w, size_t h)
     {
-        //        at::TensorOptions *opt=new at::TensorOptions;
-        //       opt->requires_grad(true);
-        //  torch::randn
-        //     A=torch::randn(torch::randn({w,h},opt));
         row = w;
         col = h;
         W = register_parameter("W", torch::randn({w, h}, torch::kFloat));
@@ -366,10 +383,7 @@ struct GnnUnit : torch::nn::Module
     void all_reduce_to_gradient(NtsVar from)
     {
         W_gradient.set_data(from);
-        //memcpy(w_gradient_buffer, from.accessor<ValueType, 2>().data(), sizeof(float) * row * col);
-        //std::cout << from[0][3] << "ss" << w_gradient_buffer[3] << "ds" << W_gradient[0][3] << std::endl;
         network_simple->all_reduce_sum(W_gradient.accessor<ValueType, 2>().data());
-        //W_gradient = torch::from_blob(w_gradient_buffer, {row, col}, torch::kFloat);
     }
     void resetW(size_t w, size_t h, ValueType *buffer)
     {

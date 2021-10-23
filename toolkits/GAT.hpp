@@ -144,16 +144,15 @@ NtsVar edge_Forward(NtsVar &src_input, NtsVar &src_input_transfered,
      }else{
          I_data["src"]=nts->DeSerializeFromCPU("src_cached");
      }
-     I_data["src_trans"]=P[layer*2]->forward(I_data["src"]);
+     
+     src_input_transfered=I_data["src_trans"]=P[layer*2]->forward(I_data["src"]);
      I_data["dst_trans"]=dst_input_transfered;//finish apply W
-     I_data["msg"]=torch::cat({nts->ScatterSrc(I_data["src_trans"]),
-                                nts->ScatterDst(I_data["dst_trans"])},1);
-                                   
+     I_data["msg"]=torch::cat({nts->ScatterSrc(I_data["src_trans"]), nts->ScatterDst(I_data["dst_trans"])},1);                    
      I_data["msg"]=torch::leaky_relu(torch::exp(P[layer*2+1]->forward(I_data["msg"])),1.0);  
      I_data["w"]=nts->PrepareMessage(I_data["msg"]);
      I_data["atten"]=at::_sparse_softmax(I_data["w"],graph->Nts->BYDST());
      
-     src_input_transfered=I_data["src_trans"];
+     //src_input_transfered=I_data["src_trans"];
      return I_data["atten"].coalesce().values();    
 }
  
