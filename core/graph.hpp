@@ -4280,7 +4280,7 @@ public:
 
     if (partition_id == 0)
     {
-      printf("SyncComputeLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
+      printf("SyncComputeLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
     }
     double stream_time = 0;
     stream_time -= MPI_Wtime();
@@ -4524,11 +4524,10 @@ public:
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
 
-    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
-
+ //   process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
     if (partition_id == 0)
     {
-      printf("SyncComputeLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
+      printf("SyncComputeLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
     }
     double stream_time = 0;
     stream_time -= MPI_Wtime();
@@ -4718,11 +4717,11 @@ public:
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
 
-    process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
+//   process_local = process_local && (graph_rep[layer_].rep_edge_size > 0);
 
     if (partition_id == 0)
     {
-      printf("ComputeSyncLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, graph_rep[layer_].feature_size, process_local, process_overlap);
+      printf("ComputeSyncLite:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
     }
     double stream_time = 0;
     stream_time -= MPI_Wtime();

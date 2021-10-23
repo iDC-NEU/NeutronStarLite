@@ -484,7 +484,6 @@ public:
         int layer = graph_->rtminfo->curr_layer;
         NtsVar X_cpu=src_input_origin.cpu();
         float *X_buffered=X_cpu.accessor<float,2>().data();
-            //printf("done?\n");
             graph_->sync_compute_edge_computation<int, float>(
                 src_input_origin,
                 graph_partitions,
@@ -603,7 +602,15 @@ public:
             graph_partitions[i]->src_range[1] = graph_->graph_shard_in[i]->src_range[1];
             
             long column_offset_size = graph_partitions[i]->dst_range[1] - graph_partitions[i]->dst_range[0] + 1;
-            long row_offset_size = graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0] + 1;///
+            long row_offset_size = graph_partitions[i]->src_range[1] - graph_partitions[i]->src_range[0] + 1;//
+            
+            graph_partitions[i]->source_active=new Bitmap(row_offset_size);
+            graph_partitions[i]->destination_active=new Bitmap(column_offset_size);
+            graph_partitions[i]->destination_mirror_active=new Bitmap(column_offset_size);
+            
+            graph_partitions[i]->source_active->clear();
+            graph_partitions[i]->destination_active->clear();
+            graph_partitions[i]->destination_mirror_active->clear();
             
             graph_partitions[i]->batch_size_forward = column_offset_size-1;
             graph_partitions[i]->batch_size_backward = row_offset_size-1;
@@ -670,6 +677,9 @@ public:
                 graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)(v_src_m);
                 graph_partitions[i]->destination[tmp_column_offset[v_dst]] = (long)(v_dst_m);
                 
+                graph_partitions[i]->src_set_active(v_src_m);//source_active->set_bit(v_src);
+                graph_partitions[i]->dst_set_active(v_dst_m);//destination_active->set_bit(v_dst);
+                
                 graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
                 graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] = norm_degree(v_src_m,v_dst_m);
                             
@@ -688,8 +698,86 @@ public:
         delete[] tmp_column_offset;
         delete[] tmp_row_offset;
         if (graph_->partition_id == 0)
-            printf("GNNmini::Preprocessing[Prepare Forward CSC Edges for GPU]\n");
+            printf("GNNmini::Preprocessing[Graph Segments Prepared]\n");
     }
+   void GenerateMessageBitmap(std::vector<CSC_segment_pinned *> &graph_partitions){
+        int feature_size=1;
+        graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
+                VertexId src_trans=src-graph_->partition_offset[recv_id];
+                if(graph_partitions[recv_id]->source_active->get_bit(src_trans)){
+                    VertexId part=(VertexId)graph_->partition_id;
+                    graph_->emit_buffer(src, &part,feature_size);
+                }
+            },
+            [&](VertexId master, VertexId* msg) {
+                VertexId part=*msg;
+                graph_partitions[part]->to_this_part_set_active(master);//destination_mirror_active->set_bit(master-start_);
+                return 0;
+            },
+            feature_size,
+            active_);
+            
+            size_t basic_chunk=64;
+        for(int i=0;i<graph_partitions.size();i++){
+            graph_partitions[i]->backward_message_index=new VertexId[graph_partitions[i]->batch_size_backward];
+            graph_partitions[i]->forward_message_index=new VertexId[graph_partitions[i]->batch_size_forward];
+            memset(graph_partitions[i]->backward_message_index,0,sizeof(VertexId)*graph_partitions[i]->batch_size_backward);
+            memset(graph_partitions[i]->forward_message_index,0,sizeof(VertexId)*graph_partitions[i]->batch_size_forward);
+            int backward_write_offset=0;
+            for (VertexId begin_v_i =graph_partitions[i]->src_range[0];begin_v_i<graph_partitions[i]->src_range[1]; begin_v_i += basic_chunk){
+                VertexId v_i = begin_v_i;
+                VertexId v_trans=v_i-graph_partitions[i]->src_range[0];
+                unsigned long word = graph_partitions[i]->source_active->data[WORD_OFFSET(v_trans)];
+                while (word != 0){
+                if (word & 1){
+                    graph_partitions[i]->backward_message_index[v_trans]=backward_write_offset++;
+                }
+                v_i++;
+                word = word >> 1;
+                }
+            }
+            int forward_write_offset=0;
+            for (VertexId begin_v_i =graph_partitions[i]->dst_range[0];begin_v_i<graph_partitions[i]->dst_range[1]; begin_v_i += basic_chunk){
+                VertexId v_i = begin_v_i;
+                VertexId v_trans=v_i-graph_partitions[i]->dst_range[0];
+                unsigned long word = graph_partitions[i]->destination_active->data[WORD_OFFSET(v_trans)];
+                while (word != 0){
+                if (word & 1){
+                    graph_partitions[i]->forward_message_index[v_i-graph_partitions[i]->dst_range[0]]=forward_write_offset++;
+                }
+                v_i++;
+                word = word >> 1;
+                }
+            }   
+        }
+         if (graph_->partition_id == 0)
+            printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");    
+        
+   }
+   
+   void TestGeneratedBitmap(std::vector<CSC_segment_pinned *> &subgraphs){
+       for(int i=0;i<subgraphs.size();i++){
+           int count_act_src=0;
+           int count_act_dst=0;
+           int count_act_master=0;
+           for(int j=subgraphs[i]->dst_range[0];j<subgraphs[i]->dst_range[1];j++){
+               if(subgraphs[i]->dst_get_active(j)){
+                   count_act_dst++;
+               }
+               if(subgraphs[i]->to_this_part_get_active(j)){
+                   count_act_master++;
+               }
+           }
+           for(int j=subgraphs[i]->src_range[0];j<subgraphs[i]->src_range[1];j++){
+               if(subgraphs[i]->src_get_active(j)){
+                   count_act_src++;
+               }
+           }
+        printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR %d\n",graph_->partition_id,i,count_act_src,count_act_dst,count_act_master);   
+       } 
+   }
+          
    
 };
 

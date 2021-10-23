@@ -87,8 +87,8 @@ typedef struct graph_Tensor_Segment_pinned
   float *edge_weight_forward;          //edge_size
   float *edge_weight_backward;
   
-  VertexId *source_compact_index;
-  VertexId *destination_compact_index;
+  VertexId *backward_message_index;
+  VertexId *forward_message_index;
   
   VertexId *column_offset_gpu; //VertexNumber
   VertexId *row_indices_gpu;
@@ -110,39 +110,78 @@ typedef struct graph_Tensor_Segment_pinned
   int dst_range[2];
   Bitmap* source_active;
   Bitmap* destination_active;
-  std::vector<Bitmap*> out_active;
+  Bitmap* destination_mirror_active;
   
+  void init(VertexId src_start,VertexId src_end,VertexId dst_start,VertexId dst_end,VertexId edge_size_){
+      src_range[0]=src_start;
+      src_range[1]=src_end;
+      dst_range[0]=dst_start;
+      dst_range[1]=dst_end;
+      batch_size_backward=src_range[1]-src_range[0];
+      batch_size_forward=dst_range[1]-dst_range[0];
+      edge_size=edge_size_;
+      
+  }
+  void allocVertexAssociateData(){
+      
+    source_active=new Bitmap(batch_size_backward);
+    destination_active=new Bitmap(batch_size_forward);
+    destination_mirror_active=new Bitmap(batch_size_forward);
+            
+    source_active->clear();
+    destination_active->clear();
+    destination_mirror_active->clear();
+      
+    column_offset = (VertexId *)cudaMallocPinned((batch_size_forward+1) * sizeof(VertexId));           
+    row_offset = (VertexId *)cudaMallocPinned((batch_size_backward+1) * sizeof(VertexId));///   
+  }
+    void allocEdgeAssociateData(){
+     
+    row_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
+    edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
+
+    column_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));///
+    edge_weight_backward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));///
+
+    destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+    source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+
+  }
+    void getDevicePointerAll(){
+            
+    column_offset_gpu = (VertexId *)getDevicePointer(column_offset);
+    row_indices_gpu = (VertexId *)getDevicePointer(row_indices);
+    edge_weight_forward_gpu = (float *)getDevicePointer(edge_weight_forward);
+            
+    row_offset_gpu = (VertexId *)getDevicePointer(row_offset);///
+    column_indices_gpu = (VertexId *)getDevicePointer(column_indices);///
+    edge_weight_backward_gpu = (float *)getDevicePointer(edge_weight_backward);/// 
+            
+            
+    source_gpu = (long *)getDevicePointer(source);///
+    destination_gpu = (long *)getDevicePointer(destination);///      
+  }
+   bool src_get_active(VertexId v_i){
+       return this->source_active->get_bit(v_i-src_range[0]);
+   }
+   bool dst_get_active(VertexId v_i){
+       return this->destination_active->get_bit(v_i-dst_range[0]);
+   } 
+   bool to_this_part_get_active(VertexId v_i){
+       return this->destination_mirror_active->get_bit(v_i-dst_range[0]);
+   }
+   void src_set_active(VertexId v_i){
+       this->source_active->set_bit(v_i-src_range[0]);
+   }
+   void dst_set_active(VertexId v_i){
+       this->destination_active->set_bit(v_i-dst_range[0]);
+   } 
+   void to_this_part_set_active(VertexId v_i){
+       this->destination_mirror_active->set_bit(v_i-dst_range[0]);
+   } 
+
 } CSC_segment_pinned;
 
-//typedef struct graph_Tensor_Segment_pinned
-//{
-//  std::vector<VertexId> column_offset;     //VertexNumber
-//  std::vector<VertexId> row_indices;       //edge_size also the source nodes
-//  std::vector<VertexId> row_offset;     //VertexNumber
-//  std::vector<VertexId> column_indices;  
-//  std::vector<VertexId> source;
-//  std::vector<VertexId> destination;
-//  std::vector<VertexId> edge_weight;          //edge_size
-//  std::vector<VertexId> edge_weight_backward;
-//  long *destination_gpu;
-//  long *source_gpu;
-//  VertexId *column_offset_gpu; //VertexNumber
-//  VertexId *row_indices_gpu;   //edge_size
-//  float *edge_weight_gpu;      //edge_size
-//  VertexId *row_offset_gpu; //VertexNumber
-//  VertexId *column_indices_gpu;   //edge_size
-//  float *edge_weight_backward_gpu;      //edge_size
-//  
-//  int edge_size;
-//  int batch_size;
-//  int batch_size_forward;
-//  int batch_size_backward;
-//  int input_size;
-//  int output_size;
-//  int feature_size;
-//  int src_range[2];
-//  int dst_range[2];
-//} CSC_segment_pinned;
 
 
 
