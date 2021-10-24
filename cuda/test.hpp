@@ -145,19 +145,19 @@ public:
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
-							VertexId_CUDA feature_size, bool with_weight = false);
+							VertexId_CUDA feature_size, bool with_weight = false,bool tensor_weight=false);
         void Gather_By_Src_From_Dst(float* input,float* output,float* weight_forward,//data 
                                                         VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,//graph
                                                         VertexId_CUDA src_start, VertexId_CUDA src_end,
                                                         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
                                                         VertexId_CUDA edges,VertexId_CUDA batch_size,
-                                                        VertexId_CUDA feature_size,bool with_weight=false);
+                                                        VertexId_CUDA feature_size,bool with_weight=false,bool tensor_weight=false);
         void Gather_By_Dst_From_Message(float *input, float *output, float *weight_forward, //data
 							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
-							VertexId_CUDA feature_size, bool with_weight = false);
+							VertexId_CUDA feature_size, bool with_weight = false,bool tensor_weight=false);
 	void Gather_By_Dst_From_Src_Para(float *input, float *output, float *para_forward, //data
 							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
@@ -169,7 +169,13 @@ public:
                                                         VertexId_CUDA src_start, VertexId_CUDA src_end,
                                                         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
                                                         VertexId_CUDA edges,VertexId_CUDA batch_size,
-                                                        VertexId_CUDA feature_size,bool sync=true);
+                                                        VertexId_CUDA feature_size,bool tensor_weight=true);
+        void Scatter_Grad_Back_To_Message(float* input,float* message_grad,//data 
+                                                        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+                                                        VertexId_CUDA src_start, VertexId_CUDA src_end,
+                                                        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+                                                        VertexId_CUDA edges,VertexId_CUDA batch_size,
+                                                        VertexId_CUDA feature_size,bool with_weight=true);
 //	void Gather_By_Dst_From_Src_shrink(float *input, float *output, float *weight_forward, //data
 //								   VertexId_CUDA *src, VertexId_CUDA *dst,			   //graph
 //								   VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
