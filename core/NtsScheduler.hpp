@@ -53,8 +53,7 @@ typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
 typedef torch::DeviceType NtsDevide;
 
-namespace AGGTYPE{    
-enum{
+enum AGGTYPE{
 /* S: from Source
  * M: from Message
  * D: to Destination
@@ -72,7 +71,6 @@ enum{
     MPtD,
     MWD,
 };
-}
 class NtsScheduler{
 public:
     NtsScheduler(){
@@ -95,6 +93,7 @@ public:
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
         rtminfo=rtminfo_;
+        aggtype=MD;
     }
     
     
@@ -110,69 +109,75 @@ public:
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
     }
     
-    inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor &message,torch::Tensor &weight){
-        float *message_buffer=getWritableBuffer(message);
-        float *weight_buffer=getWritableBuffer(weight);
-        float *output_buffer=getWritableBuffer(output);
-        VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
-        VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
-        
-        VertexId src_start = subgraph->src_range[0];
-        VertexId src_end = subgraph->src_range[1];
-        VertexId dst_start = subgraph->dst_range[0];
-        VertexId dst_end = subgraph->dst_range[1];
-
-        cuda_stream->Gather_By_Dst_From_Message(message_buffer,
-                               output_buffer,
-                               weight_buffer, //data
-                               row_indices_from_pinned,
-                               column_offset_from_pinned, //graph
-                               src_start, src_end, dst_start, dst_end,
-                               E,
-                               subgraph->batch_size_forward,
-                               feature_size, rtminfo->with_weight);
-    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
-    }
     inline void AggregateForward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
-        GatherByDstFromMessage(output, input_src, weight);
+         with_weight=true;
+        switch(aggtype){
+            case SD://GIN COMMNET
+                with_weight=false;
+                GatherByDstFromSrc(output, input_src, weight);   
+                break;
+            case SPsD://GAT
+                GatherByDstFromSrc(output, input_src, weight);   
+               break;
+            case SPtD:
+                break;
+            case SWD://GCN
+                GatherByDstFromSrc(output, input_src, weight);  
+                break;
+            case MD://GGNN
+                with_weight=false;
+                break;
+            case MPsD:
+                break;
+            case MPtD:
+                break;
+            case MWD:
+                break;
+            default:
+                std::cout<<"aggregation not implemented";
+                exit(0);
+        }
+
     }
     
     //BackwardScatterGradBackToWeight(torch::Tensor &input_src,torch::Tensor &grad_output, torch::Tensor &message_grad){
     inline void AggregateBackward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight, 
                                                    torch::Tensor &grad_output, torch::Tensor &message_grad){
+        with_weight=true;
+        switch(aggtype){
+            case SD://GIN COMMNET
+                with_weight=false;
+                GatherBySrcFromDst(output,input_src,weight);
+                break;
+            case SPsD://GAT
+                GatherBySrcFromDst(output,input_src,weight);
+                BackwardScatterGradBackToWeight(input_src, grad_output,message_grad);
+               break;
+            case SPtD:
+                
+                break;
+            case SWD://GCN
+               GatherBySrcFromDst(output,input_src,weight); 
+                break;
+            case MD://GGNN
+                with_weight=false;
+                break;
+            case MPsD:
+                break;
+            case MPtD:
+                break;
+            case MWD:
+                break;
+            default:
+                std::cout<<"aggregation not implemented";
+                exit(0);
+        }
+        
         GatherBySrcFromDst(output,input_src,weight);
         BackwardScatterGradBackToWeight(input_src, grad_output,message_grad);
     }
     
-    
-    inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
-        float *input_buffer=getWritableBuffer(input_src);
-        float *weight_buffer=getWritableBuffer(weight);
-        float *output_buffer=getWritableBuffer(output);
-        VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
-        VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
-        
-    VertexId src_start = subgraph->src_range[0];
-    VertexId src_end = subgraph->src_range[1];
-    VertexId dst_start = subgraph->dst_range[0];
-    VertexId dst_end = subgraph->dst_range[1];
-    
-    //std::cout<<output_size<<"  "<<src_end-src_start<<" "<<subgraph->batch_size_backward<<std::endl;
-    cuda_stream->Gather_By_Src_From_Dst(input_buffer,
-                               output_buffer,
-                               weight_buffer, //data
-                               row_offset_from_pinned, //graph
-                               column_indices_from_pinned,
-                               (VertexId)src_start, (VertexId)src_end, 
-                               (VertexId)dst_start, (VertexId)dst_end,
-                               (VertexId)subgraph->edge_size,
-                               (VertexId)subgraph->batch_size_backward,
-                               (VertexId)output_size,
-                               rtminfo->with_weight);
-    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
-    }
-    
-    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){
+    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TODO
         float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
         float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
         float *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
@@ -194,7 +199,56 @@ public:
                                (VertexId)subgraph->edge_size,
                                (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
-                               rtminfo->with_weight);
+                               with_weight);
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+    }
+    
+//    inline void GatherByDstFromSrcTensorWeight(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TODO
+//        float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
+//        float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
+//        float *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
+//        VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
+//        VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
+//        
+//    VertexId src_start = subgraph->src_range[0];
+//    VertexId src_end = subgraph->src_range[1];
+//    VertexId dst_start = subgraph->dst_range[0];
+//    VertexId dst_end = subgraph->dst_range[1];
+//    
+//    cuda_stream->Gather_By_Dst_From_Src(input_buffer,
+//                               output_buffer,
+//                               weight_buffer, //data
+//                               row_indices_from_pinned,
+//                               column_offset_from_pinned, //graph
+//                               (VertexId)src_start, (VertexId)src_end, 
+//                               (VertexId)dst_start, (VertexId)dst_end,
+//                               (VertexId)subgraph->edge_size,
+//                               (VertexId)subgraph->batch_size_forward,
+//                               (VertexId)output_size,
+//                               with_weight);
+//    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+//    }
+     inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor &message,torch::Tensor &weight){
+        float *message_buffer=getWritableBuffer(message);
+        float *weight_buffer=getWritableBuffer(weight);
+        float *output_buffer=getWritableBuffer(output);
+        VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
+        VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
+        
+        VertexId src_start = subgraph->src_range[0];
+        VertexId src_end = subgraph->src_range[1];
+        VertexId dst_start = subgraph->dst_range[0];
+        VertexId dst_end = subgraph->dst_range[1];
+
+        cuda_stream->Gather_By_Dst_From_Message(message_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_indices_from_pinned,
+                               column_offset_from_pinned, //graph
+                               src_start, src_end, dst_start, dst_end,
+                               E,
+                               subgraph->batch_size_forward,
+                               output_size, rtminfo->with_weight);
     cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
@@ -219,6 +273,35 @@ public:
                                false);
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();   
     }
+    
+        
+    inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TO DO
+        float *input_buffer=getWritableBuffer(input_src);
+        float *weight_buffer=getWritableBuffer(weight);
+        float *output_buffer=getWritableBuffer(output);
+        VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
+        VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
+        
+    VertexId src_start = subgraph->src_range[0];
+    VertexId src_end = subgraph->src_range[1];
+    VertexId dst_start = subgraph->dst_range[0];
+    VertexId dst_end = subgraph->dst_range[1];
+    
+    //std::cout<<output_size<<"  "<<src_end-src_start<<" "<<subgraph->batch_size_backward<<std::endl;
+    cuda_stream->Gather_By_Src_From_Dst(input_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_offset_from_pinned, //graph
+                               column_indices_from_pinned,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_backward,
+                               (VertexId)output_size,
+                               with_weight);
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+    }
+    
     
     inline torch::Tensor DeSerializeTensorToGPU(torch::Tensor &var_cpu){
         
@@ -361,6 +444,7 @@ public:
     //src_input_trans dst_input_trans, message,
     std::map<std::string,torch::Tensor>CacheVar;//used for caching data;
     runtimeinfo *rtminfo;
+    AGGTYPE aggtype;
     //src_input.cpu() dst_input.cpu()
 };
 

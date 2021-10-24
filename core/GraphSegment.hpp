@@ -178,7 +178,19 @@ typedef struct graph_Tensor_Segment_pinned
    } 
    void to_this_part_set_active(VertexId v_i){
        this->destination_mirror_active->set_bit(v_i-dst_range[0]);
-   } 
+   }
+   VertexId CO(VertexId v){
+       return this->column_offset[v-dst_range[0]];
+   }
+   VertexId RI(VertexId idx){
+       return row_indices[idx];
+   }
+   VertexId RO(VertexId v){
+       return this->row_offset[v-src_range[0]];
+   }
+   VertexId CI(VertexId idx){
+       return column_indices[idx];
+   }
 
 } CSC_segment_pinned;
 
