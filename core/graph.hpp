@@ -5149,6 +5149,16 @@ public:
                                     graph_partitions[current_send_partition_id]->edge_size,
                                     graph_partitions[current_send_partition_id]->batch_size_forward,
                                     feature_size, rtminfo->with_weight);
+//    cuda_stream->Gather_By_Dst_From_Src_Optim(input_gpu,
+//                                    output_gpu,
+//                                    weight_gpu_intergate, //data
+//                                    row_indices_intergate,
+//                                    column_offset_intergate,
+//                                    src_start, src_end, dst_start, dst_end,
+//                                    graph_partitions[current_send_partition_id]->edge_size,
+//                                    graph_partitions[current_send_partition_id]->batch_size_forward,
+//                                    feature_size, rtminfo->with_weight);
+    
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     kernel_time += MPI_Wtime();
     all_kernel_time += kernel_time;

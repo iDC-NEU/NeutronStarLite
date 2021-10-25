@@ -101,6 +101,19 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
                                 src_start, dst_start, batch_size, feature_size);
         }
 }
+void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+	VertexId_CUDA edges,VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size,bool with_weight,bool tensor_weight){
+        const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+                aggregate_kernel_from_src_with_weight_optim<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+			row_indices, column_offset, input, output, weight_forward, 
+				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
+}
+
 
 void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weight_forward,//data 
         VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,//graph
