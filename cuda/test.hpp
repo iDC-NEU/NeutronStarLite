@@ -12,7 +12,7 @@
 #include <vector>
 #include <string.h>
 //#include"../core/graph.hpp"
-typedef uint32_t VertexId_CUDA;
+#include "cuda_type.h"
 enum graph_type
 {
 	CSR,
