@@ -5154,6 +5154,7 @@ public:
 //                                    weight_gpu_intergate, //data
 //                                    row_indices_intergate,
 //                                    column_offset_intergate,
+//                                     graph_partitions[current_send_partition_id]->destination_gpu,
 //                                    src_start, src_end, dst_start, dst_end,
 //                                    graph_partitions[current_send_partition_id]->edge_size,
 //                                    graph_partitions[current_send_partition_id]->batch_size_forward,
@@ -5260,6 +5261,60 @@ public:
     all_moveout_time += moveout_time;
   }
     
+    void backward_gpu_CSR_partition_Optim(
+      NtsVar input_gpu_or_cpu,
+      std::vector<CSC_segment_pinned *> &graph_partitions,
+      int feature_size,
+      int current_send_partition_id,
+      Cuda_Stream *cuda_stream,
+      bool require_move_in = false)
+  {
+
+    double movein_time = 0;
+    movein_time -= MPI_Wtime();
+    output_gpu_buffered.zero_();
+
+    VertexId src_start = graph_partitions[current_send_partition_id]->src_range[0];
+    VertexId src_end = graph_partitions[current_send_partition_id]->src_range[1];
+    VertexId dst_start = graph_partitions[current_send_partition_id]->dst_range[0];
+    VertexId dst_end = graph_partitions[current_send_partition_id]->dst_range[1];
+    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+    movein_time += MPI_Wtime();
+    all_movein_time += movein_time;
+    double kernel_time = 0;
+    kernel_time -= MPI_Wtime();
+    cuda_stream->Gather_By_Src_From_Dst_Optim(input_gpu_or_cpu.packed_accessor<float, 2>().data(),
+                                    output_gpu_buffered.packed_accessor<float, 2>().data(),
+                                    graph_partitions[current_send_partition_id]->edge_weight_backward_gpu, //data
+                                    graph_partitions[current_send_partition_id]->row_offset_gpu,
+                                    graph_partitions[current_send_partition_id]->column_indices_gpu, //graph
+                                    graph_partitions[current_send_partition_id]->source_backward_gpu,
+                                    src_start, src_end, //down
+                                    dst_start, dst_end, //up
+                                    graph_partitions[current_send_partition_id]->edge_size,
+                                    graph_partitions[current_send_partition_id]->batch_size_backward,
+                                    feature_size, rtminfo->with_weight);
+    
+    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+    kernel_time += MPI_Wtime();
+    all_kernel_time += kernel_time;
+    //
+    double moveout_time = 0;
+    moveout_time -= MPI_Wtime();
+
+    cuda_stream->move_result_out(output_cpu_buffer + (graph_partitions[current_send_partition_id]->src_range[0] * feature_size),
+                                 output_gpu_buffered.packed_accessor<float, 2>().data(),
+                                 graph_partitions[current_send_partition_id]->src_range[0],
+                                 graph_partitions[current_send_partition_id]->src_range[1],
+                                 feature_size, false);
+
+    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+    moveout_time += MPI_Wtime();
+    all_moveout_time += moveout_time;
+  }
+    
+    
+    
     void backward_gpu_CSR_partition(
       NtsVar input_gpu_or_cpu,
       std::vector<CSC_segment_pinned *> &graph_partitions,
@@ -5300,20 +5355,6 @@ public:
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     movein_time += MPI_Wtime();
     all_movein_time += movein_time;
-    //kernal function call;
-    /*
-             * output_gpu
-             * input_gpu
-             * graph_partitions[i]->src
-             * graph_partitions[i]->dst
-             * graph_partitions[i]->weight;
-             * graph_partitions[i]->src_range[0],[1];
-             * graph_partitions[j]->dst_range[0],[1];
-             * graph_partitions[i]->batch_size
-             * graph_partitions[i]->edge_size
-             * graph_partitions[i]->feature_size
-             */
-    // std::cout<<"run one batch"<<std::endl;
     double kernel_time = 0;
     kernel_time -= MPI_Wtime();
 

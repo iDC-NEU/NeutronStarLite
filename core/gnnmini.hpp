@@ -29,133 +29,6 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include "cuda/test.hpp"
 #include "core/input.hpp"
 
-// #define VECTOR_LENGTH 3703
-// #define WEIGHT_ROW 3703
-// #define WEIGHT_COL 3703
-// #define NODE_NUMBER 3327
-// #define LABEL_NUMBER 6
-// #define SIZE_LAYER_1    3703
-// #define SIZE_LAYER_2    128
-// #define OUTPUT_LAYER_3  6
-
-// #define VECTOR_LENGTH 500
-// #define WEIGHT_ROW 500
-// #define WEIGHT_COL 500
-// #define NODE_NUMBER 19717
-// #define LABEL_NUMBER 3
-// #define SIZE_LAYER_1    500
-// #define SIZE_LAYER_2    128
-// #define OUTPUT_LAYER_3  3
-
-//#define VECTOR_LENGTH 1433
-//#define WEIGHT_ROW 1433
-//#define WEIGHT_COL 1433
-//#define NODE_NUMBER 2708
-//#define LABEL_NUMBER 7
-//#define SIZE_LAYER_1 1433
-//#define SIZE_LAYER_2    128
-//#define OUTPUT_LAYER_3  7
-
-#define VECTOR_LENGTH 100
-#define WEIGHT_ROW 100
-#define WEIGHT_COL 100
-#define NODE_NUMBER 875713
-#define LABEL_NUMBER 20
-#define SIZE_LAYER_1 100
-#define SIZE_LAYER_2 64
-#define OUTPUT_LAYER_3 20
-#define MAX_LAYER 100
-
-/*
-#define VECTOR_LENGTH 400
-#define WEIGHT_ROW 400
-#define WEIGHT_COL 400
-#define NODE_NUMBER 1632803
-#define LABEL_NUMBER 16
-#define SIZE_LAYER_1 400
-#define SIZE_LAYER_2 128
-#define OUTPUT_LAYER_3 16
-#define MAX_LAYER 400
-*/
-/*
- #define VECTOR_LENGTH 300
- #define WEIGHT_ROW 300
- #define WEIGHT_COL 300
- #define NODE_NUMBER 1971281
- #define LABEL_NUMBER 16
- #define SIZE_LAYER_1 300
- #define SIZE_LAYER_2   256
- #define OUTPUT_LAYER_3  16
- #define MAX_LAYER 300
-*/
-/*
- #define VECTOR_LENGTH 352
- #define WEIGHT_ROW 352
- #define WEIGHT_COL 352
- #define NODE_NUMBER 1696415
- #define LABEL_NUMBER 16
- #define SIZE_LAYER_1 64
- #define SIZE_LAYER_2   352
- #define OUTPUT_LAYER_3  16
- #define MAX_LAYER 352
-*/
-
-// #define VECTOR_LENGTH 300
-// #define WEIGHT_ROW 300
-// #define WEIGHT_COL 300
-// #define NODE_NUMBER 3072626
-// #define LABEL_NUMBER 7
-// #define SIZE_LAYER_1 300
-// #define SIZE_LAYER_2    16
-// #define OUTPUT_LAYER_3  7
-
-template <int size_>
-struct nodeVector
-{
-    ValueType data[size_];
-} __attribute__((packed));
-
-//typedef struct factor2 {
-//    float weight[WEIGHT_ROW][WEIGHT_COL];
-//} weightVector;
-template <typename t_v, int SIZE_>
-struct EdgeFeature
-{
-    t_v data[SIZE_];
-};
-struct compress_feature
-{
-    int key;
-    float value;
-};
-
-typedef struct graph_Tensor
-{
-    NtsVar src;
-    NtsVar dst;
-    NtsVar weight;
-    int edge_size;
-    int batch_size;
-    int feature_size;
-    int src_range[2];
-    int dst_range[2];
-    float *weight_buffer;
-} edge_list;
-
-struct content
-{
-    int id;
-    ValueType att[SIZE_LAYER_1];
-    long label;
-}; //con[2708];
-
-struct Compressed_Feature
-{
-    VertexId *column_index;
-    ValueType *value_list;
-    VertexId *position;
-    int count;
-};
 long changelable(std::string la)
 {
     std::map<std::string, long> label;
@@ -410,8 +283,6 @@ public:
                 X,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    //nodeVector<CURRENT_LAYER_SIZE> sum;
-                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
                     graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                 },
                 Y.packed_accessor<float, 2>().data());
@@ -425,9 +296,6 @@ public:
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     if (!graph_->RepVtx[layer]->get_bit(src))
                     {
-                        // nodeVector<CURRENT_LAYER_SIZE> sum;
-                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-                        // graph_->emit(src, sum);
                         graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                     }
                 },
@@ -636,6 +504,7 @@ public:
                 
                 graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)(v_src_m);
                 graph_partitions[i]->destination[tmp_column_offset[v_dst]] = (long)(v_dst_m);
+                graph_partitions[i]->source_backward[tmp_row_offset[v_src]]=(long)(v_src_m);
                 
                 graph_partitions[i]->src_set_active(v_src_m);//source_active->set_bit(v_src);
                 graph_partitions[i]->dst_set_active(v_dst_m);//destination_active->set_bit(v_dst);

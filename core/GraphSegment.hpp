@@ -84,6 +84,8 @@ typedef struct graph_Tensor_Segment_pinned
   
   long *source;
   long *destination;
+  long *source_backward;
+  
   float *edge_weight_forward;          //edge_size
   float *edge_weight_backward;
   
@@ -97,6 +99,9 @@ typedef struct graph_Tensor_Segment_pinned
   
   long *source_gpu;
   long *destination_gpu;
+  
+  long *source_backward_gpu;
+  
   float *edge_weight_forward_gpu;      //edge_size
   float *edge_weight_backward_gpu;      //edge_size
   
@@ -145,6 +150,7 @@ typedef struct graph_Tensor_Segment_pinned
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+    source_backward  = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
 
   }
     void getDevicePointerAll(){
@@ -159,7 +165,8 @@ typedef struct graph_Tensor_Segment_pinned
             
             
     source_gpu = (long *)getDevicePointer(source);///
-    destination_gpu = (long *)getDevicePointer(destination);///      
+    destination_gpu = (long *)getDevicePointer(destination);///
+    source_backward_gpu=(long*)getDevicePointer(source_backward);
   }
    bool src_get_active(VertexId v_i){
        return this->source_active->get_bit(v_i-src_range[0]);
