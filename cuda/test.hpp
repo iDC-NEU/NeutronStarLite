@@ -147,11 +147,17 @@ public:
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
 							VertexId_CUDA feature_size, bool with_weight = false,bool tensor_weight=false);
         void Gather_By_Dst_From_Src_Optim(float *input, float *output, float *weight_forward, //data
-							VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,				//graph
+							VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,long* destination,				//graph
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 							VertexId_CUDA edges, VertexId_CUDA batch_size,
 							VertexId_CUDA feature_size, bool with_weight = false,bool tensor_weight=false);
+        void Gather_By_Src_From_Dst_Optim(float *input, float *output, float *weight_forward, //data
+							VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,long* source,				//graph
+							VertexId_CUDA src_start, VertexId_CUDA src_end,
+							VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+							VertexId_CUDA edges, VertexId_CUDA batch_size,
+							VertexId_CUDA feature_size, bool with_weight = false,bool tensor_weight=false);       
         void Gather_By_Src_From_Dst(float* input,float* output,float* weight_forward,//data 
                                                         VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,//graph
                                                         VertexId_CUDA src_start, VertexId_CUDA src_end,
