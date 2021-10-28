@@ -163,10 +163,11 @@ public:
         memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         
-
-        graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
             [&](VertexId src) {
-                    graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                   // graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                 },
             [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
                 VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
@@ -175,7 +176,11 @@ public:
                     VertexId src_trans=src-graph_->partition_offset[recv_id];
                     float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
                     float* local_output=Y_buffer+dst_trans*feature_size;
-                    comp(local_input,local_output,norm_degree(src,dst),feature_size);
+//                    if(dst==0&&recv_id==0){
+//                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
+//                    }
+                    //comp(local_input,local_output,norm_degree(src,dst),feature_size);
+                    comp(local_input,local_output,1,feature_size);
                 }
             },
             subgraphs,
@@ -189,7 +194,8 @@ public:
         memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         float* output_buffer=new float[feature_size*graph_->threads];
-        graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
+        //graph_->process_edges_backward_debug<int, float>( // For EACH Vertex Processing
+        graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
             [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
                 float* local_output_buffer=output_buffer+feature_size*thread_id;
                 memset(local_output_buffer,0,sizeof(float)*feature_size);
@@ -201,9 +207,11 @@ public:
                     VertexId dst=subgraphs[recv_id]->column_indices[d_idx];
                     VertexId dst_trans=dst-start_;
                     float* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
-                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);        
+                    //comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);   
+                    comp(local_input_buffer,local_output_buffer,1,feature_size);     
                 }
-                graph_->emit_buffer(src, local_output_buffer,feature_size);
+                //graph_->emit_buffer(src, local_output_buffer,feature_size);
+                graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
             },
             [&](VertexId src, float* msg) {
                 acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
@@ -230,7 +238,7 @@ public:
                 { //pull model
                     VertexId src = ptr->neighbour;
                     float* local_input_buffer=X_buffer+(src-start_)*feature_size;  
-                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);
+                    comp(local_input_buffer,local_output_buffer,1,feature_size);
                 }
                graph_->emit_buffer(dst, local_output_buffer,feature_size);
             },
