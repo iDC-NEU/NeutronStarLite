@@ -7,7 +7,7 @@ NeutronStar uses **MPI** for inter-process communication.
 A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions, multi-threading, etc.) is required.
 
 Nvidia cub is required
-
+ 
 **LibTorch 1.5** with GPU support is required.
 The GAT algorithm requires LibTorch 1.9
 
