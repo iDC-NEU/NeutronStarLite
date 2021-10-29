@@ -2160,7 +2160,7 @@ public:
     double stream_time = 0;
     stream_time -= MPI_Wtime();
     NtsComm->init_layer_all(feature_size,Master2Mirror);
-    
+          NtsComm->run_all_master_to_mirror_no_wait();
     R reducer = 0;
     
     size_t basic_chunk = 64;
@@ -2182,11 +2182,15 @@ public:
           word = word >> 1;
         }
       }
-      NtsComm->achieve_local_message(current_send_part_id);
-      NtsComm->partition_is_ready_for_recv(partition_id);
-      
-      NtsComm->run_all_master_to_mirror();
-      
+//      NtsComm->achieve_local_message(current_send_part_id);
+//      NtsComm->partition_is_ready_for_recv(current_send_part_id);
+//      NtsComm->run_all_master_to_mirror();
+
+      for(int step=0;step<partitions;step++){
+          int trigger_partition=(partition_id-step+partitions)%partitions;
+          NtsComm->trigger_one_partition(trigger_partition,trigger_partition==current_send_part_id);
+      }
+     
       for (int step = 0; step < partitions; step++)
       {
         int i = -1;
@@ -2287,11 +2291,11 @@ public:
     stream_time -= MPI_Wtime();
 
     NtsComm->init_layer_all(feature_size,Mirror2Master);
+    NtsComm->run_all_mirror_to_master();
     
     R reducer = 0;
     size_t basic_chunk = 64;
     {
-      NtsComm->run_all_mirror_to_master();
         
       current_send_part_id = partition_id;
       for (int step = 0; step < partitions; step++)
@@ -2354,9 +2358,11 @@ public:
             }
           }
         }
-        NtsComm->achieve_local_message(i);
-        NtsComm->partition_is_ready_for_send(i);
+//        NtsComm->achieve_local_message(i);
+//        NtsComm->partition_is_ready_for_send(i);
+        NtsComm->trigger_one_partition(i,true);
       }
+      
       for (int step = 0; step < partitions; step++)
       {
         int i = -1;

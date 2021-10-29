@@ -210,13 +210,17 @@ public:
     inline void set_current_send_partition(VertexId cspi){
         current_send_part_id=cspi;
     }
-    void send_one_partition(VertexId partition_id_){
-        
+    void trigger_one_partition(VertexId partition_id_,bool flush_local_buffer=true){
+        if(flush_local_buffer==true){
         achieve_local_message(partition_id_);
+        }
         if(partition_id_==partition_id){
+           //  printf("local triggered %d\n",partition_id_);
             partition_is_ready_for_recv(partition_id_);
         }else if(partition_id_!=partition_id){
+         // printf("remote triggered %d\n",partition_id_);
           partition_is_ready_for_send(partition_id_);
+          
         }else{
             printf("illegal partition_id(%d)\n",partition_id_);
             exit(0);
@@ -240,12 +244,10 @@ public:
     }
     void partition_is_ready_for_send(VertexId partition_id_){
         if(partition_id_!=partition_id){
-        send_queue[send_queue_size] = current_send_part_id;
+        send_queue[send_queue_size] = partition_id_;
         send_queue_mutex.lock();
         send_queue_size += 1;
-        send_queue_mutex.unlock();}
-        else{
-            
+        send_queue_mutex.unlock();
         }
     }
     
@@ -316,12 +318,17 @@ public:
 
 
     void send_master_to_mirror_no_wait(){
-        for (int step = 1; step < partitions; step++)
+        for (int step = 0; step < partitions; step++)
         {
+          if (step == partitions - 1)
+          {
+            break;
+          }
           while (true)
           {
+            //  printf("while %d  %d\n",send_queue_size,step);
             send_queue_mutex.lock();
-            bool condition = (send_queue_size <= step);
+            bool condition = (send_queue_size <=step);
             send_queue_mutex.unlock();
             if (!condition)
               break;
@@ -329,11 +336,12 @@ public:
                                : "memory");
           }
           int i = send_queue[step];
-          if(i==partition_id){
-              continue;
-          }
+//          if(i==partition_id){
+//              printf("continue\n");
+//              continue;
+//          }
           for (int s_i = 0; s_i < sockets; s_i++)
-          { //printf("send_success\n");
+          { //printf("send_success part_id %d\n",partition_id);
             MPI_Send(send_buffer[partition_id][s_i]->data, size_of_msg(feature_size) * send_buffer[partition_id][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
           }
         }
@@ -350,6 +358,34 @@ public:
         }
         
     }
+    
+    void recv_master_to_mirror_no_wait(){
+         for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id + step) % partitions;
+          recv_threads.emplace_back([&](int i){
+            for (int s_i = 0; s_i < sockets; s_i++)
+            {
+                MPI_Status recv_status;
+                MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+                MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
+                MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                recv_buffer[i][s_i]->count /= size_of_msg(feature_size);
+                //printf("recv_success\n");
+            }
+            },i);
+        }
+        for (int step = 1; step < partitions; step++)
+        {
+          int i = (partition_id + step) % partitions;
+          recv_threads[step - 1].join();
+          recv_queue[recv_queue_size] = i;
+          recv_queue_mutex.lock();
+          recv_queue_size += 1;
+          recv_queue_mutex.unlock();
+        } 
+    }
+    
     void recv_master_to_mirror(){
          for (int step = 1; step < partitions; step++)
         {
@@ -369,6 +405,7 @@ public:
           recv_queue_mutex.unlock();
         }
     }
+    
     void recv_mirror_to_master(){
         for (int step = 1; step < partitions; step++)
         {
@@ -407,6 +444,14 @@ public:
         });
         Recv=new std::thread([&](){
             recv_master_to_mirror();
+        });
+    }
+    void run_all_master_to_mirror_no_wait(){
+        Send=new std::thread([&](){
+            send_master_to_mirror_no_wait();
+        });
+        Recv=new std::thread([&](){
+            recv_master_to_mirror_no_wait();
         });
     }
     void run_all_mirror_to_master(){
