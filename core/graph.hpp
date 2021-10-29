@@ -2159,7 +2159,7 @@ public:
     omp_set_num_threads(threads);
     double stream_time = 0;
     stream_time -= MPI_Wtime();
-    NtsComm->init_layer_all(feature_size,Master2Mirror);
+    NtsComm->init_layer_all(feature_size,Master2Mirror,CPU_T);
           NtsComm->run_all_master_to_mirror_no_wait();
     R reducer = 0;
     
@@ -2290,7 +2290,7 @@ public:
     double stream_time = 0;
     stream_time -= MPI_Wtime();
 
-    NtsComm->init_layer_all(feature_size,Mirror2Master);
+    NtsComm->init_layer_all(feature_size,Mirror2Master,CPU_T);
     NtsComm->run_all_mirror_to_master();
     
     R reducer = 0;
@@ -4640,7 +4640,6 @@ public:
         FreeBuffer(graph_rep[layer_].rep_feature_gpu_buffer);
       }
       free_all_tmp();
-      //      printf("con%d_%d\n",con,partition_offset[1]);
     }
 
     R global_reducer;
@@ -4712,6 +4711,7 @@ public:
     Cuda_Stream *cuda_stream = new Cuda_Stream();
     allocate_gpu_buffer(&gpu_memory_buffer, max_recv_buffer_size * (feature_size + 1));
     allocate_gpu_buffer(&gpu_input_buffer, max_partition_size * (feature_size+1));
+    
     NtsVar input_transferred=PreComputation(input_origin);
     
     {  
@@ -4807,9 +4807,7 @@ public:
             zero_buffer(gpu_input_buffer, (partition_offset[i + 1] - partition_offset[i]) * (feature_size));
             //printf("partition offset %d %d\n",partition_offset[i],partition_offset[i+1]);
             cuda_stream->deSerializeToGPU(gpu_input_buffer, gpu_memory_buffer, used_buffer[s_i]->count, feature_size, partition_offset[i], partition_offset[i + 1], false);
-            // torch::from_blob(graph->in_degree + graph->partition_offset[graph->partition_id], {embedding->rownum, 1});
-            NtsVar mirror_inputs=Nts->NewKeyTensor(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size});//,at::TensorOptions().requires_grad(true).device_index(0).dtype(torch::kFloat));
-            
+            NtsVar mirror_inputs=Nts->NewKeyTensor(gpu_input_buffer,{partition_offset[i + 1] - partition_offset[i],feature_size});     
             Nts->InitBlock(graph_partitions[i],
                               rtminfo,
                               gnnctx->layer_size[rtminfo->curr_layer],

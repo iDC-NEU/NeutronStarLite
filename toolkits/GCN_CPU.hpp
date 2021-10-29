@@ -66,7 +66,7 @@ public:
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->GenerateGraphSegment(subgraphs, true);
+        gt->GenerateGraphSegment(subgraphs,CPU_T);
         //gt->GenerateMessageBitmap(subgraphs);
         //gt->TestGeneratedBitmap(subgraphs);
         //graph->init_message_buffer();
@@ -158,10 +158,10 @@ void Forward(){
     graph->rtminfo->curr_layer = i;
     //gt->PropagateForwardCPU(X[i], Y[i]);
     gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
-        if(graph->partition_id==0){
-        int test=0;
-        std::cout<<"DEBUG_TO"<<" "<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][0]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][0]<<std::endl;
-    } 
+//        if(graph->partition_id==0){
+//            int test=0;
+//            std::cout<<"DEBUG_TO"<<" "<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][0]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][0]<<std::endl;
+//        } 
     
     X[i+1]=vertexForward(Y[i],X[i]);
     }
@@ -185,12 +185,14 @@ void Forward(){
             P[i]->zero_grad();
         }      
        Forward();
-       Backward();       
-//        graph->rtminfo->forward = false;
+       Backward();      
+        
+        
+//    graph->rtminfo->forward = false;
 //    graph->rtminfo->curr_layer=0;
-//     gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
-//    if(graph->partition_id==0){
-//        int test=0;
+//    gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
+//    if(graph->partition_id==1){
+//        int test=500000;
 //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
 //    } 
 

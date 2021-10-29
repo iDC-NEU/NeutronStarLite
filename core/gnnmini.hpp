@@ -163,11 +163,11 @@ public:
         memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         
-        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
-        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
+        graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+        //graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
             [&](VertexId src) {
-                   // graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                    graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                   //graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                 },
             [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
                 VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
@@ -179,8 +179,8 @@ public:
 //                    if(dst==0&&recv_id==0){
 //                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
 //                    }
-                    //comp(local_input,local_output,norm_degree(src,dst),feature_size);
-                    comp(local_input,local_output,1,feature_size);
+                    comp(local_input,local_output,norm_degree(src,dst),feature_size);
+                    //comp(local_input,local_output,1,feature_size);
                 }
             },
             subgraphs,
@@ -194,7 +194,7 @@ public:
         memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         float* output_buffer=new float[feature_size*graph_->threads];
-        //graph_->process_edges_backward_debug<int, float>( // For EACH Vertex Processing
+        //graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
         graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
             [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
                 float* local_output_buffer=output_buffer+feature_size*thread_id;
@@ -207,8 +207,8 @@ public:
                     VertexId dst=subgraphs[recv_id]->column_indices[d_idx];
                     VertexId dst_trans=dst-start_;
                     float* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
-                    //comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);   
-                    comp(local_input_buffer,local_output_buffer,1,feature_size);     
+                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);   
+                    //comp(local_input_buffer,local_output_buffer,1,feature_size);     
                 }
                 //graph_->emit_buffer(src, local_output_buffer,feature_size);
                 graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
@@ -458,7 +458,7 @@ public:
        Process_GPU_overlap_explict(X,Y,graph_partitions);
        
     }
-   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, bool overlap = false)
+   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt)
     {
         graph_partitions.clear();
         int *tmp_column_offset = new int[graph_->vertices + 1];
@@ -472,7 +472,7 @@ public:
                                       graph_->graph_shard_in[i]->src_range[1], 
                                       graph_->graph_shard_in[i]->dst_range[0],
                                       graph_->graph_shard_in[i]->dst_range[1], 
-                                      graph_->graph_shard_in[i]->numofedges);
+                                      graph_->graph_shard_in[i]->numofedges,dt);
             graph_partitions[i]->allocVertexAssociateData();
             graph_partitions[i]->allocEdgeAssociateData();
             graph_partitions[i]->getDevicePointerAll();
@@ -524,7 +524,7 @@ public:
                 graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = norm_degree(v_src_m,v_dst_m);
             }
         }
-        {
+        if(GPU_T==dt){
             int max_batch_size = 0;
             for (int i = 0; i < graph_partitions.size(); i++)
             {

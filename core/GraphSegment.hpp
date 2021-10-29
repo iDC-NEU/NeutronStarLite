@@ -41,7 +41,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/time.hpp"
 #include "core/type.hpp"
 #include "cuda/test.hpp"
-
+const bool NOT_SUPPORT_DEVICE_TYPE=false;
 //
 //typedef struct graph_Tensor_Segment
 //{
@@ -72,7 +72,6 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 //  int dst_range[2];
 //  float *weight_buffer;
 //} CSR_segment;
-
 typedef struct graph_Tensor_Segment_pinned
 {
     
@@ -117,7 +116,9 @@ typedef struct graph_Tensor_Segment_pinned
   Bitmap* destination_active;
   Bitmap* destination_mirror_active;
   
-  void init(VertexId src_start,VertexId src_end,VertexId dst_start,VertexId dst_end,VertexId edge_size_){
+  DeviceLocation dt;
+  
+  void init(VertexId src_start,VertexId src_end,VertexId dst_start,VertexId dst_end,VertexId edge_size_,DeviceLocation dt_){
       src_range[0]=src_start;
       src_range[1]=src_end;
       dst_range[0]=dst_start;
@@ -125,6 +126,7 @@ typedef struct graph_Tensor_Segment_pinned
       batch_size_backward=src_range[1]-src_range[0];
       batch_size_forward=dst_range[1]-dst_range[0];
       edge_size=edge_size_;
+      dt=dt_;
       
   }
   void allocVertexAssociateData(){
@@ -136,12 +138,20 @@ typedef struct graph_Tensor_Segment_pinned
     source_active->clear();
     destination_active->clear();
     destination_mirror_active->clear();
-      
-    column_offset = (VertexId *)cudaMallocPinned((batch_size_forward+1) * sizeof(VertexId));           
-    row_offset = (VertexId *)cudaMallocPinned((batch_size_backward+1) * sizeof(VertexId));///   
+    if(dt==GPU_T){  
+        column_offset = (VertexId *)cudaMallocPinned((batch_size_forward+1) * sizeof(VertexId));           
+        row_offset = (VertexId *)cudaMallocPinned((batch_size_backward+1) * sizeof(VertexId));///  
+    }else
+    if(dt==CPU_T){
+        column_offset = (VertexId *)malloc((batch_size_forward+1) * sizeof(VertexId));           
+        row_offset = (VertexId *)malloc((batch_size_backward+1) * sizeof(VertexId));/// 
+    }else{
+        assert(NOT_SUPPORT_DEVICE_TYPE);
+    } 
   }
     void allocEdgeAssociateData(){
      
+    if(dt==GPU_T){    
     row_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
     edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
 
@@ -151,22 +161,42 @@ typedef struct graph_Tensor_Segment_pinned
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source_backward  = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+    }else
+    if(dt==CPU_T){
+        row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
+    edge_weight_forward = (float *)malloc((edge_size + 1) * sizeof(VertexId));
+
+    column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));///
+    edge_weight_backward = (float *)malloc((edge_size + 1) * sizeof(VertexId));///
+
+    destination = (long *)malloc((edge_size + 1) * sizeof(long));
+    source      = (long *)malloc((edge_size + 1) * sizeof(long));
+    source_backward  = (long *)malloc((edge_size + 1) * sizeof(long));
+    }else{
+        assert(NOT_SUPPORT_DEVICE_TYPE);
+    }
 
   }
     void getDevicePointerAll(){
-            
-    column_offset_gpu = (VertexId *)getDevicePointer(column_offset);
-    row_indices_gpu = (VertexId *)getDevicePointer(row_indices);
-    edge_weight_forward_gpu = (float *)getDevicePointer(edge_weight_forward);
-            
-    row_offset_gpu = (VertexId *)getDevicePointer(row_offset);///
-    column_indices_gpu = (VertexId *)getDevicePointer(column_indices);///
-    edge_weight_backward_gpu = (float *)getDevicePointer(edge_weight_backward);/// 
-            
-            
-    source_gpu = (long *)getDevicePointer(source);///
-    destination_gpu = (long *)getDevicePointer(destination);///
-    source_backward_gpu=(long*)getDevicePointer(source_backward);
+    
+    if(dt==GPU_T){ 
+        column_offset_gpu = (VertexId *)getDevicePointer(column_offset);
+        row_indices_gpu = (VertexId *)getDevicePointer(row_indices);
+        edge_weight_forward_gpu = (float *)getDevicePointer(edge_weight_forward);
+        
+        row_offset_gpu = (VertexId *)getDevicePointer(row_offset);///
+        column_indices_gpu = (VertexId *)getDevicePointer(column_indices);///
+        edge_weight_backward_gpu = (float *)getDevicePointer(edge_weight_backward);/// 
+       
+        source_gpu = (long *)getDevicePointer(source);///
+        destination_gpu = (long *)getDevicePointer(destination);///
+        source_backward_gpu=(long*)getDevicePointer(source_backward);
+    }else
+    if(dt==CPU_T){
+       ;     
+    }else{
+        assert(NOT_SUPPORT_DEVICE_TYPE);
+    }
   }
    bool src_get_active(VertexId v_i){
        return this->source_active->get_bit(v_i-src_range[0]);

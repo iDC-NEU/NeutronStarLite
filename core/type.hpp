@@ -24,8 +24,10 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 //class Network;
 
-
-
+enum DeviceLocation{
+    CPU_T,
+    GPU_T
+};
 
 struct Empty { };
 

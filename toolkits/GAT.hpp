@@ -64,7 +64,7 @@ public:
         graph->generate_COO(active);
         graph->reorder_COO_W2W();
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->GenerateGraphSegment(subgraphs, true);
+        gt->GenerateGraphSegment(subgraphs, GPU_T);
         gt->GenerateMessageBitmap(subgraphs);
         graph->init_message_buffer();
     }
@@ -101,6 +101,7 @@ public:
         }
         
         X[0]=F.cuda().set_requires_grad(true);
+        graph->Nts->aggtype=SPsD;
     }
 
     

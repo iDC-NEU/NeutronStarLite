@@ -33,7 +33,7 @@ enum MessageTag
   PassMessage,
   GatherVertexArray
 };
-enum EngineType{
+enum CommType{
     Master2Mirror,
     Mirror2Master
 };
@@ -159,13 +159,23 @@ public:
         
     }
     
-    void init_layer_all(VertexId feature_size_,EngineType et){
+    void init_layer_all(VertexId feature_size_,CommType et,DeviceLocation dl){
         init_communicator(feature_size_);
         init_local_message_buffer();
         if(et==Master2Mirror){
-            init_message_buffer_master_to_mirror();
+            if(CPU_T==dl){
+                init_message_buffer_master_to_mirror();
+            }else
+            if(GPU_T==dl){
+                init_message_buffer_master_to_mirror_pipe();
+            }
         }else if(Mirror2Master==et){
-            init_message_buffer_mirror_to_master();
+            if(CPU_T==dl){
+                init_message_buffer_mirror_to_master();
+            }else
+            if(GPU_T==dl){
+                init_message_buffer_mirror_to_master_pipe();
+            }
         }
          
         
@@ -207,6 +217,29 @@ public:
             }
         } 
     }
+    
+    void init_message_buffer_master_to_mirror_pipe(){
+        for (int i = 0; i < partitions; i++){
+            for (int s_i = 0; s_i < sockets; s_i++){
+                recv_buffer[i][s_i]->resize_pinned(size_of_msg(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+                send_buffer[i][s_i]->resize_pinned(size_of_msg(feature_size) * owned_vertices * sockets);
+                send_buffer[i][s_i]->count = 0;
+                recv_buffer[i][s_i]->count = 0;
+            }
+        } 
+    }
+    void init_message_buffer_mirror_to_master_pipe(){
+           //printf("%d %d %d %d %d %d %d\n",owned_vertices,sockets,feature_size,local_send_buffer_limit,partitions,partition_offset[0],partition_offset[1]);
+        for (int i = 0; i < partitions; i++){
+            for (int s_i = 0; s_i < sockets; s_i++){
+                recv_buffer[i][s_i]->resize_pinned(size_of_msg(feature_size) * owned_vertices * sockets);
+                send_buffer[i][s_i]->resize_pinned(size_of_msg(feature_size) * (partition_offset[i + 1] - partition_offset[i]) * sockets);
+                send_buffer[i][s_i]->count = 0;
+                recv_buffer[i][s_i]->count = 0;
+            }
+        } 
+    }
+    
     inline void set_current_send_partition(VertexId cspi){
         current_send_part_id=cspi;
     }

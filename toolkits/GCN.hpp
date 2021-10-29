@@ -66,7 +66,7 @@ public:
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->GenerateGraphSegment(subgraphs, true);
+        gt->GenerateGraphSegment(subgraphs, GPU_T);
         double load_rep_time = 0;
         load_rep_time -= get_time();
         graph->load_replicate3(graph->gnnctx->layer_size);
