@@ -283,29 +283,20 @@ public:
         int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         bool selective = graph_->rtminfo->reduce_comm;
         int layer = graph_->rtminfo->curr_layer;
-
         if (!selective)
-        { // original communication
-            //printf("done?\n");
-            graph_->compute_sync_explict<int, float>(
+        {       graph_->compute_sync_decoupled<int, float>(
+                X,
+                graph_partitions,
+                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
+                    graph_->NtsComm->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+                },
+                Y);
+        }else{
+             graph_->compute_sync_explict<int, float>(
                 X,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
                     graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-                },
-                Y.packed_accessor<float, 2>().data());
-            //printf("done!\n");
-        }
-        else
-        { //selective comunication
-            graph_->compute_sync_explict<int, float>(
-                X,
-                graph_partitions,
-                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    if (!graph_->RepVtx[layer]->get_bit(src))
-                    {
-                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-                    }
                 },
                 Y.packed_accessor<float, 2>().data());
         }
@@ -318,34 +309,28 @@ public:
         int layer = graph_->rtminfo->curr_layer;
         NtsVar X_cpu=X.cpu();
         float *X_buffered=X_cpu.accessor<float,2>().data();
-        //float *X_buffered1=new float[current_layer_size];
         if (!selective)
         { // original communication
-            //printf("done?\n");
-            graph_->sync_compute<int, float>(
+            graph_->sync_compute_decoupled<int, float>(
                 X,
                 graph_partitions,
-                [&](VertexId src) { //push
-//                    if(src==400000){
-//                        printf("data %f\n",*(X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size));
-//                    }
-                    graph_->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
+                [&](VertexId src) { 
+                    graph_->NtsComm->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
                 },
-                Y.packed_accessor<float, 2>().data());
-            //printf("done!\n");
+                Y);
         }
         else
-        { //selective comunication
-            graph_->sync_compute<int, float>(
-                X,
-                graph_partitions,
-                [&](VertexId src) { //pull
-                    if (!graph_->RepVtx[layer]->get_bit(src))
-                    {
-                        graph_->emit_buffer(src, X_buffered + (src)*current_layer_size, current_layer_size);
-                    }
-                },
-                Y.packed_accessor<float, 2>().data());
+        { 
+//            graph_->sync_compute<int, float>(
+//                X,
+//                graph_partitions,
+//                [&](VertexId src) { //pull
+//                    if (!graph_->RepVtx[layer]->get_bit(src))
+//                    {
+//                        graph_->emit_buffer(src, X_buffered + (src)*current_layer_size, current_layer_size);
+//                    }
+//                },
+//                Y.packed_accessor<float, 2>().data());
         }
     }
     
@@ -409,43 +394,43 @@ public:
         
     }
    
-     void Process_GPU_overlap_lite(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
-    {
-        int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        bool selective = graph_->rtminfo->reduce_comm;
-        int layer = graph_->rtminfo->curr_layer;
-
-        if (!selective)
-        { // original communication
-            //printf("done?\n");
-            graph_->compute_sync_lite<int, float>(
-                X,
-                graph_partitions,
-                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    //nodeVector<CURRENT_LAYER_SIZE> sum;
-                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-                },
-                Y.packed_accessor<float, 2>().data());
-            //printf("done!\n");
-        }
-        else
-        { //selective comunication
-            graph_->compute_sync_lite<int, float>(
-                X,
-                graph_partitions,
-                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    if (!graph_->RepVtx[layer]->get_bit(src))
-                    {
-                        // nodeVector<CURRENT_LAYER_SIZE> sum;
-                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-                        // graph_->emit(src, sum);
-                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-                    }
-                },
-                Y.packed_accessor<float, 2>().data());
-        }
-    }
+//     void Process_GPU_overlap_lite(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+//    {
+//        int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+//        bool selective = graph_->rtminfo->reduce_comm;
+//        int layer = graph_->rtminfo->curr_layer;
+//
+//        if (!selective)
+//        { // original communication
+//            //printf("done?\n");
+//            graph_->compute_sync_lite<int, float>(
+//                X,
+//                graph_partitions,
+//                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
+//                    //nodeVector<CURRENT_LAYER_SIZE> sum;
+//                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+//                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+//                },
+//                Y.packed_accessor<float, 2>().data());
+//            //printf("done!\n");
+//        }
+//        else
+//        { //selective comunication
+//            graph_->compute_sync_lite<int, float>(
+//                X,
+//                graph_partitions,
+//                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
+//                    if (!graph_->RepVtx[layer]->get_bit(src))
+//                    {
+//                        // nodeVector<CURRENT_LAYER_SIZE> sum;
+//                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
+//                        // graph_->emit(src, sum);
+//                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+//                    }
+//                },
+//                Y.packed_accessor<float, 2>().data());
+//        }
+//    }
     
    inline void GraphPropagateForward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
