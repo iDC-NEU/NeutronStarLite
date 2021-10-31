@@ -67,6 +67,7 @@ public:
         gt->GenerateGraphSegment(subgraphs, GPU_T);
         gt->GenerateMessageBitmap(subgraphs);
         graph->init_message_buffer();
+        graph->init_communicatior();
     }
     void init_nn(){
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);

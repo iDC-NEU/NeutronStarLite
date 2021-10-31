@@ -180,7 +180,6 @@ public:
 //                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
 //                    }
                     comp(local_input,local_output,norm_degree(src,dst),feature_size);
-                    //comp(local_input,local_output,1,feature_size);
                 }
             },
             subgraphs,
@@ -345,11 +344,11 @@ public:
         int layer = graph_->rtminfo->curr_layer;
         NtsVar X_cpu=src_input_origin.cpu();
         float *X_buffered=X_cpu.accessor<float,2>().data();
-            graph_->sync_compute_edge_computation<int, float>(
+            graph_->sync_compute_edge_decoupled<int, float>(
                 src_input_origin,
                 graph_partitions,
                 [&](VertexId src) {
-                    graph_->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
+                    graph_->NtsComm->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
                 },
                 [&](NtsVar &d_i){
                     return PreComputation(d_i);
@@ -373,12 +372,12 @@ public:
         bool selective = graph_->rtminfo->reduce_comm;
         int layer = graph_->rtminfo->curr_layer;
             //printf("done?\n");
-            graph_->compute_sync_edge_computation<int, float>(
+            graph_->compute_sync_edge_decoupled<int, float>(
                 dst_grad_input,
                 src_input_origin,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {
-                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+                    graph_->NtsComm->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
                 },
                 [&](NtsVar &d_i){
                     return PreComputation(d_i);
@@ -393,44 +392,6 @@ public:
             //printf("done!\n");
         
     }
-   
-//     void Process_GPU_overlap_lite(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
-//    {
-//        int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-//        bool selective = graph_->rtminfo->reduce_comm;
-//        int layer = graph_->rtminfo->curr_layer;
-//
-//        if (!selective)
-//        { // original communication
-//            //printf("done?\n");
-//            graph_->compute_sync_lite<int, float>(
-//                X,
-//                graph_partitions,
-//                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-//                    //nodeVector<CURRENT_LAYER_SIZE> sum;
-//                    //memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-//                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-//                },
-//                Y.packed_accessor<float, 2>().data());
-//            //printf("done!\n");
-//        }
-//        else
-//        { //selective comunication
-//            graph_->compute_sync_lite<int, float>(
-//                X,
-//                graph_partitions,
-//                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-//                    if (!graph_->RepVtx[layer]->get_bit(src))
-//                    {
-//                        // nodeVector<CURRENT_LAYER_SIZE> sum;
-//                        // memcpy(sum.data, graph_->output_cpu_buffer + (src)*current_layer_size, sizeof(t_v) * CURRENT_LAYER_SIZE);
-//                        // graph_->emit(src, sum);
-//                        graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-//                    }
-//                },
-//                Y.packed_accessor<float, 2>().data());
-//        }
-//    }
     
    inline void GraphPropagateForward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
