@@ -108,154 +108,6 @@ public:
 
 
 
-__device__ int src_s(int* metaInfo){
-	return metaInfo[0];
-}
-__device__ int src_e(int* metaInfo){
-	return metaInfo[1];
-}
-__device__ int dst_s(int* metaInfo){
-	return metaInfo[2];
-}
-__device__ int dst_e(int* metaInfo){
-	return metaInfo[3];
-}
-__device__ int graph_size(int* metaInfo){
-	return metaInfo[4];
-}
-__device__ int partition_s(int* metaInfo){
-	return metaInfo[5];
-}
-__device__ int partition_e(int* metaInfo){
-	return metaInfo[6];
-}
-__device__ int feature_size(int* metaInfo){
-	return metaInfo[7];
-}
-__device__ int batch_size(int * metaInfo){
-	return dst_e(metaInfo)-dst_s(metaInfo);
-}
-__host__ int getThreadNum(int num){
-int s=32;
-while(s<num){
-	s+=32;
-}
-return s;
-}
-
-
-
-
-
-
-template <typename T_v,typename T_l>
-__global__ void processing_tensor_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
-	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
-	__shared__ int metaInfo[8];
-
-	int large_size=blockDim.x;
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	int rank=threadIdx.x;
-	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
-			int local_src=src[i_i];
-			atomicAdd(&new_feature[feature_size_*local_dst+rank],
-				old_feature[feature_size_*local_src+rank]*edge_data[feature_size_*local_src+rank]);
-	 	}
-	}
-
-}
-
-template <typename T_v,typename T_l>
-__global__ void processing_parameter_weight_shard_CSC(const T_l *src,const  T_l *dst,
- 		const T_v* old_feature, T_v* new_feature,const T_v* para,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int warp_size=blockDim.x;
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
-			int local_src=src[i_i]-src_s_;
-			float sum=0;
-			for(int i_f=0;i_f<feature_size_;i_f++){
-				atomicAdd(&sum,
-			 		old_feature[feature_size_*local_src+rank]*para[i_f*feature_size_+rank]);
-				}
-			atomicAdd(&new_feature[feature_size_*local_dst+rank],sum);
-	 	}	
-	}
-}
-
-
-
-template <typename T_v,typename T_l>
-__global__ void processing_scalar_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
-	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
-	 int large_size=blockDim.x;
-	 int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
-			int local_src=src[i_i]-src_s_;
-			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
-			 	old_feature[feature_size_*local_src+rank]/edge_data[i_i]);
-	 	}
-		
-	}
-}
-
-template <typename T_v,typename T_l>
-__global__ void processing_scalar_weight3(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
-	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
-	 int large_size=blockDim.x;
-	 int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		__shared__ T_v  tmp_feature[2048];
-		
-	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
-			int local_src=src[i_i]-src_s_;
-			 atomicAdd(&tmp_feature[rank],
-			 	old_feature[feature_size_*local_src+rank]/edge_data[i_i]);
-	 	}__syncthreads();
-	 	new_feature[feature_size_*local_dst+rank]=tmp_feature[rank];
-	}
-}
-
-template <typename T_v,typename T_l>
-__global__ void processing_scalar_weight_shard_CSC(const T_l *src,const  T_l *dst,
- 		const T_v* old_feature, T_v* new_feature,const T_v* weight,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int large_size=blockDim.x;
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-        
-//        if(threadId==0)
-// printf("run one batch in GPU %d\n",feature_size_);
-
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
-			int local_src=src[i_i]-src_s_;
-			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
-			 	old_feature[feature_size_*local_src+rank]*weight[i_i]);
-	 	}
-		
-	}
-}
-
-
-
-
-
-
 //UnTested
 //for dimension smaller than 512;
 //with low performance 
@@ -328,7 +180,7 @@ __global__ void aggregate_kernel_from_src_with_weight_optim_load_imbalance(const
         int tidMod=threadIdx.x%feature_size_;
         //block level iteration determnes
         for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
-            VertexId_CUDA myNumEdges=0,scratchOffset,totalNumEdges=0;
+            VertexId_CUDA myNumEdges=0;
             VertexId_CUDA rowIdxStart=0;
             VertexId_CUDA rowIdxEnd=0;
             //the vertex to compute in current block, only the first several threads are busy.
@@ -396,7 +248,6 @@ __global__ void aggregate_kernel_from_src_with_weight_optim_nts(const VertexId_C
         __shared__ float acc_h[CUDA_NUM_THREADS];
         int tidDiv=threadIdx.x/feature_size_;
         int tidMod=threadIdx.x%feature_size_;
-        //block level iteration determnes
         
         for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
             VertexId_CUDA myNumEdges=0,scratchOffset,totalNumEdges=0;
@@ -453,7 +304,7 @@ __global__ void aggregate_kernel_from_src_without_weight_optim_nts(const VertexI
         //block level iteration determnes
         
         for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
-            VertexId_CUDA myNumEdges=0,scratchOffset,totalNumEdges=0;
+            VertexId_CUDA totalNumEdges=0;
             if(threadIdx.x+blkColStart<batch_size_&&threadIdx.x<VtxPerBlock){
                 VertexId_CUDA curVtx_trans=blkColStart+threadIdx.x;
                 VertexId_CUDA rowIdxStart=column_offset[curVtx_trans];
@@ -482,7 +333,7 @@ __global__ void aggregate_kernel_from_src_without_weight_optim_nts(const VertexI
         }
         __syncthreads();
         if(tidDiv<VtxPerBlock&&tidDiv+blkColStart<=batch_size_){
-            new_feature[(blkColStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
+            atomicAdd(&new_feature[(blkColStart)*feature_size_+threadIdx.x],acc_h[threadIdx.x]);
         
         }
     }
@@ -664,7 +515,7 @@ __global__ void aggregate_kernel_from_dst_with_weight_optim_nts(const VertexId_C
         }
         __syncthreads();
         if(tidDiv<VtxPerBlock&&tidDiv+blkRowStart<=batch_size_){
-            new_feature[(blkRowStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
+             new_feature[(blkRowStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
         
         }
     }
@@ -716,7 +567,7 @@ __global__ void aggregate_kernel_from_dst_tensor_weight_optim_nts(const VertexId
         }
         __syncthreads();
         if(tidDiv<VtxPerBlock&&tidDiv+blkRowStart<=batch_size_){
-            new_feature[(blkRowStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
+             new_feature[(blkRowStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
         
         }
     }
@@ -736,7 +587,6 @@ __global__ void aggregate_kernel_from_dst_without_weight_optim_nts(const VertexI
         int tidDiv=threadIdx.x/feature_size_;
         int tidMod=threadIdx.x%feature_size_;
         //block level iteration determnes
-        
         for(VertexId_CUDA blkRowStart=blockIdx.x*VtxPerBlock;blkRowStart<batch_size_;blkRowStart+=VtxPerBlock*gridDim.x){
             VertexId_CUDA totalNumEdges=0;
             if(threadIdx.x+blkRowStart<batch_size_&&threadIdx.x<VtxPerBlock){
@@ -772,9 +622,6 @@ __global__ void aggregate_kernel_from_dst_without_weight_optim_nts(const VertexI
         }
     }
 }
-
-
-
 
 //larger than 512
 //backward aggregate from destination
@@ -837,7 +684,7 @@ __global__ void aggregate_kernel_from_dst_tensor_weight(const T_l *row_offset,co
 }
 
 
-
+//larger than 512 
 template <typename T_v,typename T_l>
 __global__ void scatter_grad_back_to_weight(const T_l *src, const T_l *dst,
  		const T_v* input, const T_v* output_grad, T_v* weight_grad,
@@ -876,6 +723,7 @@ __global__ void scatter_grad_back_to_tensor_weight(const T_l *src, const T_l *ds
 	}
 }
 
+
 template <typename T_v,typename T_l>
 __global__ void scatter_grad_back_to_messaage(const T_l *row_indices, const T_l *column_offset,
  		const T_v* input_grad, T_v* message_grad,
@@ -893,41 +741,110 @@ __global__ void scatter_grad_back_to_messaage(const T_l *row_indices, const T_l 
 }
 
 
-//forward aggregate from message
-template <typename T_v,typename T_l>
-__global__ void aggregate_kernel_from_message_with_weight_sum(const T_l *row_indices, const T_l *column_offset,
- 		const T_v* message, T_v* new_feature,const T_v* weight,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(T_l i_i=column_offset[local_dst];i_i<column_offset[local_dst+1];i_i++){
-                    atomicAdd(&new_feature[feature_size_*local_dst+rank],
-	            message[feature_size_*i_i+rank]*weight[i_i]);
-	 	}	
-	}
-
+__global__ void scatter_grad_back_to_messaage_nts(const VertexId_CUDA *row_indices,
+                    const  VertexId_CUDA *column_offset, long *destination,
+ 		const float* input_grad, float* message_grad,
+ 		VertexId_CUDA src_s_,VertexId_CUDA src_e_,
+                VertexId_CUDA dst_s_,VertexId_CUDA dst_e_,
+                VertexId_CUDA edges,
+ 		VertexId_CUDA batch_size_, VertexId_CUDA feature_size_){
+        int VtxPerBlock=CUDA_NUM_THREADS/feature_size_;
+        typedef cub::BlockScan<VertexId_CUDA,CUDA_NUM_THREADS> BlockScan;
+        __shared__ BlockScan::TempStorage temp_storage;
+        __shared__ VertexId_CUDA blkRowStart;
+        __shared__ VertexId_CUDA blkRowEnd;
+        __shared__ float acc_h[CUDA_NUM_THREADS];
+        int tidDiv=threadIdx.x/feature_size_;
+        int tidMod=threadIdx.x%feature_size_;
+        
+        for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
+            VertexId_CUDA myNumEdges=0,scratchOffset,totalNumEdges=0;
+            if(threadIdx.x+blkColStart<batch_size_&&threadIdx.x<VtxPerBlock){
+                VertexId_CUDA curVtx_trans=blkColStart+threadIdx.x;
+                VertexId_CUDA rowIdxStart=column_offset[curVtx_trans];
+                VertexId_CUDA rowIdxEnd=column_offset[curVtx_trans+1];
+                assert(rowIdxStart>=0&&rowIdxEnd<=edges);
+                if(threadIdx.x==0)
+                    blkRowStart=rowIdxStart;
+                if((threadIdx.x+blkColStart)==(batch_size_-1)||threadIdx.x==(VtxPerBlock)-1)
+                    blkRowEnd=rowIdxEnd;
+            }
+        acc_h[threadIdx.x]=0.0f;
+        if(tidDiv<VtxPerBlock&&tidDiv+blkColStart<=batch_size_){
+            acc_h[threadIdx.x]=input_grad[(blkColStart)*feature_size_+threadIdx.x];
+        }
+        __syncthreads();
+        totalNumEdges=blkRowEnd-blkRowStart;
+        VertexId_CUDA done=0;
+        while(totalNumEdges>0){
+            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
+                //VertexId_CUDA src_trans= row_indices[blkRowStart+done+tidDiv]-src_s_;//different with threads num
+                //VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
+                float val=acc_h[threadIdx.x];
+                int offset=(blkRowStart+done+tidDiv)*feature_size_+tidMod;
+                atomicAdd(&message_grad[offset],val);
+            }
+            done+=VtxPerBlock;
+           totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
+        }
+    }
 }
 
-template <typename T_v,typename T_l>
-__global__ void aggregate_kernel_from_message_tensor_weight_sum(const T_l *row_indices,const  T_l *column_offset,
- 		const T_v* message, T_v* new_feature,const T_v* weight,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(T_l i_i=column_offset[local_dst];i_i<column_offset[local_dst+1];i_i++){
-                    atomicAdd(&new_feature[feature_size_*local_dst+rank],
-	            message[feature_size_*i_i+rank]*weight[i_i*feature_size_+rank]);
-	 	}	
-	}
+//smaller than 512
 
+__global__ void aggregate_kernel_from_src_tensor_weight_optim_nts(const VertexId_CUDA *row_indices,
+                    const  VertexId_CUDA *column_offset,long*destination,
+ 		const float* message, float* new_feature,
+ 		VertexId_CUDA src_s_,VertexId_CUDA src_e_,
+                VertexId_CUDA dst_s_,VertexId_CUDA dst_e_,
+                VertexId_CUDA edges,
+ 		VertexId_CUDA batch_size_, VertexId_CUDA feature_size_){
+        int VtxPerBlock=CUDA_NUM_THREADS/feature_size_;
+        typedef cub::BlockScan<VertexId_CUDA,CUDA_NUM_THREADS> BlockScan;
+        __shared__ BlockScan::TempStorage temp_storage;
+        __shared__ VertexId_CUDA blkRowStart;
+        __shared__ VertexId_CUDA blkRowEnd;
+        __shared__ float acc_h[CUDA_NUM_THREADS];
+        int tidDiv=threadIdx.x/feature_size_;
+        int tidMod=threadIdx.x%feature_size_;
+        //block level iteration determnes
+        
+        for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
+            VertexId_CUDA totalNumEdges=0;
+            if(threadIdx.x+blkColStart<batch_size_&&threadIdx.x<VtxPerBlock){
+                VertexId_CUDA curVtx_trans=blkColStart+threadIdx.x;
+                VertexId_CUDA rowIdxStart=column_offset[curVtx_trans];
+                VertexId_CUDA rowIdxEnd=column_offset[curVtx_trans+1];
+                assert(rowIdxStart>=0&&rowIdxEnd<=edges);
+                if(threadIdx.x==0)
+                    blkRowStart=rowIdxStart;
+                if((threadIdx.x+blkColStart)==(batch_size_-1)||threadIdx.x==(VtxPerBlock)-1)
+                    blkRowEnd=rowIdxEnd;
+            }
+        acc_h[threadIdx.x]=0.0f;
+        __syncthreads();
+        totalNumEdges=blkRowEnd-blkRowStart;
+        VertexId_CUDA done=0;
+        while(totalNumEdges>0){
+            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
+                VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
+                float val=message[(blkRowStart+done+tidDiv)*feature_size_+tidMod];
+                assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
+                int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
+                atomicAdd(&acc_h[offset],val);
+            }
+            done+=VtxPerBlock;
+           totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
+        }
+        __syncthreads();
+        if(tidDiv<VtxPerBlock&&tidDiv+blkColStart<=batch_size_){
+            new_feature[(blkColStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
+        
+        }
+    }
 }
 
+//larger than 512
 template <typename T_v,typename T_l>
 __global__ void aggregate_kernel_from_message_without_weight_sum(const T_l *row_indices,const  T_l *column_offset,
  		const T_v* message, T_v* new_feature,const T_v* weight,
@@ -944,6 +861,7 @@ __global__ void aggregate_kernel_from_message_without_weight_sum(const T_l *row_
 	 	}	
 	}
 }
+
 
 
 
@@ -1138,6 +1056,13 @@ __global__ void aggregate_remote2remote(float *inter_result_buffer,int* inter_re
 
 
 
+
+
+
+
+
+
+
 template <typename T_v,typename T_l>
 __global__ void processing_scalar_weight_shard(const T_l *src,const  T_l *dst,
  		const T_v* old_feature, T_v* new_feature,const T_v* weight,
@@ -1174,9 +1099,6 @@ __global__ void processing_scalar_weight_one_by_one(T_l *src, T_l *dst, T_v* old
 	}
 }
 
-
-
-
 template <typename T_v,typename T_l>
 __global__ void processing_no_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,T_v* edge_data,
 	int batch_size_,int src_s_,int feature_size_){
@@ -1211,12 +1133,6 @@ __global__ void processing_no_weight_one_by_one(T_l *src, T_l *dst, T_v* old_fea
 	 	}
 		
 }
-
-
-
-
-
-
 
 __global__ void show_dot_mult_to_buffer(float* buffer, int r, int c){
 
@@ -1318,8 +1234,6 @@ if(threadId==0){
 	printf("finished time_mult1\n");
 }
 }
-
-
 __global__ void time_mult_to_combine_grad(float* aggregate_grad, float *src, float *buffer,
 																 int count, int r, int c){
 //r: 1433
@@ -1376,6 +1290,140 @@ buffer:{2,2} c:2
 	 }
 
 }
+__device__ int src_s(int* metaInfo){
+	return metaInfo[0];
+}
+__device__ int src_e(int* metaInfo){
+	return metaInfo[1];
+}
+__device__ int dst_s(int* metaInfo){
+	return metaInfo[2];
+}
+__device__ int dst_e(int* metaInfo){
+	return metaInfo[3];
+}
+__device__ int graph_size(int* metaInfo){
+	return metaInfo[4];
+}
+__device__ int partition_s(int* metaInfo){
+	return metaInfo[5];
+}
+__device__ int partition_e(int* metaInfo){
+	return metaInfo[6];
+}
+__device__ int feature_size(int* metaInfo){
+	return metaInfo[7];
+}
+__device__ int batch_size(int * metaInfo){
+	return dst_e(metaInfo)-dst_s(metaInfo);
+}
+__host__ int getThreadNum(int num){
+int s=32;
+while(s<num){
+	s+=32;
+}
+return s;
+}
 
+template <typename T_v,typename T_l>
+__global__ void processing_tensor_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
+	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
+	__shared__ int metaInfo[8];
+
+	int large_size=blockDim.x;
+	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+	int rank=threadIdx.x;
+	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+		T_l local_dst=i/feature_size_;
+		T_l rank=i%feature_size_;
+	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
+			int local_src=src[i_i];
+			atomicAdd(&new_feature[feature_size_*local_dst+rank],
+				old_feature[feature_size_*local_src+rank]*edge_data[feature_size_*local_src+rank]);
+	 	}
+	}
+
+}
+
+template <typename T_v,typename T_l>
+__global__ void processing_parameter_weight_shard_CSC(const T_l *src,const  T_l *dst,
+ 		const T_v* old_feature, T_v* new_feature,const T_v* para,
+ 		T_l src_s_,T_l dst_s_,
+ 		T_l batch_size_, T_l feature_size_){
+	int warp_size=blockDim.x;
+	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+		T_l local_dst=i/feature_size_;
+		T_l rank=i%feature_size_;
+		for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
+			int local_src=src[i_i]-src_s_;
+			float sum=0;
+			for(int i_f=0;i_f<feature_size_;i_f++){
+				atomicAdd(&sum,
+			 		old_feature[feature_size_*local_src+rank]*para[i_f*feature_size_+rank]);
+				}
+			atomicAdd(&new_feature[feature_size_*local_dst+rank],sum);
+	 	}	
+	}
+}
+
+template <typename T_v,typename T_l>
+__global__ void processing_scalar_weight(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
+	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
+	 int large_size=blockDim.x;
+	 int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+		T_l local_dst=i/feature_size_;
+		T_l rank=i%feature_size_;
+	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
+			int local_src=src[i_i]-src_s_;
+			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
+			 	old_feature[feature_size_*local_src+rank]/edge_data[i_i]);
+	 	}
+		
+	}
+}
+
+template <typename T_v,typename T_l>
+__global__ void processing_scalar_weight3(T_l *src, T_l *dst, T_v* old_feature, T_v* new_feature,
+	T_v* edge_data,int batch_size_,int src_s_,int feature_size_){
+	 int large_size=blockDim.x;
+	 int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+	for(int i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+		T_l local_dst=i/feature_size_;
+		T_l rank=i%feature_size_;
+		__shared__ T_v  tmp_feature[2048];
+		
+	 	for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
+			int local_src=src[i_i]-src_s_;
+			 atomicAdd(&tmp_feature[rank],
+			 	old_feature[feature_size_*local_src+rank]/edge_data[i_i]);
+	 	}__syncthreads();
+	 	new_feature[feature_size_*local_dst+rank]=tmp_feature[rank];
+	}
+}
+
+template <typename T_v,typename T_l>
+__global__ void processing_scalar_weight_shard_CSC(const T_l *src,const  T_l *dst,
+ 		const T_v* old_feature, T_v* new_feature,const T_v* weight,
+ 		T_l src_s_,T_l dst_s_,
+ 		T_l batch_size_, T_l feature_size_){
+	int large_size=blockDim.x;
+	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+        
+//        if(threadId==0)
+// printf("run one batch in GPU %d\n",feature_size_);
+
+	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+		T_l local_dst=i/feature_size_;
+		T_l rank=i%feature_size_;
+		for(int i_i=dst[local_dst];i_i<dst[local_dst+1];i_i++){
+			int local_src=src[i_i]-src_s_;
+			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
+			 	old_feature[feature_size_*local_src+rank]*weight[i_i]);
+	 	}
+		
+	}
+}
 
 #endif /* PROPAGATE_H_ */
