@@ -56,7 +56,7 @@ public:
         graph->rtminfo->reduce_comm = graph->config->process_local;
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
-        graph->rtminfo->with_weight=true;
+        graph->rtminfo->with_weight=false;
         graph->rtminfo->with_cuda=true;
        
     } 
@@ -74,6 +74,7 @@ public:
         if (graph->partition_id == 0)
         printf("#load_rep_time=%lf(s)\n", load_rep_time);
         graph->init_message_buffer();
+        graph->init_communicatior();
 
     }
     void init_nn(){
@@ -184,10 +185,37 @@ void Forward(){
         }
         
         Forward();
-        Backward();     
+        Backward();
+        
+//    graph->rtminfo->forward = true;
+//    graph->rtminfo->curr_layer=0;    
+//    gt->GraphPropagateForward(X[0], Y[0], subgraphs);
+//    for(VertexId i=0;i<graph->partitions;i++)
+//    if(graph->partition_id==i){
+//        int test=graph->gnnctx->p_v_s;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=graph->gnnctx->p_v_e-1;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//    } 
+        
+//    graph->rtminfo->forward = false;
+//    graph->rtminfo->curr_layer=0;    
+//    gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
+//    for(VertexId i=0;i<graph->partitions;i++)
+//    if(graph->partition_id==i){
+//        int test=graph->gnnctx->p_v_s;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=graph->gnnctx->p_v_e-1;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//    }         
+//    
         if (graph->partition_id == 0)
             std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;       
-    }
+   }
     exec_time += get_time();
 
     delete active;
