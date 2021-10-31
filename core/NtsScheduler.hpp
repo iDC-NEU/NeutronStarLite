@@ -48,6 +48,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/nn/module.h"
 #include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
+#include "GraphSegment.hpp"
 
 typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
@@ -88,6 +89,24 @@ public:
         dst_start=graph_partition->dst_range[0];        
         srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start).cuda();
         dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start).cuda();
+        cuda_stream=cuda_stream_;
+        subgraph=graph_partition;
+        current_process_layer=current_process_layer_;
+        current_process_partition_id=current_process_partition_id_;
+        rtminfo=rtminfo_;
+        aggtype=MD;
+    }
+    
+    void InitBlockSimple(CSC_segment_pinned* graph_partition,runtimeinfo *rtminfo_, VertexId feature_size_, 
+                    VertexId output_size_,VertexId current_process_partition_id_,
+                    VertexId current_process_layer_,Cuda_Stream * cuda_stream_){//for DEBUG
+        src=graph_partition->source;
+        dst=graph_partition->destination;
+        E=graph_partition->edge_size;
+        feature_size=feature_size_;
+        output_size=output_size_;
+        src_start=graph_partition->src_range[0];
+        dst_start=graph_partition->dst_range[0];
         cuda_stream=cuda_stream_;
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
@@ -200,8 +219,8 @@ public:
     VertexId src_end = subgraph->src_range[1];
     VertexId dst_start = subgraph->dst_range[0];
     VertexId dst_end = subgraph->dst_range[1];
-    
-    cuda_stream->Gather_By_Dst_From_Src(input_buffer,
+    if(feature_size>512){
+        cuda_stream->Gather_By_Dst_From_Src(input_buffer,
                                output_buffer,
                                weight_buffer, //data
                                row_indices_from_pinned,
@@ -211,8 +230,22 @@ public:
                                (VertexId)subgraph->edge_size,
                                (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
-                               with_weight);
-    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+                               rtminfo->with_weight);
+    }else{
+        cuda_stream->Gather_By_Dst_From_Src_Optim(input_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_indices_from_pinned,
+                               column_offset_from_pinned, //graph
+                                subgraph->destination_gpu,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_forward,
+                               (VertexId)output_size,
+                               rtminfo->with_weight);
+    }
+    //cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
     inline void GatherByDstFromSrcTensorWeight(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TODO
@@ -336,13 +369,12 @@ public:
         VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
         VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
         
-    VertexId src_start = subgraph->src_range[0];
-    VertexId src_end = subgraph->src_range[1];
-    VertexId dst_start = subgraph->dst_range[0];
-    VertexId dst_end = subgraph->dst_range[1];
-    
-    //std::cout<<output_size<<"  "<<src_end-src_start<<" "<<subgraph->batch_size_backward<<std::endl;
-    cuda_stream->Gather_By_Src_From_Dst(input_buffer,
+        VertexId src_start = subgraph->src_range[0];
+        VertexId src_end = subgraph->src_range[1];
+        VertexId dst_start = subgraph->dst_range[0];
+        VertexId dst_end = subgraph->dst_range[1];
+        if(feature_size>512){      
+            cuda_stream->Gather_By_Src_From_Dst(input_buffer,
                                output_buffer,
                                weight_buffer, //data
                                row_offset_from_pinned, //graph
@@ -352,9 +384,23 @@ public:
                                (VertexId)subgraph->edge_size,
                                (VertexId)subgraph->batch_size_backward,
                                (VertexId)output_size,
-                               with_weight);
-    cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
+                               rtminfo->with_weight);
+        }else{
+            cuda_stream->Gather_By_Src_From_Dst_Optim(input_buffer,
+                               output_buffer,
+                               weight_buffer, //data
+                               row_offset_from_pinned, //graph
+                               column_indices_from_pinned,
+                               subgraph->source_backward_gpu,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_backward,
+                               (VertexId)output_size,
+                               rtminfo->with_weight);
+        }
     }
+
     
     inline void GatherBySrcFromDstTensorWeight(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TO DO
         float *input_buffer=getWritableBuffer(input_src);
@@ -391,7 +437,6 @@ public:
          return DeSe_data; 
     }
     
-    
     inline void SerializeToCPU(std::string name,torch::Tensor &var_gpu){
         //assert(var_cpu.device()==torch::Device::Type::GPU);
          CacheVar[VarEncode(name)]=var_gpu.cpu();
@@ -413,7 +458,40 @@ public:
             return DeSe_data;
         }
     }
-    inline torch::Tensor NewKeyTensor(torch::Tensor &mould,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+
+    void ZeroVar(NtsVar& t){
+        t.zero_();
+    }
+    //zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));  
+    void ZeroVarMem(NtsVar& t,DeviceLocation dl=GPU_T){
+        if(dl==GPU_T)
+            zero_buffer(t.packed_accessor<float,2>().data(), t.size(0) * t.size(1));
+        else if (dl=CPU_T)
+            memset(t.accessor<float,2>().data(), 0, t.size(0) * t.size(1));
+        else{
+            printf("ZeroVarMem Error\n");
+        }
+    }
+    char* getPinnedDevicePointer(char* h_ptr){
+        return (char *)getDevicePointer(h_ptr);
+    }
+    inline void DeserializeMsgToMirror(NtsVar& mirror_input, char* msg,VertexId msg_count,bool sync=false){
+        if(msg_count<=0)
+            return;
+        ZeroVarMem(mirror_input);
+        float*gmb=(float*)getPinnedDevicePointer(msg);
+        cuda_stream->deSerializeToGPU(mirror_input.packed_accessor<float,2>().data(), gmb, msg_count, feature_size, subgraph->src_range[0], subgraph->src_range[1], false);    
+    }
+    inline void AggMsgToMaster(NtsVar& master_output, char* msg,VertexId msg_count,bool sync=false){
+        if(msg_count<=0)
+            return;
+        float*gmb=(float*)getPinnedDevicePointer(msg);
+        cuda_stream->aggregate_comm_result_debug(master_output.packed_accessor<float,2>().data(), gmb, msg_count, feature_size, subgraph->dst_range[0], subgraph->dst_range[1], false);   
+    }
+    inline void DeviceSynchronize(){
+        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+    }
+        inline torch::Tensor NewKeyTensor(torch::Tensor &mould,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
         
         if(torch::DeviceType::CUDA==location){
            return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));  
@@ -459,9 +537,7 @@ public:
         return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kFloat));    
         }
     } 
-    void ZeroVar(NtsVar& t){
-        t.zero_();
-    } 
+    
     inline torch::Tensor NewOnesTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
         if(torch::DeviceType::CUDA==location){
            return torch::ones(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
@@ -484,7 +560,7 @@ public:
    std::string VarEncode(std::string name){
       return name.append("_").append(std::to_string(current_process_layer)).append("_").append(std::to_string(current_process_partition_id));
    }
-    void MoveResultOut(float* th, torch::Tensor &td, bool sync=false){
+    void SerializeMirrorToMsg(float* th, torch::Tensor &td, bool sync=false){
             cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
                                  td.packed_accessor<float, 2>().data(),
                                  subgraph->src_range[0],
@@ -506,6 +582,8 @@ public:
     inline int BYDST(){
         return 1;
     }
+    ValueType* recv_cached_buffer;
+    ValueType* input_tensor_buffer;
     long* src;
     long* dst;
     VertexId E;
