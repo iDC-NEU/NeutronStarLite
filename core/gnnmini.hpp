@@ -163,11 +163,11 @@ public:
         memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         
-        graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
-        //graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
+        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
             [&](VertexId src) {
-                    graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-                   //graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                    //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                 },
             [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
                 VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
