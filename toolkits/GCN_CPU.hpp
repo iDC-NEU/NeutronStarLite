@@ -108,27 +108,29 @@ public:
     }
 
 
-void Test(NtsVar& y){
-    NtsVar mask_train=MASK.eq(1);
+void Test(NtsVar& y,int s){
+    NtsVar mask_train=MASK.eq(s);
     NtsVar all_train=y.argmax(1).to(torch::kLong)
-                    .eq(L_GT_C).to(torch::kInt)
+                    .eq(L_GT_C).to(torch::kLong)
                     .masked_select(mask_train.view({mask_train.size(0)}));
     NtsVar all=all_train.sum(0);
-    int * partial_correct=all.data_ptr<int>();
-    int global_correct=0;
-    int partial_train=all_train.size(0);
-    int global_train=0;
-    MPI_Datatype dt = get_mpi_data_type<int>();
+    long * partial_correct=all.data_ptr<long>();
+    long global_correct=0;
+    long partial_train=all_train.size(0);
+    long global_train=0;
+    MPI_Datatype dt = get_mpi_data_type<long>();
     MPI_Allreduce(partial_correct, &global_correct, 1, dt, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&partial_train, &global_train, 1, dt, MPI_SUM, MPI_COMM_WORLD);
-   float acc_train=float(global_correct)/global_train;
-   float acc_test=0;
-   float acc_eval=0;
-  
+    float acc_train=0.0;
+    if(global_train>0)
+        acc_train=float(global_correct)/global_train;
    if(graph->partition_id==0){
-   std::cout<<"Train ACC: "<<acc_train<<std::endl;
-   std::cout<<"Test  ACC: "<<acc_test<<std::endl;
-   std::cout<<"Eval  ACC: "<<acc_eval<<std::endl;
+      if(s==0)
+        std::cout<<"Train ACC: "<<acc_train<<std::endl;
+      else if(s==1)
+        std::cout<<"Eval  ACC: "<<acc_train<<std::endl;
+      else if(s==2)
+        std::cout<<"Test  ACC: "<<acc_train<<std::endl;
    }
     
 }
@@ -191,7 +193,7 @@ void Forward(){
     
     X[i+1]=vertexForward(Y[i],X[i]);
     }
-    Test(X[graph->gnnctx->layer_size.size()-1]);
+    Test(X[graph->gnnctx->layer_size.size()-1],2);
     loss=Loss(X[graph->gnnctx->layer_size.size()-1]);
 }
 
