@@ -17,6 +17,7 @@ public:
     GNNDatum *gnndatum;
     NtsVar L_GT_C;
     NtsVar L_GT_G;
+    NtsVar MASK;
     std::map<std::string,NtsVar>I_data;
     GTensor<ValueType, long> *gt;
     //Variables
@@ -66,7 +67,9 @@ public:
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->GenerateGraphSegment(subgraphs,CPU_T);
+        gt->GenerateGraphSegment(subgraphs,CPU_T,[&](VertexId src,VertexId dst){
+            return gt->norm_degree(src,dst);
+            });
         //gt->GenerateMessageBitmap(subgraphs);
         //gt->TestGeneratedBitmap(subgraphs);
         //graph->init_message_buffer();
@@ -76,6 +79,7 @@ public:
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
         gnndatum->random_generate();
         gnndatum->registLabel(L_GT_C);
+        gnndatum->registMask(MASK);
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i+1]));
@@ -103,6 +107,31 @@ public:
         X[0]=F.set_requires_grad(true);
     }
 
+
+void Test(NtsVar& y){
+    NtsVar mask_train=MASK.eq(1);
+    NtsVar all_train=y.argmax(1).to(torch::kLong)
+                    .eq(L_GT_C).to(torch::kInt)
+                    .masked_select(mask_train.view({mask_train.size(0)}));
+    NtsVar all=all_train.sum(0);
+    int * partial_correct=all.data_ptr<int>();
+    int global_correct=0;
+    int partial_train=all_train.size(0);
+    int global_train=0;
+    MPI_Datatype dt = get_mpi_data_type<int>();
+    MPI_Allreduce(partial_correct, &global_correct, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&partial_train, &global_train, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+   float acc_train=float(global_correct)/global_train;
+   float acc_test=0;
+   float acc_eval=0;
+  
+   if(graph->partition_id==0){
+   std::cout<<"Train ACC: "<<acc_train<<std::endl;
+   std::cout<<"Test  ACC: "<<acc_test<<std::endl;
+   std::cout<<"Eval  ACC: "<<acc_eval<<std::endl;
+   }
+    
+}
 NtsVar vertexForward(NtsVar &a, NtsVar &x){
     NtsVar y;
     int layer=graph->rtminfo->curr_layer;
@@ -112,18 +141,15 @@ NtsVar vertexForward(NtsVar &a, NtsVar &x){
     else if(layer==1){
         y = P[layer]->forward(a);
         y = y.log_softmax(1); //CUDA
-        y = torch::nll_loss(y, L_GT_C);   
     }
     return y;
 }
-
-/* 
- * libtorch 1.7 and its higher versions have conflict 
- * with the our openmp based parallel processing that inherit from Gemini [OSDI 2016].
- * So in this example we use Libtorch 1.5 as auto differentiation tool.
- * As 'autograd' function is not explict supported in C++ release of libtorch 1.5, we illustrate 
- * the example in a implicit manner.
- */
+NtsVar Loss(NtsVar &a){
+    torch::Tensor mask_train=MASK.eq(1);
+    return torch::nll_loss(
+                a.masked_select(mask_train.expand({mask_train.size(0),a.size(1)})).view({-1,a.size(1)}),
+                        L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
+}
 void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
@@ -165,7 +191,8 @@ void Forward(){
     
     X[i+1]=vertexForward(Y[i],X[i]);
     }
-    loss=X[graph->gnnctx->layer_size.size()-1];
+    Test(X[graph->gnnctx->layer_size.size()-1]);
+    loss=Loss(X[graph->gnnctx->layer_size.size()-1]);
 }
 
 
@@ -191,8 +218,8 @@ void Forward(){
 //    graph->rtminfo->forward = false;
 //    graph->rtminfo->curr_layer=0;
 //    gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
-//    if(graph->partition_id==1){
-//        int test=500000;
+//    if(graph->partition_id==2){
+//        int test=graph->gnnctx->p_v_e-1;
 //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
 //    } 
 

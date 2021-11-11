@@ -52,11 +52,17 @@ public:
     gnncontext *gnnctx;
     float *local_feature;
     long *local_label;
+    int *local_mask;
+    // train:    1 
+    // evaluate: 3
+    // test:     5
     GNNDatum(gnncontext *_gnnctx)
     {
         gnnctx = _gnnctx;
         local_feature = new float[gnnctx->l_v_num * gnnctx->layer_size[0]];
         local_label = new long[gnnctx->l_v_num];
+        local_mask= new int[gnnctx->l_v_num];
+        memset(local_mask,0,sizeof(int)*gnnctx->l_v_num);
     }
     void random_generate()
     {
@@ -67,7 +73,15 @@ public:
                 local_feature[i * gnnctx->layer_size[0] + j] = 1.0;
             }
             local_label[i] = rand() % gnnctx->label_num;
+            local_mask[i]=1;
         }
+    }
+    void registLabel(NtsVar &target)
+    {
+        target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
+    }
+    void registMask(NtsVar &mask){
+        mask=torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
     }
      void readCORA(Graph<Empty> *graph)
     {
@@ -105,11 +119,6 @@ public:
         }
         free(con_tmp);
         input.close();
-    }
-    
-    void registLabel(NtsVar &target)
-    {
-        target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
     }
     void read_from_txt()
     {
@@ -152,8 +161,13 @@ public:
     }
     float norm_degree(VertexId src,VertexId dst){
         return 1/((ValueType)std::sqrt(graph_->out_degree_for_backward[src])* 
-                    (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
-                    
+                    (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));              
+    }
+    float out_degree(VertexId v){
+        return (ValueType)(graph_->out_degree_for_backward[v]);
+    }
+    float in_degree(VertexId v){
+        return (ValueType)(graph_->in_degree_for_backward[v]);
     }
     
     void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &subgraphs)
@@ -186,6 +200,40 @@ public:
             feature_size,
             active_);
     }
+    void ProcessForwardCPU(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &subgraphs,
+                                   std::function<float(VertexId&, VertexId&)> weight_fun)
+    {
+        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        
+        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
+            [&](VertexId src) {
+                    //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                },
+            [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
+                VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
+                for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
+                    VertexId src=subgraph->row_indices[idx];
+                    VertexId src_trans=src-graph_->partition_offset[recv_id];
+                    float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
+                    float* local_output=Y_buffer+dst_trans*feature_size;
+//                    if(dst==0&&recv_id==0){
+//                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
+//                    }
+                    comp(local_input,local_output,weight_fun(src,dst),feature_size);
+                }
+            },
+            subgraphs,
+            feature_size,
+            active_);
+    }    
+    
+    
+    
         void PropagateBackwardCPU_debug(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
     {       
         float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
@@ -404,7 +452,7 @@ public:
        Process_GPU_overlap_explict(X,Y,graph_partitions);
        
     }
-   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt)
+   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt, std::function<float(VertexId,VertexId)>weight_compute)
     {
         graph_partitions.clear();
         int *tmp_column_offset = new int[graph_->vertices + 1];
@@ -464,10 +512,10 @@ public:
                 graph_partitions[i]->dst_set_active(v_dst_m);//destination_active->set_bit(v_dst);
                 
                 graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
-                graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] = norm_degree(v_src_m,v_dst_m);
+                graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] = weight_compute(v_src_m,v_dst_m);
                             
                 graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m;///
-                graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = norm_degree(v_src_m,v_dst_m);
+                graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = weight_compute(v_src_m,v_dst_m);
             }
         }
         if(GPU_T==dt){
