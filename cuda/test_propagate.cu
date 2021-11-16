@@ -232,13 +232,11 @@ void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,float* w
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
         if(with_weight){
             if(tensor_weight){
-                aggregate_kernel_from_message_tensor_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_indices, column_offset, input, output, weight_forward, 
-				src_start, dst_start, batch_size, feature_size);
+                printf("tensor weight not implemented\n");
+                exit(0);
             }else{
-		aggregate_kernel_from_message_with_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_indices, column_offset, input, output, weight_forward, 
-				src_start, dst_start, batch_size, feature_size);
+		printf("scalar weight not implemented\n");
+                exit(0);
             } 
         }else{
                 aggregate_kernel_from_message_without_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
