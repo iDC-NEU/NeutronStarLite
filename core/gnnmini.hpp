@@ -83,11 +83,11 @@ public:
     void registMask(NtsVar &mask){
         mask=torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
     }
-     void readCORA()
+     void readFtrFrom1(std::string inputF)
     {
        
         std::string str;
-        std::ifstream input("cora.content", std::ios::in);
+        std::ifstream input(inputF.c_str(), std::ios::in);
         //std::ofstream outputl("cora.labeltable",std::ios::out);
        // ID    F   F   F   F   F   F   F   L
         if (!input.is_open())

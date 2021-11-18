@@ -76,7 +76,11 @@ public:
     void init_nn(){
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
         //gnndatum->random_generate();
-        gnndatum->readCORA();
+        if(graph->config->feature_file==std::string("random")){
+            gnndatum->random_generate();
+        }else{
+            gnndatum->readFtrFrom1(graph->config->feature_file);
+        }
         gnndatum->registLabel(L_GT_C);
         gnndatum->registMask(MASK);
         
@@ -90,11 +94,9 @@ public:
             P[i]->init_parameter();
         }
         
-//        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num,
-//                                     graph->gnnctx->layer_size[0]},
-//                                     torch::DeviceType::CPU);
-        F=graph->Nts->NewLeafTensor(gnndatum->local_feature,{graph->gnnctx->l_v_num,
-                                     graph->gnnctx->layer_size[0]},
+
+            F=graph->Nts->NewLeafTensor(gnndatum->local_feature,
+                {graph->gnnctx->l_v_num,graph->gnnctx->layer_size[0]},
                                      torch::DeviceType::CPU);
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             Y.push_back(graph->Nts->NewKeyTensor(
