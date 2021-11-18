@@ -29,7 +29,12 @@ To build:
 
 To run:
 
+...
+
+LEGACY
 ./test.sh
 
+NEW:
 
+./run_nts.sh
 ``` 
