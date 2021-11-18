@@ -305,9 +305,7 @@ public:
     gnnctx->w_num = partitions;
     gnnctx->l_v_num = gnnctx->p_v_e - gnnctx->p_v_s;
     message_write_offset = new VertexId *[gnnctx->layer_size.size()];
-    message_amount = new VertexId *[gnnctx->layer_size.size()];
-    if (partition_id == 0)
-      printf("layer_size %d\n", gnnctx->layer_size.size());
+    message_amount = new VertexId *[gnnctx->layer_size.size()];vim
     for (int i = 0; i < gnnctx->layer_size.size(); i++)
     {
       message_write_offset[i] = new VertexId[vertices];
@@ -1189,7 +1187,7 @@ public:
     }
     MPI_Allreduce(MPI_IN_PLACE, out_degree, vertices, vid_t, MPI_SUM, MPI_COMM_WORLD);
     //*************************************************************************************Gather all vertex count before this stage.
-
+ 
     // locality-aware chunking
     partition_offset = new VertexId[partitions + 1];
     partition_offset[0] = 0;
@@ -1665,7 +1663,7 @@ public:
         char c = 0;
         MPI_Send(&c, 1, MPI_CHAR, i, ShuffleGraph, MPI_COMM_WORLD);
       }
-      recv_thread_src.join();
+      recv_thread_src.join(); 
 #ifdef PRINT_DEBUG_MESSAGES
       printf("machine(%d) got %lu dense mode edges\n", partition_id, recv_incoming_edges);
 #endif
@@ -2055,11 +2053,11 @@ public:
           }
         }
       }
-      // reducer += local_reducer;
+       reducer += local_reducer;
     }
     R global_reducer;
-    //    MPI_Datatype dt = get_mpi_data_type<R>();
-    //    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Datatype dt = get_mpi_data_type<R>();
+        MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
     stream_time += MPI_Wtime();
 #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id == 0)
@@ -2193,10 +2191,6 @@ public:
           word = word >> 1;
         }
       }
-//      NtsComm->achieve_local_message(current_send_part_id);
-//      NtsComm->partition_is_ready_for_recv(current_send_part_id);
-//      NtsComm->run_all_master_to_mirror();
-
       for(int step=0;step<partitions;step++){
           int trigger_partition=(partition_id-step+partitions)%partitions;
           NtsComm->trigger_one_partition(trigger_partition,trigger_partition==current_send_part_id);

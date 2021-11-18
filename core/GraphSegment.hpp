@@ -33,6 +33,8 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include <mutex>
 #include <functional>
 #include <sstream>
+#include <fstream>
+#include <iostream>
 
 #include "core/atomic.hpp"
 #include "core/bitmap.hpp"
@@ -153,10 +155,10 @@ typedef struct graph_Tensor_Segment_pinned
      
     if(dt==GPU_T){    
     row_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
-    edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
+    edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(float));
 
     column_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));///
-    edge_weight_backward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));///
+    edge_weight_backward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(float));///
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
@@ -164,10 +166,10 @@ typedef struct graph_Tensor_Segment_pinned
     }else
     if(dt==CPU_T){
         row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
-    edge_weight_forward = (float *)malloc((edge_size + 1) * sizeof(VertexId));
+    edge_weight_forward = (float *)malloc((edge_size + 1) * sizeof(float));
 
     column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));///
-    edge_weight_backward = (float *)malloc((edge_size + 1) * sizeof(VertexId));///
+    edge_weight_backward = (float *)malloc((edge_size + 1) * sizeof(float));///
 
     destination = (long *)malloc((edge_size + 1) * sizeof(long));
     source      = (long *)malloc((edge_size + 1) * sizeof(long));
@@ -293,11 +295,78 @@ typedef struct InputInfo
   bool overlap;
   bool process_local;
   bool with_weight;
+  size_t epochs;
   size_t repthreshold;
+  std::string algorithm;
   std::string layer_string;
   std::string feature_file;
   std::string edge_file;
+  std::string label_file;
+  std::string mask_file;
   bool with_cuda;
+  void readFromCfgFile(std::string config_file){
+      std::string cfg_oneline;
+      std::ifstream inFile;
+      inFile.open(config_file.c_str(),std::ios::in);
+      while(getline(inFile,cfg_oneline)){
+         std::string cfg_k;
+         std::string cfg_v;
+         int dlim= cfg_oneline.find(':');
+         cfg_k=cfg_oneline.substr(0,dlim);
+         cfg_v=cfg_oneline.substr(dlim+1,cfg_oneline.size()-dlim-1);
+         if(0==cfg_k.compare("ALGORITHM")){
+            this->algorithm=cfg_v;
+         }else if(0==cfg_k.compare("VERTICES")){
+            this->vertices=std::atoi(cfg_v.c_str());
+         }else if(0==cfg_k.compare("EPOCHS")){
+            this->epochs=std::atoi(cfg_v.c_str());
+         }else if(0==cfg_k.compare("LAYERS")){
+            this->layer_string=cfg_v;
+         }else if(0==cfg_k.compare("EDGE_FILE")){
+            this->edge_file=cfg_v.append("\0");
+         }else if(0==cfg_k.compare("FEATURE_FILE")){
+            this->feature_file=cfg_v; 
+         }else if(0==cfg_k.compare("LABEL_FILE")){
+             this->label_file=cfg_v;
+         }else if(0==cfg_k.compare("MASK_FILE")){
+             this->mask_file=cfg_v;
+         }else if(0==cfg_k.compare("PROC_OVERLAP")){
+            this->overlap=false;
+            if(1==std::atoi(cfg_v.c_str()))
+                this->overlap=true;
+         }else if(0==cfg_k.compare("PROC_LOCAL")){
+            this->process_local=false;
+            if(1==std::atoi(cfg_v.c_str()))
+                 this->process_local=true;
+         }else if(0==cfg_k.compare("PROC_CUDA")){
+            this->with_cuda=false;
+            if(1==std::atoi(cfg_v.c_str()))
+                 this->with_cuda=true;
+         }else if(0==cfg_k.compare("PROC_REP")){
+            this->repthreshold=std::atoi(cfg_v.c_str());
+ 
+         }else {
+            printf("not supported configure\n");
+         }             
+      }
+      inFile.close();  
+  }
+  void print(){
+    
+        std::cout<<"algorithm\t:\t"<<algorithm<<std::endl;
+        std::cout<<"vertices\t:\t"<<vertices<<std::endl;
+        std::cout<<"epochs\t\t:\t"<<epochs<<std::endl;
+        std::cout<<"layers\t\t:\t"<<layer_string<<std::endl;
+        std::cout<<"edge_file\t:\t"<<edge_file<<std::endl;
+        std::cout<<"feature_file\t:\t"<<feature_file<<std::endl;
+        std::cout<<"label_file\t:\t"<<label_file<<std::endl;
+        std::cout<<"mask_file\t:\t"<<mask_file<<std::endl;
+        std::cout<<"proc_overlap\t:\t"<<overlap<<std::endl;
+        std::cout<<"proc_local\t:\t"<<process_local<<std::endl;
+        std::cout<<"proc_cuda\t:\t"<<with_cuda<<std::endl;
+        std::cout<<"proc_rep\t:\t"<<repthreshold<<std::endl;
+      
+  }
 } inputinfo;
 
 

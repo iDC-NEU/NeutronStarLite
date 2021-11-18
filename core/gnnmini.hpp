@@ -53,9 +53,9 @@ public:
     float *local_feature;
     long *local_label;
     int *local_mask;
-    // train:    1 
-    // evaluate: 3
-    // test:     5
+    // train:    0 
+    // evaluate: 1
+    // test:     2
     GNNDatum(gnncontext *_gnnctx)
     {
         gnnctx = _gnnctx;
@@ -73,7 +73,7 @@ public:
                 local_feature[i * gnnctx->layer_size[0] + j] = 1.0;
             }
             local_label[i] = rand() % gnnctx->label_num;
-            local_mask[i]=1;
+            local_mask[i]=i%3;
         }
     }
     void registLabel(NtsVar &target)
@@ -83,7 +83,7 @@ public:
     void registMask(NtsVar &mask){
         mask=torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
     }
-     void readCORA(Graph<Empty> *graph)
+     void readCORA()
     {
        
         std::string str;
@@ -110,6 +110,7 @@ public:
                 }
                 input >> la;
                 local_label[id_trans]= changelable(la);
+                local_mask[id_trans]=1;
             }else{
                 for (int i = 0; i < size_0; i++){
                     input >> con_tmp[i];   
@@ -170,22 +171,22 @@ public:
         return (ValueType)(graph_->in_degree_for_backward[v]);
     }
     
-    void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &subgraphs)
-    {
-        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
-        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
-        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
-        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+    void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,
+                                  std::vector<CSC_segment_pinned *> &subgraphs){
+       float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+       float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+       memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+       int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         
-        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
-        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
-            [&](VertexId src) {
-                    //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-                },
-            [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
-                VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
-                for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
+       //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
+       graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
+           [&](VertexId src) {
+                   //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+                  graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+               },
+           [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
+               VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
+               for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
                     VertexId src=subgraph->row_indices[idx];
                     VertexId src_trans=src-graph_->partition_offset[recv_id];
                     float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
@@ -194,6 +195,7 @@ public:
 //                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
 //                    }
                     comp(local_input,local_output,norm_degree(src,dst),feature_size);
+                    //comp(local_input,local_output,norm_degree(src,dst),feature_size);
                 }
             },
             subgraphs,

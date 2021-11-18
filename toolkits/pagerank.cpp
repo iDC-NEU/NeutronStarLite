@@ -18,8 +18,11 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 //#include "gpuengine.hpp"
 //#include "gpuclusterengine.hpp"
 #include "GCN.hpp"
-//#include "GIN.hpp"
+#include "GCN_CPU.hpp"
+#include "GIN.hpp"
 #include "GAT.hpp"
+//#include "pr.hpp"
+#include "pr_cpu.hpp"
 //#include"testengine.hpp"
 
 void statistic(Graph<Empty> *graph, int workers)
@@ -159,83 +162,59 @@ void statistic(Graph<Empty> *graph, int workers)
 int main(int argc, char **argv)
 {
     MPI_Instance mpi(&argc, &argv);
-    if (argc < 6)
+        if (argc < 2)
     {
-        printf("pagerank [(1)file] [(2)vertices] [(3)iterations] [(4)CPU/GPU] [(5)layers] [(6.opt)rep threshold] [(7.opt)overlap] \n");
+        printf("configuration file missed \n");
         exit(-1);
     }
+//    if (argc < 6)
+//    {
+//        printf("pagerank [(1)file] [(2)vertices] [(3)iterations] [(4)CPU/GPU] [(5)layers] [(6.opt)rep threshold] [(7.opt)overlap] \n");
+//        exit(-1);
+//    }
 
     Graph<Empty> *graph;
     graph = new Graph<Empty>();
-    graph->load_directed(argv[1], std::atoi(argv[2]));
+    graph->config->readFromCfgFile(argv[1]);
+    if(graph->partition_id==0)
+        graph->config->print();
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
-    int iterations = std::atoi(argv[3]);
-    graph->config->layer_string = std::string(argv[5]);
-    if (argc > 6)
-    {
-        graph->replication_threshold = std::atoi(argv[6]);
-        graph->config->repthreshold = std::atoi(argv[6]);
-        if (graph->config->repthreshold > 0)
-            graph->config->process_local = true;
-        else
-            graph->config->process_local = false;
-    }
-    else
-    {
-        graph->config->repthreshold = 0;
-        graph->config->process_local = false;
-    }
-    graph->config->overlap = false;
-    if (argc > 7)
-    {
-        if (std::string("overlap") == std::string(argv[7]))
-            graph->config->overlap = true;
-        else
-            graph->config->overlap = false;
-    }
+    int iterations = graph->config->epochs;
+//    graph->config->layer_string = std::string(argv[5]);
+//    if (argc > 6)
+//    {
+        graph->replication_threshold = graph->config->repthreshold ;
+//        graph->config->repthreshold = std::atoi(argv[6]);
+//        if (graph->config->repthreshold > 0)
+//            graph->config->process_local = true;
+//        else
+//            graph->config->process_local = false;
+//    }
+//    else
+//    {
+//        graph->config->repthreshold = 0;
+//        graph->config->process_local = false;
+//    }
+//    graph->config->overlap = false;
+//    if (argc > 7)
+//    {
+//        if (std::string("overlap") == std::string(argv[7]))
+//            graph->config->overlap = true;
+//        else
+//            graph->config->overlap = false;
+//    }
 
     double exec_time = 0;
     exec_time -= get_time();
-    if (std::string(argv[4]) == std::string("GPU_shard"))
+    if (graph->config->algorithm == std::string("GCNCPU"))
     {
-        printf("%s g engine start", argv[4]);
-        // compute_GPU_shard(graph, iterations);
-        // compute_single_GPU_shard_graph(graph, iterations);
+        GCN_CPU_impl *ntsGCN=new GCN_CPU_impl(graph,iterations);
+        ntsGCN->init_graph();
+        ntsGCN->init_nn();
+        ntsGCN->run();
     }
-    else if (std::string(argv[4]) == std::string("CPU"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("DISTOVERLAPGF"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute_dist_GPU_with_CSC_overlap_exchange(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("TEST"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute_single_GPU(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("TESTOLD"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute_single_GPU_old(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("TESTGF"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute_single_gf_GPU(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("DISTT"))
-    {
-        //compute_dist_GPU_with_new_system_CSC(graph, iterations, true);
-    }
-    else if (std::string(argv[4]) == std::string("DISTF"))
-    {
-       // compute_dist_GPU_with_new_system_CSC(graph, iterations, false);
-    }
-    else if (std::string(argv[4]) == std::string("GCN"))
+    else if (graph->config->algorithm == std::string("GCN"))
     {
         GCN_impl *ntsGCN=new GCN_impl(graph,iterations);
         ntsGCN->init_graph();
@@ -243,59 +222,26 @@ int main(int argc, char **argv)
         ntsGCN->run();
         //GCN(graph, iterations);
     }
-    else if (std::string(argv[4]) == std::string("GIN"))
+    else if (graph->config->algorithm == std::string("GIN"))
     {
-      //  GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
-      //  ntsGIN->init_graph();
-      //  ntsGIN->init_nn();
-      //  ntsGIN->forward();
+        GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
+        ntsGIN->init_graph();
+        ntsGIN->init_nn();
+        ntsGIN->run();
     }
-    else if (std::string(argv[4]) == std::string("GAT"))
+    else if (graph->config->algorithm == std::string("GAT"))
     {
         GAT_impl *ntsGAT=new GAT_impl(graph,iterations);
         ntsGAT->init_graph();
         ntsGAT->init_nn();
         ntsGAT->run();
     }
-    else if (std::string(argv[4]) == std::string("COMMNET"))
+    else if (graph->config->algorithm == std::string("PR_CPU"))
     {
-        //compute_dist_GPU_with_CSC_overlap_COMMNET(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("GGCN"))
-    {
-        //compute_dist_GPU_with_CSC_overlap_GGCN(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("DISTOLD"))
-    {
-        //compute_dist_GPU_with_new_system(graph, iterations);
-        //compute_dist_GPU(graph, iterations);
-        //  std::cout<<"id"<<graph->partition_id<<" vertices "<<graph->owned_vertices;
-    }
-    else if (std::string(argv[4]) == std::string("TESTGFD"))
-    {
-        printf("%s c engine start", argv[4]);
-        //compute_dist_gf_GPU(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("active"))
-    {
-        //printf("%s engine start\n",argv[4]);
-        //load_replicate(graph, iterations, argv[1]);
-    }
-    else if (std::string(argv[4]) == std::string("expr_rep"))
-    {
-        //printf("%s engine start\n",argv[4]);
-        //compute_dist_GPU_with_new_system_CSC_test_replicate(graph, iterations);
-    }
-    else if (std::string(argv[4]) == std::string("status"))
-    {
-       
-    }
-    else if (std::string(argv[4]) == std::string("COO"))
-    {
-        VertexSubset *active = graph->alloc_vertex_subset();
-        active->fill();
-        graph->generate_COO(active);
-        graph->reorder_COO(4096);
+        pr_cpu_impl *ntsPR=new pr_cpu_impl(graph,iterations);
+        ntsPR->init_graph();
+        ntsPR->init_nn();
+        ntsPR->run();
     }
     exec_time += get_time();
     if (graph->partition_id == 0)

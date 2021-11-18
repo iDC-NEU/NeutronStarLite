@@ -42,10 +42,11 @@ public:
     double all_graph_time = 0;
 
     
-    GCN_CPU_impl(Graph<Empty> *graph_, int iterations_, bool process_local = false, bool process_overlap = false){
+    GCN_CPU_impl(Graph<Empty> *graph_, int iterations_, 
+                    bool process_local = false, bool process_overlap = false){
         graph=graph_;
         iterations=iterations_;
-        learn_rate = 0.01;
+        learn_rate = 0.03;
         weight_decay=0.05;
         active = graph->alloc_vertex_subset();
         active->fill();
@@ -53,7 +54,7 @@ public:
         graph->init_gnnctx(graph->config->layer_string);
             //rtminfo initialize
         graph->init_rtminfo();
-        graph->rtminfo->process_local = graph->config->process_local;
+        graph->rtminfo->process_local= graph->config->process_local;
         graph->rtminfo->reduce_comm = graph->config->process_local;
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
@@ -70,19 +71,18 @@ public:
         gt->GenerateGraphSegment(subgraphs,CPU_T,[&](VertexId src,VertexId dst){
             return gt->norm_degree(src,dst);
             });
-        //gt->GenerateMessageBitmap(subgraphs);
-        //gt->TestGeneratedBitmap(subgraphs);
-        //graph->init_message_buffer();
         graph->init_communicatior();
     }
     void init_nn(){
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
-        gnndatum->random_generate();
+        //gnndatum->random_generate();
+        gnndatum->readCORA();
         gnndatum->registLabel(L_GT_C);
         gnndatum->registMask(MASK);
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-            P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i+1]));
+            P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], 
+                        graph->gnnctx->layer_size[i+1]));
         }
         
         torch::Device GPU(torch::kCUDA, 0);
@@ -90,7 +90,12 @@ public:
             P[i]->init_parameter();
         }
         
-        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
+//        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num,
+//                                     graph->gnnctx->layer_size[0]},
+//                                     torch::DeviceType::CPU);
+        F=graph->Nts->NewLeafTensor(gnndatum->local_feature,{graph->gnnctx->l_v_num,
+                                     graph->gnnctx->layer_size[0]},
+                                     torch::DeviceType::CPU);
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             Y.push_back(graph->Nts->NewKeyTensor(
                                 {graph->gnnctx->l_v_num, 
@@ -108,22 +113,22 @@ public:
     }
 
 
-void Test(NtsVar& y,int s){
+void Test(NtsVar& y,int s){// 0 train, //1 eval //2 test 
     NtsVar mask_train=MASK.eq(s);
     NtsVar all_train=y.argmax(1).to(torch::kLong)
                     .eq(L_GT_C).to(torch::kLong)
                     .masked_select(mask_train.view({mask_train.size(0)}));
     NtsVar all=all_train.sum(0);
-    long * partial_correct=all.data_ptr<long>();
-    long global_correct=0;
-    long partial_train=all_train.size(0);
-    long global_train=0;
+    long * p_correct=all.data_ptr<long>();
+    long g_correct=0;
+    long p_train=all_train.size(0);
+    long g_train=0;
     MPI_Datatype dt = get_mpi_data_type<long>();
-    MPI_Allreduce(partial_correct, &global_correct, 1, dt, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&partial_train, &global_train, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(p_correct, &g_correct, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&p_train, &g_train, 1, dt, MPI_SUM, MPI_COMM_WORLD);
     float acc_train=0.0;
-    if(global_train>0)
-        acc_train=float(global_correct)/global_train;
+    if(g_train>0)
+        acc_train=float(g_correct)/g_train;
    if(graph->partition_id==0){
       if(s==0)
         std::cout<<"Train ACC: "<<acc_train<<std::endl;
@@ -149,8 +154,10 @@ NtsVar vertexForward(NtsVar &a, NtsVar &x){
 NtsVar Loss(NtsVar &a){
     torch::Tensor mask_train=MASK.eq(1);
     return torch::nll_loss(
-                a.masked_select(mask_train.expand({mask_train.size(0),a.size(1)})).view({-1,a.size(1)}),
-                        L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
+                a.masked_select(mask_train
+                        .expand({mask_train.size(0),a.size(1)}))
+                            .view({-1,a.size(1)}),
+                L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
 }
 void vertexBackward(){
     
@@ -172,6 +179,8 @@ void Backward(){
     //gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
     gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
     }
+    
+    //  std::cout<<P[1]->W.grad()<<std::endl;
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
         P[i]->learnC2C_with_decay(learn_rate,weight_decay);
@@ -184,16 +193,10 @@ void Forward(){
     graph->rtminfo->forward = true;    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
     graph->rtminfo->curr_layer = i;
-    //gt->PropagateForwardCPU(X[i], Y[i]);
-    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
-//        if(graph->partition_id==0){
-//            int test=0;
-//            std::cout<<"DEBUG_TO"<<" "<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][0]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][0]<<std::endl;
-//        } 
-    
+    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);    
     X[i+1]=vertexForward(Y[i],X[i]);
     }
-    Test(X[graph->gnnctx->layer_size.size()-1],2);
+    Test(X[graph->gnnctx->layer_size.size()-1],1);
     loss=Loss(X[graph->gnnctx->layer_size.size()-1]);
 }
 
@@ -203,7 +206,7 @@ void Forward(){
 /*GPU dist*/ void run()
 {
     if (graph->partition_id == 0)
-        printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
+        printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
        // graph->print_info();
         
     exec_time -= get_time();
@@ -214,9 +217,7 @@ void Forward(){
             P[i]->zero_grad();
         }      
        Forward();
-       Backward();      
-        
-        
+       Backward();         
 //    graph->rtminfo->forward = false;
 //    graph->rtminfo->curr_layer=0;
 //    gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
@@ -227,10 +228,12 @@ void Forward(){
 
      
         if (graph->partition_id == 0)
-            std::cout << "GNNmini::Running.Epoch["<<i_i<<"]:loss\t" << loss << std::endl;       
+           std::cout<<"Nts::Running.Epoch["<<i_i<<"]:loss\t"<<loss<< std::endl;       
     }
     exec_time += get_time();
-
+    
+//    if(graph->partition_id==0)
+//        graph->config->readFromCfgFile("NTS_cora_data.cfg");
     delete active;
 }
 
