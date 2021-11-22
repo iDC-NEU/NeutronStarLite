@@ -115,12 +115,15 @@ public:
     }
 
 
-void Test(NtsVar& y,int s){// 0 train, //1 eval //2 test 
-//    NtsVar mask_train=MASK.eq(s);
-//    NtsVar all_train=y.argmax(1).to(torch::kLong)
-//                    .eq(L_GT_C).to(torch::kLong)
-//                    .masked_select(mask_train.view({mask_train.size(0)}));
-    NtsVar all_train=y.argmax(1).to(torch::kLong).eq(L_GT_C).to(torch::kLong);        
+void Test(NtsVar& y,long s){// 0 train, //1 eval //2 test 
+    NtsVar mask_train=MASK.eq(s);
+    NtsVar all_train=y.argmax(1).to(torch::kLong)
+                    .eq(L_GT_C).to(torch::kLong)
+                    .masked_select(mask_train.view({mask_train.size(0)}));
+                    std::cout<<"all train1"<<all_train.size(0)<<std::endl;
+//                    NtsVar all1=all_train1.sum(0);
+                    
+    //NtsVar all_train=y.argmax(1).to(torch::kLong).eq(L_GT_C).to(torch::kLong);        
     NtsVar all=all_train.sum(0);
     long * p_correct=all.data_ptr<long>();
     long g_correct=0;
@@ -136,7 +139,7 @@ void Test(NtsVar& y,int s){// 0 train, //1 eval //2 test
       if(s==0)
         std::cout<<"Train ACC: "<<acc_train<<" "<<g_train<<" "<<g_correct<<std::endl;
       else if(s==1)
-        std::cout<<"Eval  ACC: "<<acc_train<<" "<<g_train<<" "<<g_correct<<std::endl;
+        std::cout<<"Eval  ACC: "<<acc_train<<" "<<g_train<<" "<<g_correct<<" "<<std::endl;
       else if(s==2)
         std::cout<<"Test  ACC: "<<acc_train<<std::endl;
    }
@@ -155,13 +158,13 @@ NtsVar vertexForward(NtsVar &a, NtsVar &x){
     return y;
 }
 NtsVar Loss(NtsVar &a){
-    return torch::nll_loss(a,L_GT_C);
-//    torch::Tensor mask_train=MASK.eq(1);
-//    return torch::nll_loss(
-//                a.masked_select(mask_train
-//                        .expand({mask_train.size(0),a.size(1)}))
-//                            .view({-1,a.size(1)}),
-//                L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
+  //  return torch::nll_loss(a,L_GT_C);
+    torch::Tensor mask_train=MASK.eq(1);
+    return torch::nll_loss(
+                a.masked_select(mask_train
+                        .expand({mask_train.size(0),a.size(1)}))
+                            .view({-1,a.size(1)}),
+                L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
 }
 void vertexBackward(){
     
@@ -224,13 +227,6 @@ void Forward(){
         }      
        Forward();
        Backward();         
-//    graph->rtminfo->forward = false;
-//    graph->rtminfo->curr_layer=0;
-//    gt->PropagateBackwardCPU_debug(X[0], Y[0], subgraphs);
-//    if(graph->partition_id==2){
-//        int test=graph->gnnctx->p_v_e-1;
-//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//    } 
 
 //    graph->rtminfo->forward = true;
 //    graph->rtminfo->curr_layer=0;    
