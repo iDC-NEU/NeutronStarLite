@@ -83,16 +83,22 @@ public:
     void registMask(NtsVar &mask){
         mask=torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
     }
-     void readFtrFrom1(std::string inputF)
+     void readFtrFrom1(std::string inputF,std::string inputL)
     {
        
         std::string str;
-        std::ifstream input(inputF.c_str(), std::ios::in);
+        std::ifstream input_ftr(inputF.c_str(), std::ios::in);
+        std::ifstream input_lbl(inputL.c_str(), std::ios::in);
         //std::ofstream outputl("cora.labeltable",std::ios::out);
        // ID    F   F   F   F   F   F   F   L
-        if (!input.is_open())
+        if (!input_ftr.is_open())
         {
-            //cout<<"open file fail!"<<endl;
+            std::cout<<"open feature file fail!"<<std::endl;
+            return;
+        }
+        if (!input_lbl.is_open())
+        {
+            std::cout<<"open label file fail!"<<std::endl;
             return;
         }
         float *con_tmp = new float[gnnctx->layer_size[0]];
@@ -100,26 +106,28 @@ public:
         std::string la;
         //std::cout<<"finish1"<<std::endl;
         VertexId id=0;
-        while (input >> id)
+        while (input_ftr >> id)
         {
             VertexId size_0=gnnctx->layer_size[0];
             VertexId id_trans=id-gnnctx->p_v_s;
             if((gnnctx->p_v_s<=id)&&(gnnctx->p_v_e>id)){
                 for (int i = 0; i < size_0; i++){
-                    input >> local_feature[size_0*id_trans+i];
+                    input_ftr >> local_feature[size_0*id_trans+i];
                 }
-                input >> la;
-                local_label[id_trans]= changelable(la);
+                input_lbl >> la;
+                input_lbl >> local_label[id_trans];
                 local_mask[id_trans]=1;
             }else{
                 for (int i = 0; i < size_0; i++){
-                    input >> con_tmp[i];   
+                    input_ftr >> con_tmp[i];   
                 }
-                input >> la;
+                input_lbl >> la;
+                input_lbl >> la;
             }
         }
         free(con_tmp);
-        input.close();
+        input_ftr.close();
+        input_lbl.close();
     }
     void read_from_txt()
     {
