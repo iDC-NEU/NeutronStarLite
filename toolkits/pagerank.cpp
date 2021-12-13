@@ -21,8 +21,9 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include "GCN_CPU.hpp"
 #include "GIN.hpp"
 #include "GAT.hpp"
-//#include "pr.hpp"
-#include "pr_cpu.hpp"
+#include "nts_pr.hpp"
+#include "nts_sssp.hpp"
+//#include "pr_cpu.hpp"
 //#include"testengine.hpp"
 
 void statistic(Graph<Empty> *graph, int workers)
@@ -167,48 +168,24 @@ int main(int argc, char **argv)
         printf("configuration file missed \n");
         exit(-1);
     }
-//    if (argc < 6)
-//    {
-//        printf("pagerank [(1)file] [(2)vertices] [(3)iterations] [(4)CPU/GPU] [(5)layers] [(6.opt)rep threshold] [(7.opt)overlap] \n");
-//        exit(-1);
-//    }
-
+    
+    double exec_time = 0;
+    exec_time -= get_time();
+    if (argc<3){
+    
     Graph<Empty> *graph;
     graph = new Graph<Empty>();
     graph->config->readFromCfgFile(argv[1]);
     if(graph->partition_id==0)
         graph->config->print();
-    graph->load_directed(graph->config->edge_file, graph->config->vertices);
-    graph->generate_backward_structure();
-    int iterations = graph->config->epochs;
-//    graph->config->layer_string = std::string(argv[5]);
-//    if (argc > 6)
-//    {
-        graph->replication_threshold = graph->config->repthreshold ;
-//        graph->config->repthreshold = std::atoi(argv[6]);
-//        if (graph->config->repthreshold > 0)
-//            graph->config->process_local = true;
-//        else
-//            graph->config->process_local = false;
-//    }
-//    else
-//    {
-//        graph->config->repthreshold = 0;
-//        graph->config->process_local = false;
-//    }
-//    graph->config->overlap = false;
-//    if (argc > 7)
-//    {
-//        if (std::string("overlap") == std::string(argv[7]))
-//            graph->config->overlap = true;
-//        else
-//            graph->config->overlap = false;
-//    }
 
-    double exec_time = 0;
-    exec_time -= get_time();
+    int iterations = graph->config->epochs;
+    graph->replication_threshold = graph->config->repthreshold ;
+
     if (graph->config->algorithm == std::string("GCNCPU"))
     {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
         GCN_CPU_impl *ntsGCN=new GCN_CPU_impl(graph,iterations);
         ntsGCN->init_graph();
         ntsGCN->init_nn();
@@ -216,6 +193,8 @@ int main(int argc, char **argv)
     }
     else if (graph->config->algorithm == std::string("GCN"))
     {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
         GCN_impl *ntsGCN=new GCN_impl(graph,iterations);
         ntsGCN->init_graph();
         ntsGCN->init_nn();
@@ -224,6 +203,8 @@ int main(int argc, char **argv)
     }
     else if (graph->config->algorithm == std::string("GIN"))
     {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
         GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
         ntsGIN->init_graph();
         ntsGIN->init_nn();
@@ -231,6 +212,8 @@ int main(int argc, char **argv)
     }
     else if (graph->config->algorithm == std::string("GAT"))
     {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
         GAT_impl *ntsGAT=new GAT_impl(graph,iterations);
         ntsGAT->init_graph();
         ntsGAT->init_nn();
@@ -238,20 +221,46 @@ int main(int argc, char **argv)
     }
     else if (graph->config->algorithm == std::string("PR_CPU"))
     {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
         pr_cpu_impl *ntsPR=new pr_cpu_impl(graph,iterations);
         ntsPR->init_graph();
-        ntsPR->init_nn();
+        ntsPR->init_state();
         ntsPR->run();
     }
-    exec_time += get_time();
-    if (graph->partition_id == 0)
-    {
-        printf("exec_time=%lf(s)\n", exec_time);
-    }
+        exec_time += get_time();
+        if (graph->partition_id == 0)
+        {
+            printf("exec_time=%lf(s)\n", exec_time);
+        }
+    }else{
+        Graph<Weight> *graph;
+        graph = new Graph<Weight>();
+        graph->config->readFromCfgFile(argv[1]);
+        if(graph->partition_id==0)
+            graph->config->print();
+
+        int iterations = graph->config->epochs;
+        graph->replication_threshold = graph->config->repthreshold ;
+        if (graph->config->algorithm == std::string("SSSP_CPU"))
+        {
+            graph->load_directed(graph->config->edge_file, graph->config->vertices);
+            sssp_cpu_impl *ntsSSSP=new sssp_cpu_impl(graph,iterations);
+            ntsSSSP->init_graph();
+            ntsSSSP->init_state();
+            ntsSSSP->run();
+        }
+            delete graph;
+            exec_time += get_time();
+        if (graph->partition_id == 0)
+        {
+            printf("exec_time=%lf(s)\n", exec_time);
+        }
+        }
+
 
     //ResetDevice();
 
-    delete graph;
+
 
     return 0;
 }

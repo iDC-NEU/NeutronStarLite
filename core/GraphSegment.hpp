@@ -44,36 +44,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/type.hpp"
 #include "cuda/test.hpp"
 const bool NOT_SUPPORT_DEVICE_TYPE=false;
-//
-//typedef struct graph_Tensor_Segment
-//{
-//  torch::Tensor column_offset; //VertexNumber
-//  torch::Tensor row_indices;   //edge_size
-//  torch::Tensor edge_weight;   //edge_size
-//  int edge_size;
-//  int batch_size;
-//  int input_size;
-//  int output_size;
-//  int feature_size;
-//  int src_range[2];
-//  int dst_range[2];
-//  float *weight_buffer;
-//} CSC_segment;
-//
-//typedef struct graph_Tensor_Segment1
-//{
-//  torch::Tensor row_offset; //VertexNumber
-//  torch::Tensor column_indices;   //edge_size
-//  torch::Tensor edge_weight;   //edge_size
-//  int edge_size;
-//  int batch_size;
-//  int input_size;
-//  int output_size;
-//  int feature_size;
-//  int src_range[2];
-//  int dst_range[2];
-//  float *weight_buffer;
-//} CSR_segment;
+
 typedef struct graph_Tensor_Segment_pinned
 {
     
@@ -117,6 +88,7 @@ typedef struct graph_Tensor_Segment_pinned
   Bitmap* source_active;
   Bitmap* destination_active;
   Bitmap* destination_mirror_active;
+  std::vector<Bitmap*> VertexToComm;
   
   DeviceLocation dt;
   
@@ -130,6 +102,13 @@ typedef struct graph_Tensor_Segment_pinned
       edge_size=edge_size_;
       dt=dt_;
       
+  }
+  void optional_init_sample(int layers){
+      VertexToComm.clear();
+      for(int i=0;i<layers;i++){
+          VertexToComm.push_back(new Bitmap(batch_size_forward));
+          VertexToComm[i]->clear();
+      }
   }
   void allocVertexAssociateData(){
       
@@ -232,39 +211,6 @@ typedef struct graph_Tensor_Segment_pinned
    }
 
 } CSC_segment_pinned;
-
-
-
-
-
-typedef struct graph_Tensor_Segment_pinned1
-{
-  VertexId *column_offset;     //VertexNumber
-  VertexId *row_indices;       //edge_size also the source nodes
-  VertexId *row_offset;     //VertexNumber
-  VertexId *column_indices;  
-  long *source;
-  long *source_gpu;
-  long *destination;
-  long *destination_gpu;
-  float *edge_weight;          //edge_size
-  float *edge_weight_backward;
-  VertexId *column_offset_gpu; //VertexNumber
-  VertexId *row_indices_gpu;   //edge_size
-  float *edge_weight_gpu;      //edge_size
-  VertexId *row_offset_gpu; //VertexNumber
-  VertexId *column_indices_gpu;   //edge_size
-  float *edge_weight_backward_gpu;      //edge_size
-  int edge_size;
-  int batch_size;
-  int batch_size_forward;
-  int batch_size_backward;
-  int input_size;
-  int output_size;
-  int feature_size;
-  int src_range[2];
-  int dst_range[2];
-} graph_seg_for_event;
 
 typedef struct rep_graph
 {
@@ -407,5 +353,49 @@ typedef struct BlockInfomation
   VertexId max_buffer_size; //for alloc
 
 } BlockInfo;
+
+typedef struct Graph_Store{
+    std::vector<Bitmap*> sampled_vertices;
+    VertexId* column_offset;
+    VertexId* row_indices;
+    
+    COOChunk *_graph_cpu_in;
+    COOChunk *_graph_cpu_out;
+    std::vector<COOChunk *> graph_shard_in;
+    std::vector<COOChunk *> graph_shard_out;
+    
+    void optional_generate_sample_graph(gnncontext *gnnctx,COOChunk*_graph_cpu_in){
+        VertexId *tmp_column_offset;
+        VertexId local_edge_size=gnnctx->l_e_num;
+        column_offset= new VertexId[gnnctx->l_v_num+1];
+        tmp_column_offset= new VertexId[gnnctx->l_v_num+1];
+        row_indices= new VertexId[local_edge_size];
+        memset(column_offset,0, sizeof(VertexId)*gnnctx->l_v_num+1);
+        memset(tmp_column_offset,0, sizeof(VertexId)*gnnctx->l_v_num+1);
+        memset(row_indices,0, sizeof(VertexId)*local_edge_size);
+        for(int i=0;i<local_edge_size;i++){
+            VertexId src=_graph_cpu_in->srcList[i];
+            VertexId dst=_graph_cpu_in->dstList[i];
+            VertexId dst_trans=dst-gnnctx->p_v_s;
+            column_offset[dst_trans+1]+=1;
+        }
+        for(int i=0;i<gnnctx->l_v_num;i++){
+            column_offset[i+1]+=column_offset[i];
+            tmp_column_offset[i+1]=column_offset[i+1];
+        }
+        for(int i=0;i<local_edge_size;i++){
+            VertexId src=_graph_cpu_in->srcList[i];
+            VertexId dst=_graph_cpu_in->dstList[i];
+            VertexId dst_trans=dst-gnnctx->p_v_s;
+            VertexId r_index=tmp_column_offset[dst_trans];
+            row_indices[r_index]=src;
+        }
+        delete [] tmp_column_offset;
+    
+   }
+    
+    
+    
+}Graph_Storage;
 
 #endif

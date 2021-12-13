@@ -53,16 +53,18 @@ public:
     float *local_feature;
     long *local_label;
     int *local_mask;
+    Graph<Empty>* graph;
     // train:    0 
-    // evaluate: 1
+    // eval:     1
     // test:     2
-    GNNDatum(gnncontext *_gnnctx)
+    GNNDatum(gnncontext *_gnnctx, Graph<Empty>* graph_)
     {
         gnnctx = _gnnctx;
         local_feature = new float[gnnctx->l_v_num * gnnctx->layer_size[0]];
         local_label = new long[gnnctx->l_v_num];
         local_mask= new int[gnnctx->l_v_num];
         memset(local_mask,0,sizeof(int)*gnnctx->l_v_num);
+        graph=graph_;
     }
     void random_generate()
     {
@@ -78,10 +80,12 @@ public:
     }
     void registLabel(NtsVar &target)
     {
-        target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
+        target = graph->Nts->NewLeafKLongTensor(local_label,{gnnctx->l_v_num});
+                //torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
     }
     void registMask(NtsVar &mask){
-        mask=torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
+        mask= graph->Nts->NewLeafKIntTensor(local_mask,{gnnctx->l_v_num,1});
+                //torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
     }
      void readFtrFrom1(std::string inputF,std::string inputL)
     {
@@ -102,7 +106,6 @@ public:
             return;
         }
         float *con_tmp = new float[gnnctx->layer_size[0]];
-        int numOfData = 0;
         std::string la;
         //std::cout<<"finish1"<<std::endl;
         VertexId id=0;
@@ -116,7 +119,7 @@ public:
                 }
                 input_lbl >> la;
                 input_lbl >> local_label[id_trans];
-                local_mask[id_trans]=1;
+                local_mask[id_trans]=id%3;
             }else{
                 for (int i = 0; i < size_0; i++){
                     input_ftr >> con_tmp[i];   
@@ -129,13 +132,72 @@ public:
         input_ftr.close();
         input_lbl.close();
     }
-    void read_from_txt()
+    void readFeature_Label_Mask(std::string inputF,std::string inputL,std::string inputM)
     {
-        ;
-    }
-    void read_from_binary()
-    {
-        ;
+       
+        std::string str;
+        std::ifstream input_ftr(inputF.c_str(), std::ios::in);
+        std::ifstream input_lbl(inputL.c_str(), std::ios::in);
+        std::ifstream input_msk(inputM.c_str(), std::ios::in);
+        //std::ofstream outputl("cora.labeltable",std::ios::out);
+       // ID    F   F   F   F   F   F   F   L
+        if (!input_ftr.is_open())
+        {
+            std::cout<<"open feature file fail!"<<std::endl;
+            return;
+        }
+        if (!input_lbl.is_open())
+        {
+            std::cout<<"open label file fail!"<<std::endl;
+            return;
+        }
+        if (!input_msk.is_open())
+        {
+            std::cout<<"open mask file fail!"<<std::endl;
+            return;
+        }
+        float *con_tmp = new float[gnnctx->layer_size[0]];
+        std::string la;
+        //std::cout<<"finish1"<<std::endl;
+        VertexId id=0;
+        while (input_ftr >> id)
+        {
+            VertexId size_0=gnnctx->layer_size[0];
+            VertexId id_trans=id-gnnctx->p_v_s;
+            if((gnnctx->p_v_s<=id)&&(gnnctx->p_v_e>id)){
+                for (int i = 0; i < size_0; i++){
+                    input_ftr >> local_feature[size_0*id_trans+i];
+                }
+                input_lbl >> la;
+                input_lbl >> local_label[id_trans];
+                
+                input_msk >>la;
+                std::string msk;
+                input_msk >>msk;
+                //std::cout<<la<<" "<<msk<<std::endl;
+                if(msk.compare("train")==0){
+                    local_mask[id_trans]=0;
+                }else if (msk.compare("eval")==0||msk.compare("val")==0){
+                    local_mask[id_trans]=1;
+                }else if (msk.compare("test")==0){
+                    local_mask[id_trans]=2;
+                }
+                
+            }else{
+                for (int i = 0; i < size_0; i++){
+                    input_ftr >> con_tmp[i];   
+                }
+                
+                input_lbl >> la;
+                input_lbl >> la;
+                
+                input_msk >>la;
+                input_msk >>la;
+            }
+        }
+        free(con_tmp);
+        input_ftr.close();
+        input_lbl.close();
     }
 };
 
@@ -179,6 +241,31 @@ public:
         return (ValueType)(graph_->in_degree_for_backward[v]);
     }
     
+    void SampleStrategy(VertexId dst,std::vector<CSC_segment_pinned *> &subgraphs){
+    }
+    void SampleStage(NtsVar &X, NtsVar &Y,
+                                  std::vector<CSC_segment_pinned *> &subgraphs, Bitmap* VertexToSample){
+        int feature_size=1;
+//        graph_->process_edges_backward_decoupled<int, VertexId>( // For EACH Vertex Processing
+//            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
+//                VertexId src_trans=src-graph_->partition_offset[recv_id];
+//                VertexId msg;
+//                if(!VertexToSample->get_bit(src_trans)){
+//                    return;
+//                }
+//                for(long d_idx=subgraphs[recv_id]->row_offset[src_trans];d_idx<subgraphs[recv_id]->row_offset[src_trans+1];d_idx++)
+//                {
+//                    VertexId dst=subgraphs[recv_id]->column_indices[d_idx];
+//                    VertexId dst_trans=dst-start_;
+//                }
+//                graph_->NtsComm->emit_buffer(src, &msg,feature_size);
+//            },
+//            [&](VertexId src, VertexId* msg) {
+//                return 1;
+//            },
+//            feature_size,
+//            active_);
+    }
     void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,
                                   std::vector<CSC_segment_pinned *> &subgraphs){
        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
@@ -623,48 +710,4 @@ public:
 };
 
 
-/*
-void inference(NtsVar tt_cpu, Graph<Empty> *graph, Embeddings<ValueType, long> *embedding,
-               tensorSet *pytool, GnnUnit *Gnn_v1, GnnUnit *Gnn_v2)
-{
-    int correct = 0;
-    for (int k = 0; k < embedding->rownum; k++)
-    {
-        ValueType max = -100000.0;
-        long id = -1;
-        for (int i = 0; i < LABEL_NUMBER; i++)
-        {
-            if (max < tt_cpu.accessor<ValueType, 2>().data()[k * LABEL_NUMBER + i])
-            {
-                max = tt_cpu.accessor<ValueType, 2>().data()[k * LABEL_NUMBER + i];
-                id = i;
-            }
-        }
-        if (id == pytool->target.accessor<long, 1>().data()[k])
-            correct += 1;
-    }
-    std::cout << "\ncorrect number on training:" << correct << "\t" << ((ValueType)correct / (ValueType)graph->vertices) << std::endl;
-    std::cout << "loss at" << graph->partition_id << "is :" << pytool->loss << std::endl;
-    int correct_test = 0;
-    for (int k = graph->vertices; k < NODE_NUMBER; k++)
-    {
-        ValueType max = -100000.0;
-        long id = -1;
-        NtsVar test = torch::from_blob(&(embedding->con[k].att[0]), {1, SIZE_LAYER_1});
-        NtsVar final_ = torch::relu(test.mm(Gnn_v1->W.cpu())).mm(Gnn_v2->W.cpu()).log_softmax(1);
-        for (int i = 0; i < LABEL_NUMBER; i++)
-        {
-            if (max < final_.accessor<ValueType, 2>().data()[i])
-            {
-                max = final_.accessor<ValueType, 2>().data()[i];
-                id = i;
-            }
-        }
-        if (id == embedding->con[k].label)
-            correct_test += 1;
-    }
-    std::cout << "\ncorrect number on testing:" << correct_test << "\t" << ((ValueType)correct_test / (ValueType)(NODE_NUMBER - graph->vertices)) << std::endl;
-}
- * 
- */
 #endif

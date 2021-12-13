@@ -537,7 +537,12 @@ public:
         return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kFloat));    
         }
     } 
-    
+    inline torch::Tensor NewLeafKLongTensor(long* data,at::IntArrayRef size){
+        return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kLong));    
+    } 
+    inline torch::Tensor NewLeafKIntTensor(int* data,at::IntArrayRef size){
+        return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kInt32));    
+    } 
     inline torch::Tensor NewOnesTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
         if(torch::DeviceType::CUDA==location){
            return torch::ones(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
@@ -609,7 +614,7 @@ public:
 
 
 
-struct GnnUnit : torch::nn::Module
+struct Parameter : torch::nn::Module
 {
     NtsVar W;
     ValueType *W_from;
@@ -618,7 +623,7 @@ struct GnnUnit : torch::nn::Module
     int row, col;
     NtsVar W_gradient;
     //gpu_processor *gp;
-    GnnUnit(size_t w, size_t h)
+    Parameter(size_t w, size_t h)
     {
         row = w;
         col = h;
@@ -684,46 +689,35 @@ struct GnnUnit : torch::nn::Module
         NtsVar x1 = x.mm(W);
         return x1;
     }
-
-    NtsVar forward2(NtsVar x)
-    {
-        return torch::sigmoid(x);
-    }
-    NtsVar forward3(NtsVar x)
-    {
-
-        x = x.mm(W);
-        return x.log_softmax(1);
-    }
 };
 
-struct Intermediate : torch::nn::Module
-{
-    NtsVar W;
-    ValueType *W_from;
-
-    Intermediate(size_t w, size_t h)
-    {
-        //        at::TensorOptions *opt=new at::TensorOptions;
-        //       opt->requires_grad(true);
-        //  torch::randn
-        //     A=torch::randn(torch::randn({w,h},opt));
-        W = register_parameter("W", torch::randn({w, h}));
-        W_from = new ValueType[w * h];
-    }
-    void resetW(size_t w, size_t h, ValueType *buffer)
-    {
-        memcpy(W_from, buffer, sizeof(ValueType) * w * h);
-        NtsVar new_weight_tensor = torch::from_blob(W_from, {w, h});
-        W.set_data(new_weight_tensor);
-    }
-
-    NtsVar forward(NtsVar x)
-    {
-        x = x.mm(W);
-        return x;
-    }
-};
+//struct Intermediate : torch::nn::Module
+//{
+//    NtsVar W;
+//    ValueType *W_from;
+//
+//    Intermediate(size_t w, size_t h)
+//    {
+//        //        at::TensorOptions *opt=new at::TensorOptions;
+//        //       opt->requires_grad(true);
+//        //  torch::randn
+//        //     A=torch::randn(torch::randn({w,h},opt));
+//        W = register_parameter("W", torch::randn({w, h}));
+//        W_from = new ValueType[w * h];
+//    }
+//    void resetW(size_t w, size_t h, ValueType *buffer)
+//    {
+//        memcpy(W_from, buffer, sizeof(ValueType) * w * h);
+//        NtsVar new_weight_tensor = torch::from_blob(W_from, {w, h});
+//        W.set_data(new_weight_tensor);
+//    }
+//
+//    NtsVar forward(NtsVar x)
+//    {
+//        x = x.mm(W);
+//        return x;
+//    }
+//};
 
 
 #endif

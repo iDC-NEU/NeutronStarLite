@@ -21,7 +21,7 @@ public:
     std::map<std::string,NtsVar>I_data;
     GTensor<ValueType, long> *gt;
     //Variables
-    std::vector<GnnUnit*>P;
+    std::vector<Parameter*>P;
     std::vector<NtsVar>X;
     std::vector<NtsVar>Y;
     std::vector<NtsVar>X_grad;
@@ -64,7 +64,7 @@ public:
     } 
     void init_graph(){
         //std::vector<CSC_segment_pinned *> csc_segment;
-        graph->generate_COO(active);
+        graph->generate_COO();
         graph->reorder_COO_W2W();
         //generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
         gt = new GTensor<ValueType, long>(graph, active);
@@ -74,18 +74,20 @@ public:
         graph->init_communicatior();
     }
     void init_nn(){
-        GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
+        GNNDatum *gnndatum = new GNNDatum(graph->gnnctx,graph);
         //gnndatum->random_generate();
         if(0==graph->config->feature_file.compare("random")){
             gnndatum->random_generate();
         }else{
-            gnndatum->readFtrFrom1(graph->config->feature_file,graph->config->label_file);
+            //gnndatum->readFtrFrom1(graph->config->feature_file,graph->config->label_file);
+            gnndatum->readFeature_Label_Mask(graph->config->feature_file,graph->config->label_file,graph->config->mask_file);
         }
+                // target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
         gnndatum->registLabel(L_GT_C);
         gnndatum->registMask(MASK);
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-            P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], 
+            P.push_back(new Parameter(graph->gnnctx->layer_size[i], 
                         graph->gnnctx->layer_size[i+1]));
         }
         for(int i=0;i<P.size();i++){
@@ -115,15 +117,12 @@ public:
     }
 
 
-void Test(NtsVar& y,long s){// 0 train, //1 eval //2 test 
+void Test(long s){// 0 train, //1 eval //2 test
     NtsVar mask_train=MASK.eq(s);
-    NtsVar all_train=y.argmax(1).to(torch::kLong)
+    NtsVar all_train=X[graph->gnnctx->layer_size.size()-1]
+                    .argmax(1).to(torch::kLong)
                     .eq(L_GT_C).to(torch::kLong)
-                    .masked_select(mask_train.view({mask_train.size(0)}));
-                    std::cout<<"all train1"<<all_train.size(0)<<std::endl;
-//                    NtsVar all1=all_train1.sum(0);
-                    
-    //NtsVar all_train=y.argmax(1).to(torch::kLong).eq(L_GT_C).to(torch::kLong);        
+                    .masked_select(mask_train.view({mask_train.size(0)}));      
     NtsVar all=all_train.sum(0);
     long * p_correct=all.data_ptr<long>();
     long g_correct=0;
@@ -141,7 +140,7 @@ void Test(NtsVar& y,long s){// 0 train, //1 eval //2 test
       else if(s==1)
         std::cout<<"Eval  ACC: "<<acc_train<<" "<<g_train<<" "<<g_correct<<" "<<std::endl;
       else if(s==2)
-        std::cout<<"Test  ACC: "<<acc_train<<std::endl;
+        std::cout<<"Test  ACC: "<<acc_train<<" "<<g_train<<" "<<g_correct<<" "<<std::endl;
    }
     
 }
@@ -157,10 +156,11 @@ NtsVar vertexForward(NtsVar &a, NtsVar &x){
     }
     return y;
 }
-NtsVar Loss(NtsVar &a){
+void Loss(){
   //  return torch::nll_loss(a,L_GT_C);
-    torch::Tensor mask_train=MASK.eq(1);
-    return torch::nll_loss(
+    torch::Tensor a=X[graph->gnnctx->layer_size.size()-1];
+    torch::Tensor mask_train=MASK.eq(0);
+     loss=torch::nll_loss(
                 a.masked_select(mask_train
                         .expand({mask_train.size(0),a.size(1)}))
                             .view({-1,a.size(1)}),
@@ -186,16 +186,14 @@ void Backward(){
     //gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
     gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
     }
-    
-    //  std::cout<<P[1]->W.grad()<<std::endl;
+  
+}
+void Update(){
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
         P[i]->learnC2C_with_decay(learn_rate,weight_decay);
     }
-    
-        
 }
-
 void Forward(){
     graph->rtminfo->forward = true;    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
@@ -203,14 +201,12 @@ void Forward(){
     gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);    
     X[i+1]=vertexForward(Y[i],X[i]);
     }
-    Test(X[graph->gnnctx->layer_size.size()-1],1);
-    loss=Loss(X[graph->gnnctx->layer_size.size()-1]);
 }
 
 
 
 
-/*GPU dist*/ void run()
+void run()
 {
     if (graph->partition_id == 0)
         printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
@@ -226,41 +222,17 @@ void Forward(){
             }
         }      
        Forward();
-       Backward();         
-
-//    graph->rtminfo->forward = true;
-//    graph->rtminfo->curr_layer=0;    
-//   gt->PropagateForwardCPU_debug(X[0], Y[0], subgraphs);
-//    for(VertexId i=0;i<graph->partitions;i++)
-//    if(graph->partition_id==i){
-//        int test=graph->gnnctx->p_v_s+1;
-//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//        test=graph->gnnctx->p_v_e-1;
-//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2+1;
-//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//    } 
-        
-//    graph->rtminfo->forward = false;
-//    graph->rtminfo->curr_layer=0;    
-//    gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
-//    for(VertexId i=0;i<graph->partitions;i++)
-//    if(graph->partition_id==i){
-//        int test=graph->gnnctx->p_v_s;
-//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//        test=graph->gnnctx->p_v_e-1;
-//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
-//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-//    }                
-     
+       Test(0);
+       Test(1);
+       Test(2);
+       Loss();
+       Backward();
+       Update();
+                  
         if (graph->partition_id == 0)
            std::cout<<"Nts::Running.Epoch["<<i_i<<"]:loss\t"<<loss<< std::endl;       
     }
     exec_time += get_time();
-    
-//    if(graph->partition_id==0)
-//        graph->config->readFromCfgFile("NTS_cora_data.cfg");
     delete active;
 }
 
@@ -304,6 +276,34 @@ void DEBUGINFO(){
     if (graph->partition_id == 0)
         printf("ALL TIME = %lf(s) GRAPH TIME = %lf(s) MEAN TIME = %lf(s)\n", 
                 another_time, max_time / graph->partitions, mean_time / graph->partitions);
+}
+void test_debug(){
+    
+//    graph->rtminfo->forward = true;
+//    graph->rtminfo->curr_layer=0;    
+//   gt->PropagateForwardCPU_debug(X[0], Y[0], subgraphs);
+//    for(VertexId i=0;i<graph->partitions;i++)
+//    if(graph->partition_id==i){
+//        int test=graph->gnnctx->p_v_s+1;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=graph->gnnctx->p_v_e-1;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2+1;
+//        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//    } 
+        
+//    graph->rtminfo->forward = false;
+//    graph->rtminfo->curr_layer=0;    
+//    gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
+//    for(VertexId i=0;i<graph->partitions;i++)
+//    if(graph->partition_id==i){
+//        int test=graph->gnnctx->p_v_s;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=graph->gnnctx->p_v_e-1;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
+//        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y: "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+//    }   
 }
 
 };
