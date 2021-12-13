@@ -41,7 +41,7 @@ def load_data(normalize=True, load_walks=False, inter=""):
     
     ## Remove all nodes that do not have val/test annotations
     ## (necessary because of networkx weirdness with the Reddit data)
-    mask_file= open('reddit.mask',mode='w')
+    mask_file= open(prefix+'.mask',mode='w')
     for node in G.nodes():
         if G.node[node]['val']:
             mask_file.write(str(id_map[node])+" val\n")
@@ -50,12 +50,12 @@ def load_data(normalize=True, load_walks=False, inter=""):
         else:
             mask_file.write(str(id_map[node])+" train\n")
     mask_file.close()
-    label_file=open('reddit.labeltable',mode='w')
+    label_file=open(prefix+'.labeltable',mode='w')
     for node in G.nodes():
         label_file.write(str(id_map[node])+" "+str(class_map[node])+"\n")
     label_file.close()
     print ('shape',feats.shape)
-    np.savetxt('reddit.featuretable',feats,fmt='%.18f',delimiter=' ')
+    np.savetxt(prefix+'.featuretable',feats,fmt='%.18f',delimiter=' ')
     #feature_file=open('reddit.featuretable',mode='w')
     if normalize and not feats is None:
         from sklearn.preprocessing import StandardScaler
@@ -64,8 +64,8 @@ def load_data(normalize=True, load_walks=False, inter=""):
         scaler = StandardScaler()
         scaler.fit(train_feats)
         feats = scaler.transform(feats)
-    np.savetxt('reddit.featuretablenorm',feats,fmt='%.18f',delimiter=' ')
-    edge_file=open('reddit.edge.txt',mode='w')
+    np.savetxt(prefix+'.featuretablenorm',feats,fmt='%.18f',delimiter=' ')
+    edge_file=open(prefix+'.edge.txt',mode='w')
     for edge in G.edges():
        edge_file.write(str(id_map[edge[0]])+" "+str(id_map[edge[1]])+"\n")
     edge_file.close()
