@@ -7,7 +7,7 @@ cat hostfile| while read line; do
 #echo ${line}
 scp -r ./$2  ${USER}@${line}:${cur_dir}/
 done
-mpiexec -hostfile hostfile -np $1 ./nts $2
+mpiexec -hostfile hostfile -np $1 ./build/nts $2
 
 
 
