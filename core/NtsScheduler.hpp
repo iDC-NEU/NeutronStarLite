@@ -208,21 +208,23 @@ public:
         BackwardScatterGradBackToWeight(input_src, grad_output,message_grad);
     }
     
-    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TODO
+    inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){//TODO
         float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
         float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
         float *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
+        ValueType *forward_weight_from_pinned=subgraph->edge_weight_forward_gpu;
         
     VertexId src_start = subgraph->src_range[0];
     VertexId src_end = subgraph->src_range[1];
     VertexId dst_start = subgraph->dst_range[0];
     VertexId dst_end = subgraph->dst_range[1];
-    if(feature_size>512){
+    //if(feature_size>512){
         cuda_stream->Gather_By_Dst_From_Src(input_buffer,
                                output_buffer,
-                               weight_buffer, //data
+                               //weight_buffer, //data
+                               forward_weight_from_pinned,
                                row_indices_from_pinned,
                                column_offset_from_pinned, //graph
                                (VertexId)src_start, (VertexId)src_end, 
@@ -231,20 +233,22 @@ public:
                                (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
                                rtminfo->with_weight);
-    }else{
-        cuda_stream->Gather_By_Dst_From_Src_Optim(input_buffer,
-                               output_buffer,
-                               weight_buffer, //data
-                               row_indices_from_pinned,
-                               column_offset_from_pinned, //graph
-                                subgraph->destination_gpu,
-                               (VertexId)src_start, (VertexId)src_end, 
-                               (VertexId)dst_start, (VertexId)dst_end,
-                               (VertexId)subgraph->edge_size,
-                               (VertexId)subgraph->batch_size_forward,
-                               (VertexId)output_size,
-                               rtminfo->with_weight);
-    }
+        
+//    }else{
+//        cuda_stream->Gather_By_Dst_From_Src_Optim(input_buffer,
+//                               output_buffer,
+//                               //weight_buffer, //data
+//                               forward_weight_from_pinned,
+//                               row_indices_from_pinned,
+//                               column_offset_from_pinned, //graph
+//                                subgraph->destination_gpu,
+//                               (VertexId)src_start, (VertexId)src_end, 
+//                               (VertexId)dst_start, (VertexId)dst_end,
+//                               (VertexId)subgraph->edge_size,
+//                               (VertexId)subgraph->batch_size_forward,
+//                               (VertexId)output_size,
+//                               rtminfo->with_weight);
+//    }
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
@@ -368,15 +372,17 @@ public:
         float *output_buffer=getWritableBuffer(output);
         VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
         VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
+        ValueType *backward_weight_from_pinned=subgraph->edge_weight_backward_gpu;
         
         VertexId src_start = subgraph->src_range[0];
         VertexId src_end = subgraph->src_range[1];
         VertexId dst_start = subgraph->dst_range[0];
         VertexId dst_end = subgraph->dst_range[1];
-        if(feature_size>512){      
+//        if(feature_size>512){      
             cuda_stream->Gather_By_Src_From_Dst(input_buffer,
                                output_buffer,
-                               weight_buffer, //data
+                               //weight_buffer, //data
+                               backward_weight_from_pinned,
                                row_offset_from_pinned, //graph
                                column_indices_from_pinned,
                                (VertexId)src_start, (VertexId)src_end, 
@@ -385,20 +391,21 @@ public:
                                (VertexId)subgraph->batch_size_backward,
                                (VertexId)output_size,
                                rtminfo->with_weight);
-        }else{
-            cuda_stream->Gather_By_Src_From_Dst_Optim(input_buffer,
-                               output_buffer,
-                               weight_buffer, //data
-                               row_offset_from_pinned, //graph
-                               column_indices_from_pinned,
-                               subgraph->source_backward_gpu,
-                               (VertexId)src_start, (VertexId)src_end, 
-                               (VertexId)dst_start, (VertexId)dst_end,
-                               (VertexId)subgraph->edge_size,
-                               (VertexId)subgraph->batch_size_backward,
-                               (VertexId)output_size,
-                               rtminfo->with_weight);
-        }
+//        }else{
+//            cuda_stream->Gather_By_Src_From_Dst_Optim(input_buffer,
+//                               output_buffer,
+//                               //weight_buffer, //data
+//                               backward_weight_from_pinned,
+//                               row_offset_from_pinned, //graph
+//                               column_indices_from_pinned,
+//                               subgraph->source_backward_gpu,
+//                               (VertexId)src_start, (VertexId)src_end, 
+//                               (VertexId)dst_start, (VertexId)dst_end,
+//                               (VertexId)subgraph->edge_size,
+//                               (VertexId)subgraph->batch_size_backward,
+//                               (VertexId)output_size,
+//                               rtminfo->with_weight);
+//        }
     }
 
     
@@ -619,6 +626,8 @@ struct Parameter : torch::nn::Module
     NtsVar W;
     NtsVar M;
     NtsVar V;
+    NtsVar M_GPU;
+    NtsVar V_GPU;
     ValueType *W_from;
     ValueType *w_gradient_buffer;
     Network_simple<float> *network_simple;
@@ -695,7 +704,11 @@ struct Parameter : torch::nn::Module
 //        beta2_t=0.999;
 //        epsilon_t=1e-8;
     }
-    
+    void Adam_to_GPU(){
+        M_GPU=M.cuda();
+        V_GPU=V.cuda();
+        
+    }
     void set_decay(ValueType decay_rate_,ValueType decay_epoch_){
         decay_rate=decay_rate_;
         decay_epoch=decay_epoch_;
@@ -742,6 +755,15 @@ struct Parameter : torch::nn::Module
         M=beta1*M+(1-beta1)*W_g;
         V=beta2*V+(1-beta2)*W_g*W_g;
         NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
+        W.set_data(a);
+    }
+    void learnC2G_with_decay_Adam()
+    {
+//        assert(alpha>0.0);
+        NtsVar W_g=W_gradient.cuda()+weight_decay*W;	
+        M_GPU=beta1*M_GPU+(1-beta1)*W_g;
+        V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
+        NtsVar a = W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon);
         W.set_data(a);
     }
     void next(){

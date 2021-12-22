@@ -2755,10 +2755,10 @@ public:
     NtsComm->init_layer_all(feature_size,Mirror2Master,GPU_T);
     NtsComm->run_all_mirror_to_master();
 
-    if (partition_id == 0)
-    {
-      printf("ComputeSync:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
-    }
+//    if (partition_id == 0)
+//    {
+//      printf("ComputeSync:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
     double stream_time = 0;
     stream_time -= MPI_Wtime();   
     
@@ -3115,10 +3115,10 @@ public:
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
 
-    if (partition_id == 0)
-    {
-      printf("SyncComputeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
-    }
+//    if (partition_id == 0)
+//    {
+//      printf("SyncComputeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
     double stream_time = 0;
     stream_time -= MPI_Wtime();
     
