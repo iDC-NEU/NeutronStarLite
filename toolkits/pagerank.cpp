@@ -19,12 +19,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 //#include "gpuclusterengine.hpp"
 #include "GCN.hpp"
 #include "GCN_CPU.hpp"
-#include "GIN.hpp"
 #include "GAT.hpp"
-#include "nts_pr.hpp"
-#include "nts_sssp.hpp"
-//#include "pr_cpu.hpp"
-//#include"testengine.hpp"
 
 void statistic(Graph<Empty> *graph, int workers)
 {
@@ -171,7 +166,6 @@ int main(int argc, char **argv)
     
     double exec_time = 0;
     exec_time -= get_time();
-    if (argc<3){
     
     Graph<Empty> *graph;
     graph = new Graph<Empty>();
@@ -201,15 +195,6 @@ int main(int argc, char **argv)
         ntsGCN->run();
         //GCN(graph, iterations);
     }
-    else if (graph->config->algorithm == std::string("GIN"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
-        ntsGIN->init_graph();
-        ntsGIN->init_nn();
-        ntsGIN->run();
-    }
     else if (graph->config->algorithm == std::string("GAT"))
     {
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
@@ -219,46 +204,15 @@ int main(int argc, char **argv)
         ntsGAT->init_nn();
         ntsGAT->run();
     }
-    else if (graph->config->algorithm == std::string("PR_CPU"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        pr_cpu_impl *ntsPR=new pr_cpu_impl(graph,iterations);
-        ntsPR->init_graph();
-        ntsPR->init_state();
-        ntsPR->run();
-    }
         exec_time += get_time();
         if (graph->partition_id == 0)
         {
             printf("exec_time=%lf(s)\n", exec_time);
         }
-    }else{
-        Graph<Weight> *graph;
-        graph = new Graph<Weight>();
-        graph->config->readFromCfgFile(argv[1]);
-        if(graph->partition_id==0)
-            graph->config->print();
+    
+        delete Graph;
 
-        int iterations = graph->config->epochs;
-        graph->replication_threshold = graph->config->repthreshold ;
-        if (graph->config->algorithm == std::string("SSSP_CPU"))
-        {
-            graph->load_directed(graph->config->edge_file, graph->config->vertices);
-            sssp_cpu_impl *ntsSSSP=new sssp_cpu_impl(graph,iterations);
-            ntsSSSP->init_graph();
-            ntsSSSP->init_state();
-            ntsSSSP->run();
-        }
-            delete graph;
-            exec_time += get_time();
-        if (graph->partition_id == 0)
-        {
-            printf("exec_time=%lf(s)\n", exec_time);
-        }
-        }
-
-
-    //ResetDevice();
+    ResetDevice();
 
 
 
