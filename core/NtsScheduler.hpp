@@ -633,6 +633,7 @@ struct Parameter : torch::nn::Module
     Network_simple<float> *network_simple;
     int row, col;
     NtsVar W_gradient;
+    NtsVar W_g;
     //gpiu_processor *gp;
     ValueType alpha;
     ValueType beta1;
@@ -707,6 +708,7 @@ struct Parameter : torch::nn::Module
     void Adam_to_GPU(){
         M_GPU=M.cuda();
         V_GPU=V.cuda();
+        W_g=W_gradient.cuda();
         
     }
     void set_decay(ValueType decay_rate_,ValueType decay_epoch_){
@@ -751,25 +753,28 @@ struct Parameter : torch::nn::Module
     void learnC2C_with_decay_Adam()
     {
 //        assert(alpha>0.0);
-        NtsVar W_g=W_gradient+weight_decay*W;	
+        W_g=W_gradient+weight_decay*W;	
         M=beta1*M+(1-beta1)*W_g;
         V=beta2*V+(1-beta2)*W_g*W_g;
-        NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
-        W.set_data(a);
+        //NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
+        W.set_data(W - alpha*M/(torch::sqrt(V)+epsilon));
     }
     void learnC2G_with_decay_Adam()
     {
 //        assert(alpha>0.0);
-        NtsVar W_g=W_gradient.cuda()+weight_decay*W;	
+//        W_g.set_data(W_gradient.cuda());
+//        NtsVar s=W;
+        W_g.set_data(W);
+        W_g=W_g*weight_decay;
+        W_g=W_g+W_gradient.cuda();//+weight_decay;
         M_GPU=beta1*M_GPU+(1-beta1)*W_g;
         V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
-        NtsVar a = W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon);
-        W.set_data(a);
+        W.set_data(W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon));
     }
     void next(){
         if(decay_epoch!=-1&&(curr_epoch!=0&&curr_epoch%decay_epoch==0)){
             alpha_t*=decay_rate;
-            printf("123123123123123123123131221313123123\n");
+           // printf("123123123123123123123131221313123123\n");
         }
         alpha=alpha_t*sqrt(1-beta2)/(1-beta1);
         beta1*=beta1_t;
