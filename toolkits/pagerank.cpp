@@ -210,7 +210,7 @@ int main(int argc, char **argv)
             printf("exec_time=%lf(s)\n", exec_time);
         }
     
-        delete Graph;
+        delete graph;
 
     ResetDevice();
 
