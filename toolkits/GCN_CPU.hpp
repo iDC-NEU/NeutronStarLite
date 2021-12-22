@@ -8,7 +8,13 @@ public:
     int iterations;
     ValueType learn_rate;
     ValueType weight_decay;
-    
+    ValueType drop_rate;
+    ValueType alpha;
+    ValueType beta1;
+    ValueType beta2;
+    ValueType epsilon;
+    ValueType decay_rate;
+    ValueType decay_epoch;
     //graph
     VertexSubset *active;
     Graph<Empty>* graph;
@@ -28,7 +34,7 @@ public:
     NtsVar F;
     NtsVar loss;
     NtsVar tt;
-    
+    torch::nn::Dropout drpmodel;
     double exec_time = 0;
     double all_sync_time = 0;
     double sync_time = 0;
@@ -46,8 +52,7 @@ public:
                     bool process_local = false, bool process_overlap = false){
         graph=graph_;
         iterations=iterations_;
-        learn_rate = 0.01;
-        weight_decay=0.05;
+    
         active = graph->alloc_vertex_subset();
         active->fill();
         
@@ -60,6 +65,7 @@ public:
         graph->rtminfo->process_overlap = graph->config->overlap;
         graph->rtminfo->with_weight=true;
         graph->rtminfo->with_cuda=true;
+        graph->rtminfo->lock_free=graph->config->lock_free;
        
     } 
     void init_graph(){
@@ -71,9 +77,21 @@ public:
         gt->GenerateGraphSegment(subgraphs,CPU_T,[&](VertexId src,VertexId dst){
             return gt->norm_degree(src,dst);
             });
+        gt->GenerateMessageBitmap(subgraphs);
         graph->init_communicatior();
     }
     void init_nn(){
+        
+        learn_rate = graph->config->learn_rate;
+        weight_decay=graph->config->weight_decay;
+        drop_rate=graph->config->drop_rate;
+        alpha=graph->config->learn_rate;
+        decay_rate=graph->config->decay_rate;
+        decay_epoch=graph->config->decay_epoch;
+        beta1=0.9;
+        beta2=0.999;
+        epsilon=1e-9;
+        
         GNNDatum *gnndatum = new GNNDatum(graph->gnnctx,graph);
         //gnndatum->random_generate();
         if(0==graph->config->feature_file.compare("random")){
@@ -88,12 +106,15 @@ public:
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
             P.push_back(new Parameter(graph->gnnctx->layer_size[i], 
-                        graph->gnnctx->layer_size[i+1]));
+                        graph->gnnctx->layer_size[i+1],alpha,beta1,beta2,epsilon,weight_decay));
+    //        bias.push_back(new Parameter(1,graph->gnnctx->layer_size[i+1]));
         }
         for(int i=0;i<P.size();i++){
             P[i]->init_parameter();
+            P[i]->set_decay(decay_rate,decay_epoch);
+    //        bias[i]->init_parameter();
         }
-        
+        drpmodel=torch::nn::Dropout(torch::nn::DropoutOptions().p(drop_rate).inplace(true));
 
             F=graph->Nts->NewLeafTensor(gnndatum->local_feature,
                 {graph->gnnctx->l_v_num,graph->gnnctx->layer_size[0]},
@@ -184,27 +205,43 @@ void Backward(){
     vertexBackward();
     NtsVar grad_to_Y=Y[i].grad();
     //gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
-    gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
+    if(i!=0)
+    //gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);    
+    gt->PropagateBackwardCPU_Lockfree(grad_to_Y, X_grad[i],subgraphs);
     }
   
 }
 void Update(){
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
-        P[i]->learnC2C_with_decay(learn_rate,weight_decay);
+        P[i]->learnC2C_with_decay_Adam();
+        P[i]->next();
+        //P[i]->learnC2C_with_decay(learn_rate,weight_decay);
+//        bias[i]->all_reduce_to_gradient(bias[i]->W.grad().cpu());
+//        bias[i]->learnC2C_with_decay(learn_rate,weight_decay);
     }
 }
 void Forward(){
-    graph->rtminfo->forward = true;    
+//    graph->rtminfo->forward = true;    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
     graph->rtminfo->curr_layer = i;
-    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);    
+    if(i!=0){
+        X[i]=drpmodel(X[i]);
+    }
+    gt->PropagateForwardCPU_Lockfree(X[i], Y[i],subgraphs);   
+    //gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);    
     X[i+1]=vertexForward(Y[i],X[i]);
     }
 }
 
-
-
+void Infer_Forward(){
+    graph->rtminfo->forward = true;
+    for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
+    graph->rtminfo->curr_layer = i;
+    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
+    X[i+1]=vertexForward(Y[i],X[i]);
+    }
+}
 
 void run()
 {
@@ -218,7 +255,7 @@ void run()
         if (i_i != 0){
             for(int i=0;i<P.size();i++){
             P[i]->zero_grad();
-            //Y[i].grad().zero_();
+            Y[i].grad().zero_();
             }
         }      
        Forward();

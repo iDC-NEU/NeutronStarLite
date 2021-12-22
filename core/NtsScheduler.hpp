@@ -25,7 +25,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include <sys/mman.h>
 #include <numa.h>
 #include <omp.h>
-
+#include <math.h>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -617,22 +617,88 @@ public:
 struct Parameter : torch::nn::Module
 {
     NtsVar W;
+    NtsVar M;
+    NtsVar V;
     ValueType *W_from;
     ValueType *w_gradient_buffer;
     Network_simple<float> *network_simple;
     int row, col;
     NtsVar W_gradient;
-    //gpu_processor *gp;
-    Parameter(size_t w, size_t h)
+    //gpiu_processor *gp;
+    ValueType alpha;
+    ValueType beta1;
+    ValueType beta2;
+    ValueType epsilon;
+    ValueType alpha_t;
+    ValueType beta1_t;
+    ValueType beta2_t;
+    ValueType epsilon_t;
+    ValueType l_r;
+    ValueType weight_decay;
+    int curr_epoch;
+    
+    int decay_rate;
+    int decay_epoch;
+    Parameter(size_t w, size_t h, ValueType alpha_,ValueType beta1_,ValueType beta2_, ValueType epsilon_,ValueType weight_decay_)
     {
         row = w;
         col = h;
-        W = register_parameter("W", torch::randn({w, h}, torch::kFloat));
+	ValueType scale=sqrt(6.0/(w+h));
+        W = register_parameter("W", (2*scale)*torch::rand({w, h}, torch::kFloat)-scale*torch::ones({w,h},torch::kFloat));
+//	ValueType scale=sqrt(6.0/(w+h));
+//	W=(2*scale)*W-scale;
         W_from = new ValueType[w * h];
         w_gradient_buffer = new ValueType[w * h];
         memset(w_gradient_buffer, 0, sizeof(float) * w * h);
         W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
         network_simple = new Network_simple<float>(row, col);
+	M=torch::zeros({w,h}, torch::kFloat);
+        V=torch::zeros({w,h}, torch::kFloat);
+	alpha=alpha_;
+        beta1=beta1_;
+        beta2=beta2_;
+        epsilon=epsilon_;
+	alpha_t=alpha_;
+        beta1_t=beta1_;
+        beta2_t=beta2_;
+        epsilon_t=epsilon_;
+        weight_decay=weight_decay_;
+        curr_epoch=0;
+        decay_epoch=-1;
+    }
+    Parameter(size_t w, size_t h,ValueType l_r_=0.01,ValueType weight_decay_=0.05)
+    {
+        alpha=0.0;
+        row = w;
+        col = h;
+	ValueType scale=sqrt(6.0/(w+h));
+        W = register_parameter("W", (2*scale)*torch::rand({w, h}, torch::kFloat)-scale*torch::ones({w,h},torch::kFloat));
+//	ValueType scale=sqrt(6.0/(w+h));
+//	W=(2*scale)*W-scale;
+        W_from = new ValueType[w * h];
+        w_gradient_buffer = new ValueType[w * h];
+        memset(w_gradient_buffer, 0, sizeof(float) * w * h);
+        W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
+        network_simple = new Network_simple<float>(row, col);
+        weight_decay=weight_decay;
+        l_r=l_r_;
+        curr_epoch=0;
+        decay_epoch=-1;
+//	M=torch::zeros({w,h}, torch::kFloat);
+//        V=torch::zeros({w,h}, torch::kFloat);
+//	alpha=0.01;
+//        beta1=0.9;
+//        beta2=0.999;
+//        epsilon=1e-8;
+//	alpha_t=0.01;
+//        beta1_t=0.9;
+//        beta2_t=0.999;
+//        epsilon_t=1e-8;
+    }
+    
+    void set_decay(ValueType decay_rate_,ValueType decay_epoch_){
+        decay_rate=decay_rate_;
+        decay_epoch=decay_epoch_;
     }
     void init_parameter()
     {
@@ -663,13 +729,31 @@ struct Parameter : torch::nn::Module
         NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
         W.set_data(a);
     }
-     void learnC2C_with_decay(ValueType learning_rate,ValueType weight_decay)
+     void learnC2C_with_decay_SGD(ValueType learning_rate,ValueType weight_decay)
     {
         NtsVar tmp = W_gradient;
         NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
         W.set_data(a);
     }
-
+    void learnC2C_with_decay_Adam()
+    {
+//        assert(alpha>0.0);
+        NtsVar W_g=W_gradient+weight_decay*W;	
+        M=beta1*M+(1-beta1)*W_g;
+        V=beta2*V+(1-beta2)*W_g*W_g;
+        NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
+        W.set_data(a);
+    }
+    void next(){
+        if(decay_epoch!=-1&&(curr_epoch!=0&&curr_epoch%decay_epoch==0)){
+            alpha_t*=decay_rate;
+            printf("123123123123123123123131221313123123\n");
+        }
+        alpha=alpha_t*sqrt(1-beta2)/(1-beta1);
+        beta1*=beta1_t;
+        beta2*=beta2_t;
+        curr_epoch++;
+    }
 
     void learn(NtsVar from, ValueType learning_rate)
     {

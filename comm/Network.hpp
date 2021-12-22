@@ -321,6 +321,16 @@ public:
             flush_local_send_buffer_buffer(t_i, f_size);
         }
     }
+    void emit_buffer_lock_free(VertexId vtx, ValueType *buffer, VertexId write_index, int f_size){
+        int t_i = omp_get_thread_num();
+        char *s_buffer = NULL;
+        s_buffer = (char *)local_send_buffer[t_i]->data;
+        
+        int s_i=get_socket_id(t_i);
+        int pos = __sync_fetch_and_add(&send_buffer[current_send_part_id][s_i]->count, 1);
+        memcpy(send_buffer[current_send_part_id][s_i]->data + (size_of_msg(f_size)) * write_index,&vtx,sizeof(VertexId));
+        memcpy(send_buffer[current_send_part_id][s_i]->data + (size_of_msg(f_size)) * write_index+ sizeof(VertexId),buffer,sizeof(float)*f_size);
+    }
     
     void send_mirror_to_master(){
         for (int step = 0; step < partitions; step++)
@@ -347,8 +357,6 @@ public:
         }
         
     }
-    
-
 
     void send_master_to_mirror_no_wait(){
         for (int step = 0; step < partitions; step++)
@@ -417,8 +425,7 @@ public:
           recv_queue_size += 1;
           recv_queue_mutex.unlock();
         } 
-    }
-    
+    }  
     void recv_master_to_mirror(){
          for (int step = 1; step < partitions; step++)
         {
@@ -437,8 +444,7 @@ public:
           recv_queue_size += 1;
           recv_queue_mutex.unlock();
         }
-    }
-    
+    }   
     void recv_mirror_to_master(){
         for (int step = 1; step < partitions; step++)
         {
@@ -468,9 +474,7 @@ public:
         recv_queue_mutex.lock();
         recv_queue_size += 1;
         recv_queue_mutex.unlock();
-    }
-
-    
+    }  
     void run_all_master_to_mirror(){
         Send=new std::thread([&](){
             send_master_to_mirror();
@@ -496,8 +500,42 @@ public:
         });
     }
     
-private:
     
+    void send_master_to_mirror_lock_free_no_wait(){
+        for (int step = 0; step < partitions; step++)
+        {
+          if (step == partitions - 1)
+          {
+            break;
+          }
+          while (true)
+          {
+            send_queue_mutex.lock();
+            bool condition = (send_queue_size <=step);
+            send_queue_mutex.unlock();
+            if (!condition)
+              break;
+            __asm volatile("pause" ::
+                               : "memory");
+          }
+          int i = send_queue[step];
+          for (int s_i = 0; s_i < sockets; s_i++)
+          { //printf("send_success part_id %d\n",partition_id);
+            MPI_Send(send_buffer[i][s_i]->data, size_of_msg(feature_size) * send_buffer[i][s_i]->count, MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+          }
+        }
+        
+    }    
+    void run_all_master_to_mirror_lock_free_no_wait(){
+        Send=new std::thread([&](){
+            send_master_to_mirror_lock_free_no_wait();
+        });
+        Recv=new std::thread([&](){
+            recv_master_to_mirror_no_wait();
+        });
+    }
+    
+private:
     
   void flush_local_send_buffer_buffer(int t_i,int f_size){
         int s_i=get_socket_id(t_i);

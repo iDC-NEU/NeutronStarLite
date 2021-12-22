@@ -20,7 +20,7 @@ public:
     std::map<std::string,NtsVar>I_data;
     GTensor<ValueType, long> *gt;
     //Variables
-    std::vector<GnnUnit*>P;
+    std::vector<Parameter*>P;
     std::vector<NtsVar>X;
     std::vector<NtsVar>Y;
     std::vector<NtsVar>X_grad;
@@ -61,23 +61,25 @@ public:
     } 
     void init_graph(){
         //std::vector<CSC_segment_pinned *> csc_segment;
-        graph->generate_COO(active);
+        graph->generate_COO();
         graph->reorder_COO_W2W();
         gt = new GTensor<ValueType, long>(graph, active);
-        gt->GenerateGraphSegment(subgraphs, GPU_T);
+        gt->GenerateGraphSegment(subgraphs, GPU_T,[&](VertexId src,VertexId dst){
+            return 0;
+            });
         gt->GenerateMessageBitmap(subgraphs);
         graph->init_message_buffer();
         graph->init_communicatior();
     }
     void init_nn(){
-        GNNDatum *gnndatum = new GNNDatum(graph->gnnctx);
+        GNNDatum *gnndatum = new GNNDatum(graph->gnnctx,graph);
         gnndatum->random_generate();
         gnndatum->registLabel(L_GT_C);
         L_GT_G = L_GT_C.cuda();
         
         for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-            P.push_back(new GnnUnit(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i+1]));
-            P.push_back(new GnnUnit(2*graph->gnnctx->layer_size[i+1],1));
+            P.push_back(new Parameter(graph->gnnctx->layer_size[i], graph->gnnctx->layer_size[i+1]));
+            P.push_back(new Parameter(2*graph->gnnctx->layer_size[i+1],1));
         }
         
         torch::Device GPU(torch::kCUDA, 0);

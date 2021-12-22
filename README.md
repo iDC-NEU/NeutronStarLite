@@ -1,40 +1,93 @@
-NeutronStarLite contains part of the codes of NeutronStar, a distributed GNN training system.
-This repo is a simple version that contains only part of the C++ codes and a simple GCN example.
 
-## Software dependency
-NeutronStar uses **MPI** for inter-process communication.
+
+## Requirement
+
+
+
+ **MPI** for inter-process communication 
+
+ **libnuma** for NUMA-aware memory allocation.
+"sudo apt install libnuma-dev"
 
 A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions, multi-threading, etc.) is required.
 
-Nvidia cub is required
- 
-**LibTorch 1.5** with GPU support is required.
-The GAT algorithm requires LibTorch 1.9
+**libtorch** version > 1.7 with gpu support for nn computation
+
+**cuda** > 9.0 for GPU based graph operation.
+
+
 
 
 To build:
 ```
-1.  Install all package the NeutronStar Required.
 
-2. Download the *libtorch*  with cuda support. 
+configure PATH and LD_LIBRARY_PATH for **cuda** and **mpi**
 
-3. modify the *include_dictionary*  in CMakefiles.txt according to your configuration.
+unzip the **libtorch** package in the root dir of **NeutronStar** and change CMAKE_PREFIX_PATH to your own version  
 
-4.change the *CMAKE_PREFIX_PATH* to the root dir to your *libtorch*
 
-5.  cmake .
+"cmake ."
 
-6.make
+"make -j4"
 ```
 
+
 To run:
+List all nodes in ./NeutronStar/hostfile
 
-...
+copy NeutronStar to all your nodes
 
-LEGACY
-./test.sh
 
-NEW:
+run any program with the following command:
 
-./run_nts.sh
-``` 
+
+single-machine multi-slots:(strongly recommand use one slot, except for debugging)
+
+./run_nts.sh #nodes_number #configure_file
+
+distributed:
+./run_nts_dist.sh #nodes_number #configure_file
+
+We list serveral example in the root dir for your reference
+
+
+GCN:
+gcn_cora.cfg
+gcn_pubmed.cfg
+gcn_citeseer.cfg
+gcn_reddit.cfg
+gcn_reddit_full.cfg
+
+Example:
+./run_nts.sh 1 gcn_cora.cfg
+
+
+
+Install CUDA MPI and NVCC:
+
+
+Install Libnuma-dev:
+
+$sudo apt install libnuma-dev
+
+Configure the Env Variable:
+
+$vim ~/.bashrc
+and write the following lines to the tail
+
+export CUDA_HOME=/usr/local/cuda-10.2
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+export PATH=$CUDA_HOME/bin:$PATH
+
+$source ~/.bashrc
+
+
+Install NeutronStar:
+
+$cd NeutronStar
+$cmake .
+$make -j4
+
+
+
+

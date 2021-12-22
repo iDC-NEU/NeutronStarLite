@@ -87,7 +87,7 @@ typedef struct graph_Tensor_Segment_pinned
   int dst_range[2];
   Bitmap* source_active;
   Bitmap* destination_active;
-  Bitmap* destination_mirror_active;
+  Bitmap* forward_active;
   std::vector<Bitmap*> VertexToComm;
   
   DeviceLocation dt;
@@ -114,11 +114,12 @@ typedef struct graph_Tensor_Segment_pinned
       
     source_active=new Bitmap(batch_size_backward);
     destination_active=new Bitmap(batch_size_forward);
-    destination_mirror_active=new Bitmap(batch_size_forward);
+    forward_active=new Bitmap(batch_size_forward);
             
     source_active->clear();
     destination_active->clear();
-    destination_mirror_active->clear();
+    forward_active->clear();
+    
     if(dt==GPU_T){  
         column_offset = (VertexId *)cudaMallocPinned((batch_size_forward+1) * sizeof(VertexId));           
         row_offset = (VertexId *)cudaMallocPinned((batch_size_backward+1) * sizeof(VertexId));///  
@@ -179,14 +180,21 @@ typedef struct graph_Tensor_Segment_pinned
         assert(NOT_SUPPORT_DEVICE_TYPE);
     }
   }
+    
    bool src_get_active(VertexId v_i){
        return this->source_active->get_bit(v_i-src_range[0]);
    }
    bool dst_get_active(VertexId v_i){
        return this->destination_active->get_bit(v_i-dst_range[0]);
    } 
-   bool to_this_part_get_active(VertexId v_i){
-       return this->destination_mirror_active->get_bit(v_i-dst_range[0]);
+   bool get_forward_active(VertexId v_i){
+       return this->forward_active->get_bit(v_i);
+   }
+   void set_forward_active(VertexId v_i){
+       this->forward_active->set_bit(v_i);
+   }
+   bool get_backward_active(VertexId v_i){
+       return this->source_active->get_bit(v_i-src_range[0]);
    }
    void src_set_active(VertexId v_i){
        this->source_active->set_bit(v_i-src_range[0]);
@@ -194,22 +202,6 @@ typedef struct graph_Tensor_Segment_pinned
    void dst_set_active(VertexId v_i){
        this->destination_active->set_bit(v_i-dst_range[0]);
    } 
-   void to_this_part_set_active(VertexId v_i){
-       this->destination_mirror_active->set_bit(v_i-dst_range[0]);
-   }
-   VertexId CO(VertexId v){
-       return this->column_offset[v-dst_range[0]];
-   }
-   VertexId RI(VertexId idx){
-       return row_indices[idx];
-   }
-   VertexId RO(VertexId v){
-       return this->row_offset[v-src_range[0]];
-   }
-   VertexId CI(VertexId idx){
-       return column_indices[idx];
-   }
-
 } CSC_segment_pinned;
 
 typedef struct rep_graph
@@ -238,11 +230,14 @@ typedef struct rep_graph
 typedef struct InputInfo
 {
   size_t vertices;
+  
+  //engine related
   bool overlap;
   bool process_local;
   bool with_weight;
   size_t epochs;
   size_t repthreshold;
+  bool lock_free;
   std::string algorithm;
   std::string layer_string;
   std::string feature_file;
@@ -250,6 +245,17 @@ typedef struct InputInfo
   std::string label_file;
   std::string mask_file;
   bool with_cuda;
+  
+  //algorithm related:
+  ValueType learn_rate;
+  ValueType weight_decay;
+  ValueType decay_rate;
+  ValueType decay_epoch;
+  ValueType drop_rate;
+  
+  
+  
+  
   void readFromCfgFile(std::string config_file){
       std::string cfg_oneline;
       std::ifstream inFile;
@@ -291,7 +297,22 @@ typedef struct InputInfo
          }else if(0==cfg_k.compare("PROC_REP")){
             this->repthreshold=std::atoi(cfg_v.c_str());
  
-         }else {
+         }else if(0==cfg_k.compare("LOCK_FREE")){
+            this->lock_free=false;
+            if(1==std::atoi(cfg_v.c_str()))
+                this->lock_free=true;
+         }else if(0==cfg_k.compare("LEARN_RATE")){
+            this->learn_rate=std::atof(cfg_v.c_str());
+         }else if(0==cfg_k.compare("WEIGHT_DECAY")){
+            this->weight_decay=std::atof(cfg_v.c_str());
+         }else if(0==cfg_k.compare("DECAY_RATE")){
+            this->decay_rate=std::atof(cfg_v.c_str());
+         }else if(0==cfg_k.compare("DECAY_EPOCH")){
+            this->decay_epoch=std::atof(cfg_v.c_str());
+         }else if(0==cfg_k.compare("DROP_RATE")){
+            this->drop_rate=std::atof(cfg_v.c_str());
+         }
+         else {
             printf("not supported configure\n");
          }             
       }
@@ -311,6 +332,12 @@ typedef struct InputInfo
         std::cout<<"proc_local\t:\t"<<process_local<<std::endl;
         std::cout<<"proc_cuda\t:\t"<<with_cuda<<std::endl;
         std::cout<<"proc_rep\t:\t"<<repthreshold<<std::endl;
+        std::cout<<"lock_free\t:\t"<<lock_free<<std::endl;
+        std::cout<<"learn_rate\t:\t"<<learn_rate<<std::endl;
+        std::cout<<"weight_decay\t:\t"<<weight_decay<<std::endl;
+        std::cout<<"decay_rate\t:\t"<<decay_rate<<std::endl;
+        std::cout<<"decay_epoch\t:\t"<<decay_epoch<<std::endl;
+        std::cout<<"drop_rate\t:\t"<<drop_rate<<std::endl;
       
   }
 } inputinfo;
@@ -328,6 +355,7 @@ typedef struct runtimeInfo
   size_t embedding_size;
   bool copy_data;
   bool forward;
+  bool lock_free;
 
 } runtimeinfo;
 typedef struct GNNContext
