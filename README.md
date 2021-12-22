@@ -48,7 +48,7 @@ ip1
 ip2
 ip3
 ```
-copy NeutronStar to all your machines and run the following command in your root DIR.
+copy NeutronStar to all your machines(copy_all.sh and make_and_copy.sh) and run the following command in your root DIR.
 
 single-machine multi-slots:(strongly recommand use one slot, except for debugging)
 ```
