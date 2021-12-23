@@ -11,6 +11,8 @@ A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions
 
 **libnuma** for NUMA-aware memory allocation.
 
+**cub** for GPU-based graph propagation
+
 ```
 sudo apt install libnuma-dev"
 ```
@@ -18,6 +20,8 @@ sudo apt install libnuma-dev"
 **libtorch** version > 1.7 with gpu support for nn computation
 
 unzip the **libtorch** package in the root dir of **NeutronStar** and change CMAKE_PREFIX_PATH in "CMakeList.txt"to your own path
+
+download **cub** to the ./rNeytronStar/cuda/ dictionary.
 
 
 configure PATH and LD_LIBRARY_PATH for **cuda** and **mpi**
