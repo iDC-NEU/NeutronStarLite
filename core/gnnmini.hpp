@@ -307,8 +307,8 @@ public:
        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
-       int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        
+       //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+       int feature_size=X.size(1);
        //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
        graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
            [&](VertexId src) {
@@ -338,7 +338,8 @@ public:
         float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
         float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
         memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
-        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        int feature_size=X_grad.size(1);
         float* output_buffer=new float[feature_size*graph_->threads];
         //graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
         graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
@@ -371,7 +372,8 @@ public:
        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
-       int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+       //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+       int feature_size=X.size(1);
        graph_->process_edges_forward_decoupled_lock_free<int,float>( // For EACH Vertex Processing
            [&](VertexId src,int current_send_partition) {
                if(graph_->rtminfo->lock_free){
@@ -404,7 +406,8 @@ public:
         float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
         float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
         memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
-        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        int feature_size=X_grad.size(1);
         float* output_buffer=new float[feature_size*graph_->threads];
         graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
             [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
