@@ -21,140 +21,6 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include "GCN_CPU.hpp"
 #include "GAT.hpp"
 
-void statistic(Graph<Empty> *graph, int workers)
-{
-    
-    int worker_num = workers;
-    int *offset = new int[worker_num + 1];
-    long *first_layer = new long[worker_num + 1];
-    int *first_layer_unique = new int[worker_num + 1];
-    long *second_layer = new long[worker_num + 1];
-    int *second_layer_unique = new int[worker_num + 1];
-    char *bitmap_second = new char[graph->vertices + 1];
-    char *bitmap_first = new char[graph->vertices + 1];
-    char *bitmap_third = new char[graph->vertices + 1];
-    char *bitmap_zero = new char[graph->vertices + 1];
-
-    long first_layer_vertices = 0, first_layer_vertice_dump = 0;
-    long long first_layer_edges = 0, first_layer_edges_dump = 0;
-    long second_layer_vertices = 0, second_layer_vertice_dump = 0;
-    long long second_layer_edges = 0, second_layer_edges_dump = 0;
-
-    memset(offset, 0, sizeof(int) * (worker_num + 1));
-    memset(first_layer, 0, sizeof(long) * (worker_num + 1));
-    memset(first_layer_unique, 0, sizeof(int) * (worker_num + 1));
-    memset(second_layer, 0, sizeof(long) * (worker_num + 1));
-    memset(second_layer_unique, 0, sizeof(int) * (worker_num + 1));
-    int worker_vertices = graph->vertices / worker_num;
-    for (int i = 0; i < worker_num; i++)
-    {
-        offset[i + 1] = offset[i] + worker_vertices;
-    }
-
-    double cnt = 0;
-    int id = 0;
-    for (int i = 0; i < graph->vertices; i++)
-    {
-        cnt = graph->in_degree[i] + cnt;
-        if (cnt > (graph->edges / worker_num) * (id + 1))
-        {
-            offset[id + 1] = i;
-            id++;
-        }
-    }
-
-    std::cout << std::endl
-              << "++++++++++status++++++++++" << std::endl;
-    std::cout << std::endl
-              << "worker_num: " << worker_num << "++++" << std::endl;
-    std::cout << "graph->vertices: " << graph->vertices << std::endl;
-    std::cout << "graph->edges   : " << graph->edges << std::endl;
-    std::cout << "partition: ";
-    offset[worker_num] = graph->vertices;
-    for (int i = 0; i < worker_num; i++)
-    {
-        std::cout << offset[i + 1] - offset[i] << " ";
-    }
-    std::cout << std::endl;
-
-    memset(bitmap_zero, 0, graph->vertices);
-    memset(bitmap_first, 0, graph->vertices);
-    memset(bitmap_second, 0, graph->vertices);
-    memset(bitmap_third, 0, graph->vertices);
-    int cache_0_edge_count = 0;
-    int cache_00_vertice_count = 0;
-    int cache_vertices = 0;
-
-    int cache_1_edge_count = 0;
-    int cache_0_vertice_count = 0;
-    int cache_1_vertice_count = 0;
-    int cache_2_edge_count = 0;
-    int cache_2_vertice_count = 0;
-    int anchor = 5;
-    for (int j = 0; j < graph->vertices; j++)
-    {
-        if (j % 10000 == 0)
-        {
-            std::cout << "processed " << j << std::endl;
-        }
-        if (graph->in_degree[j] <= anchor)
-        {
-            int signature = true;
-            cache_0_edge_count += graph->in_degree[j];
-            cache_vertices += 1;
-            for (int k = graph->incoming_adj_index[0][j]; k < graph->incoming_adj_index[0][j + 1]; k++)
-            {
-                int neighbour = graph->incoming_adj_list[0][k].neighbour;
-                bitmap_zero[neighbour] = 1;
-                if (graph->in_degree[neighbour] > anchor)
-                {
-                    signature = false;
-                }
-            }
-            if (signature == true)
-            {
-                bitmap_first[j] = 1;
-                cache_1_edge_count += graph->in_degree[j];
-                for (int k = graph->incoming_adj_index[0][j]; k < graph->incoming_adj_index[0][j + 1]; k++)
-                {
-                    int neighbour = graph->incoming_adj_list[0][k].neighbour;
-                    cache_2_edge_count += graph->in_degree[neighbour];
-                    bitmap_second[neighbour] = 1;
-                    for (int l = graph->incoming_adj_index[0][neighbour]; l < graph->incoming_adj_index[0][neighbour + 1]; l++)
-                    {
-                        int nbr_second = graph->incoming_adj_list[0][l].neighbour;
-                        bitmap_third[nbr_second] = 1;
-                    }
-                }
-            }
-        }
-    }
-    for (int i = 0; i < graph->vertices; i++)
-    {
-        if (bitmap_first[i])
-            cache_0_vertice_count++;
-        if (bitmap_second[i])
-            cache_1_vertice_count++;
-        if (bitmap_third[i])
-            cache_2_vertice_count++;
-        if (bitmap_zero[i])
-            cache_00_vertice_count++;
-    }
-    std::cout << "SECOND_LAYER#####################" << std::endl;
-    std::cout << "vertices" << graph->vertices << std::endl;
-    std::cout << "edges" << graph->edges << std::endl;
-    std::cout << "cache_1_edge_count " << cache_1_edge_count << std::endl;
-    std::cout << "cache_2_edge_count " << cache_2_edge_count << std::endl;
-    std::cout << "cache_0_vertice_count " << cache_0_vertice_count << std::endl;
-    std::cout << "cache_1_vertice_count " << cache_1_vertice_count << std::endl;
-    std::cout << "cache_2_vertice_count " << cache_2_vertice_count << std::endl;
-    std::cout << "FIRST_LAYER#####################" << std::endl;
-    std::cout << "cache_vertice " << cache_vertices << std::endl;
-    std::cout << "cache_00_vertice_count " << cache_00_vertice_count << std::endl;
-    std::cout << "cache_0_edge_count " << cache_0_edge_count << std::endl;
-    std::cout << "SECOND_LAYER#####################" << std::endl;
-}
-
 int main(int argc, char **argv)
 {
     MPI_Instance mpi(&argc, &argv);
@@ -212,7 +78,7 @@ int main(int argc, char **argv)
     
         delete graph;
 
-    ResetDevice();
+//    ResetDevice();
 
 
 
