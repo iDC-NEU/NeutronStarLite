@@ -495,47 +495,52 @@ public:
     } 
     void Process_GPU_overlap_explict(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-        int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        int feature_size=X.size(1);
         bool selective = graph_->rtminfo->reduce_comm;
         int layer = graph_->rtminfo->curr_layer;
-        if (!selective)
+        //if (!selective)
         {       graph_->compute_sync_decoupled<int, float>(
                 X,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    graph_->NtsComm->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+                    graph_->NtsComm->emit_buffer(src, graph_->output_cpu_buffer + (src)*feature_size, feature_size);
                 },
-                Y);
-        }else{
-             graph_->compute_sync_explict<int, float>(
-                X,
-                graph_partitions,
-                [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
-                    graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
-                },
-                Y.packed_accessor<float, 2>().data());
+                Y,
+                feature_size);
         }
+        //else{
+        //     graph_->compute_sync_explict<int, float>(
+        //        X,
+        //        graph_partitions,
+        //        [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
+        //            graph_->emit_buffer(src, graph_->output_cpu_buffer + (src)*current_layer_size, current_layer_size);
+        //        },
+        //        Y.packed_accessor<float, 2>().data());
+        //}
     }
     
     void Process_GPU_overlap_sync_compute_explict(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-        int current_layer_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        //int current_layer_size = ;//graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        int feature_size=X.size(1);
         bool selective = graph_->rtminfo->reduce_comm;
         int layer = graph_->rtminfo->curr_layer;
         NtsVar X_cpu=X.cpu();
         float *X_buffered=X_cpu.accessor<float,2>().data();
-        if (!selective)
+        
+        //if (!selective)
         { // original communication
             graph_->sync_compute_decoupled<int, float>(
                 X,
                 graph_partitions,
                 [&](VertexId src) { 
-                    graph_->NtsComm->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*current_layer_size, current_layer_size);
+                    graph_->NtsComm->emit_buffer(src, X_buffered+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                 },
-                Y);
+                Y,
+                feature_size);
         }
-        else
-        { 
+       // else
+       // { 
 //            graph_->sync_compute<int, float>(
 //                X,
 //                graph_partitions,
@@ -546,7 +551,7 @@ public:
 //                    }
 //                },
 //                Y.packed_accessor<float, 2>().data());
-        }
+        //}
     }
     
      void GraphPropagateForwardEdgeComputation(NtsVar &src_input_origin,

@@ -18,6 +18,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 //#include "gpuengine.hpp"
 //#include "gpuclusterengine.hpp"
 #include "GCN.hpp"
+#include "GCN_EAGER.hpp"
 #include "GCN_CPU.hpp"
 #include "GAT.hpp"
 #include "GCN_CPU_EAGER.hpp"
@@ -65,6 +66,16 @@ int main(int argc, char **argv)
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
         graph->generate_backward_structure();
         GCN_impl *ntsGCN=new GCN_impl(graph,iterations);
+        ntsGCN->init_graph();
+        ntsGCN->init_nn();
+        ntsGCN->run();
+        //GCN(graph, iterations);
+    }
+    else if (graph->config->algorithm == std::string("GCNEAGER"))
+    {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
+        GCN_EAGER_impl *ntsGCN=new GCN_EAGER_impl(graph,iterations);
         ntsGCN->init_graph();
         ntsGCN->init_nn();
         ntsGCN->run();

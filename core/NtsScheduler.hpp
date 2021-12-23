@@ -215,6 +215,7 @@ public:
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
         ValueType *forward_weight_from_pinned=subgraph->edge_weight_forward_gpu;
+        //printf("output size %d\n",output_size);
         
     VertexId src_start = subgraph->src_range[0];
     VertexId src_end = subgraph->src_range[1];

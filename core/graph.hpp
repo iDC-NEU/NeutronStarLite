@@ -2744,10 +2744,10 @@ public:
   R compute_sync_decoupled(NtsVar &input_gpu_or_cpu,
                          std::vector<CSC_segment_pinned *> &graph_partitions,
                          std::function<void(VertexId, VertexAdjList<EdgeData>)> dense_signal,
-                         NtsVar& Y)//backward
+                         NtsVar& Y,int feature_size)//backward
   {
    
-    int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
+    //int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
     bool process_local = rtminfo->process_local;
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
@@ -3108,9 +3108,9 @@ public:
   R sync_compute_decoupled(NtsVar &input_gpu_or_cpu,
                  std::vector<CSC_segment_pinned *> &graph_partitions,
                  std::function<void(VertexId)> sparse_signal,
-                 NtsVar& Y)
+                 NtsVar& Y,int feature_size)
   {
-    int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
+    //int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
     bool process_local = rtminfo->process_local;
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
@@ -3121,7 +3121,7 @@ public:
 //    }
     double stream_time = 0;
     stream_time -= MPI_Wtime();
-    
+
     NtsComm->init_layer_all(feature_size,Master2Mirror,GPU_T);
     NtsComm->run_all_master_to_mirror_no_wait();
     
