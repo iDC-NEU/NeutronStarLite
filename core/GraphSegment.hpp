@@ -180,6 +180,36 @@ typedef struct graph_Tensor_Segment_pinned
         assert(NOT_SUPPORT_DEVICE_TYPE);
     }
   }
+    void CopyGraphToDevice(){
+    
+    if(dt==GPU_T){ 
+        column_offset_gpu =(VertexId*)cudaMallocGPU((batch_size_forward + 1) * sizeof(VertexId));
+        row_indices_gpu = (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
+        edge_weight_forward_gpu = (float *)cudaMallocGPU((edge_size + 1) * sizeof(float));
+        
+        move_bytes_in(column_offset_gpu,column_offset,(batch_size_forward + 1) * sizeof(VertexId));
+        move_bytes_in(row_indices_gpu,row_indices,(edge_size + 1) * sizeof(VertexId));
+        move_bytes_in(edge_weight_forward_gpu,edge_weight_forward,(edge_size + 1) * sizeof(float));
+        
+        row_offset_gpu = (VertexId*)cudaMallocGPU((batch_size_backward + 1) * sizeof(VertexId));
+        column_indices_gpu = (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
+        edge_weight_backward_gpu = (float *)cudaMallocGPU((edge_size + 1) * sizeof(float));
+        
+        move_bytes_in(row_offset_gpu,row_offset,(batch_size_backward + 1) * sizeof(VertexId));
+        move_bytes_in(column_indices_gpu,column_indices,(edge_size + 1) * sizeof(VertexId));
+        move_bytes_in(edge_weight_backward_gpu,edge_weight_backward,(edge_size + 1) * sizeof(float));
+        
+       
+        source_gpu = (long *)getDevicePointer(source);///
+        destination_gpu = (long *)getDevicePointer(destination);///
+        source_backward_gpu=(long*)getDevicePointer(source_backward);
+    }else
+    if(dt==CPU_T){
+       ;     
+    }else{
+        assert(NOT_SUPPORT_DEVICE_TYPE);
+    }
+  } 
     
    bool src_get_active(VertexId v_i){
        return this->source_active->get_bit(v_i-src_range[0]);

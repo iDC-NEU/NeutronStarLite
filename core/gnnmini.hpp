@@ -642,7 +642,7 @@ public:
                                       graph_->graph_shard_in[i]->numofedges,dt);
             graph_partitions[i]->allocVertexAssociateData();
             graph_partitions[i]->allocEdgeAssociateData();
-            graph_partitions[i]->getDevicePointerAll();
+            //graph_partitions[i]->getDevicePointerAll();
             memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
             memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
             for (int j = 0; j < graph_partitions[i]->edge_size; j++)
@@ -690,6 +690,7 @@ public:
                 graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m;///
                 graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] = weight_compute(v_src_m,v_dst_m);
             }
+	    graph_partitions[i]->CopyGraphToDevice();
 //                int s=0;
 //                for(int l=graph_partitions[i]->src_range[0];l<graph_partitions[i]->src_range[1];l++){
 //                    if(graph_partitions[i]->src_get_active(l)){

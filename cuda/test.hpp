@@ -237,6 +237,8 @@ void move_data_in(float *d_pointer, float *h_pointer, int start, int end, int fe
 
 void move_edge_in(VertexId_CUDA *d_pointer, VertexId_CUDA *h_pointer, VertexId_CUDA start, VertexId_CUDA end, int feature_size, bool sync = true);
 
+void move_bytes_in(void * d_pointer,void* h_pointer, long bytes, bool sync=true);
+
 void allocate_gpu_buffer(float **input, int size);
 void allocate_gpu_edge(VertexId_CUDA **input, int size);
 

@@ -316,6 +316,12 @@ void move_edge_in(VertexId_CUDA * d_pointer,VertexId_CUDA* h_pointer, VertexId_C
     if(sync)
     cudaDeviceSynchronize();
 }
+void move_bytes_in(void * d_pointer,void* h_pointer, long bytes, bool sync){
+    cudaMemcpy(d_pointer,h_pointer,bytes, cudaMemcpyHostToDevice);
+    if(sync)
+    cudaDeviceSynchronize();
+}
+
 
 void aggregate_comm_result(float* aggregate_buffer,float *input_buffer,int data_size,int feature_size,int partition_offset,bool sync){
     	const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
