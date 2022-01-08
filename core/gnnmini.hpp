@@ -596,7 +596,7 @@ public:
             int max_batch_size = 0;
             for (int i = 0; i < graph_partitions.size(); i++)
             {
-                max_batch_size = std::max(max_batch_size, graph_partitions[i]->batch_size_forward);
+                max_batch_size = std::max(max_batch_size, graph_partitions[i]->batch_size_backward);
             }
             graph_->output_gpu_buffered =graph_->Nts->NewLeafTensor({max_batch_size, graph_->gnnctx->max_layer},torch::DeviceType::CUDA);
         }
