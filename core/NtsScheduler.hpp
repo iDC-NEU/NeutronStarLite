@@ -127,6 +127,10 @@ public:
         return torch::sparse_coo_tensor(torch::cat({srcT,dstT},1).t(),message,
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
     }
+    inline torch::Tensor PrepareMessage(torch::Tensor index, torch::Tensor &message){
+        return torch::sparse_coo_tensor(index,message,
+                at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
+    }
     
     inline void AggregateForward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight,torch::Tensor &message){
          with_weight=true;
@@ -221,7 +225,7 @@ public:
     VertexId src_end = subgraph->src_range[1];
     VertexId dst_start = subgraph->dst_range[0];
     VertexId dst_end = subgraph->dst_range[1];
-    //if(feature_size>512){
+//    if(feature_size>512){
         cuda_stream->Gather_By_Dst_From_Src(input_buffer,
                                output_buffer,
                                //weight_buffer, //data
@@ -613,13 +617,43 @@ public:
     CSC_segment_pinned*  subgraph;
     std::map<std::string,torch::Tensor>KeyVar;//key roles in the compute graph
     std::map<std::string,torch::Tensor>InterVar;//key roles in the compute graph
-    //src_input_trans dst_input_trans, message,
     std::map<std::string,torch::Tensor>CacheVar;//used for caching data;
     runtimeinfo *rtminfo;
     AGGTYPE aggtype;
     //src_input.cpu() dst_input.cpu()
 };
+struct CachedData{
+public:
+    CachedData(){
+        ;
+    }
+    CachedData(int partitions,int layers, bool scale=false){
+        data_scale=scale;
+        NtsVar s;
+        for(int i=0;i<layers;i++){
+            std::vector<NtsVar> tmp;
+            for( int j=0;j<partitions;j++){
+                tmp.push_back(s);
+            }
+            if(0==scale){
+                mirror_input.push_back(tmp);
+                message.push_back(tmp);
+            }else{
+                mirror_input_cpu.push_back(tmp);
+                message_cpu.push_back(tmp);
+            }
+        }
+    }
+ //handling small dataset
+ std::vector<std::vector<NtsVar> >mirror_input;
+ std::vector<std::vector<NtsVar> >message;
+ 
+ //large dataset
+ std::vector<std::vector<NtsVar> >mirror_input_cpu;
+ std::vector<std::vector<NtsVar> >message_cpu;
+ bool data_scale;
 
+};
 
 
 struct Parameter : torch::nn::Module

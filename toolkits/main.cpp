@@ -20,7 +20,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include "GCN.hpp"
 #include "GCN_EAGER.hpp"
 #include "GCN_CPU.hpp"
-#include "GAT.hpp"
+#include "GAT_GPU.hpp"
 #include "GCN_CPU_EAGER.hpp"
 
 int main(int argc, char **argv)
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     {
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
         graph->generate_backward_structure();
-        GAT_impl *ntsGAT=new GAT_impl(graph,iterations);
+        GAT_GPU_impl *ntsGAT=new GAT_GPU_impl(graph,iterations);
         ntsGAT->init_graph();
         ntsGAT->init_nn();
         ntsGAT->run();
