@@ -203,6 +203,13 @@ typedef struct graph_Tensor_Segment_pinned
         source_gpu = (long *)getDevicePointer(source);///
         destination_gpu = (long *)getDevicePointer(destination);///
         source_backward_gpu=(long*)getDevicePointer(source_backward);
+        
+//        destination_gpu = (long *)cudaMallocGPU((edge_size + 1) * sizeof(long));
+//        source_backward_gpu = (long *)cudaMallocGPU((edge_size + 1) * sizeof(long));
+//        move_bytes_in(destination_gpu,destination,(edge_size + 1) * sizeof(long));
+//        move_bytes_in(source_backward_gpu,source_backward,(edge_size + 1) * sizeof(long));
+        
+
     }else
     if(dt==CPU_T){
        ;     
@@ -268,6 +275,7 @@ typedef struct InputInfo
   size_t epochs;
   size_t repthreshold;
   bool lock_free;
+  bool optim_kernel_enable;
   std::string algorithm;
   std::string layer_string;
   std::string feature_file;
@@ -341,7 +349,12 @@ typedef struct InputInfo
             this->decay_epoch=std::atof(cfg_v.c_str());
          }else if(0==cfg_k.compare("DROP_RATE")){
             this->drop_rate=std::atof(cfg_v.c_str());
+         }else if(0==cfg_k.compare("OPTIM_KERNEL")){
+            this->optim_kernel_enable=true;
+            if(1==std::atoi(cfg_v.c_str()))
+                this->optim_kernel_enable=true;
          }
+         
          else {
             printf("not supported configure\n");
          }             
@@ -363,6 +376,7 @@ typedef struct InputInfo
         std::cout<<"proc_cuda\t:\t"<<with_cuda<<std::endl;
         std::cout<<"proc_rep\t:\t"<<repthreshold<<std::endl;
         std::cout<<"lock_free\t:\t"<<lock_free<<std::endl;
+        std::cout<<"optim_kernel\t:\t"<<optim_kernel_enable<<std::endl;
         std::cout<<"learn_rate\t:\t"<<learn_rate<<std::endl;
         std::cout<<"weight_decay\t:\t"<<weight_decay<<std::endl;
         std::cout<<"decay_rate\t:\t"<<decay_rate<<std::endl;
@@ -386,6 +400,14 @@ typedef struct runtimeInfo
   bool copy_data;
   bool forward;
   bool lock_free;
+  bool optim_kernel_enable;
+  void set(inputinfo *gnncfg){
+        this->process_local = gnncfg->process_local;
+        this->reduce_comm = gnncfg->process_local;
+        this->process_overlap = gnncfg->overlap;
+        this->lock_free=gnncfg->lock_free;
+        this->optim_kernel_enable=gnncfg->optim_kernel_enable;
+  }
 
 } runtimeinfo;
 typedef struct GNNContext

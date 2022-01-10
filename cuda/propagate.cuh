@@ -149,7 +149,7 @@ __global__ void aggregate_kernel_from_src_with_weight_optim_ROC(const VertexId_C
                 VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
                 float w=weight[blkRowStart+done+tidDiv];
                 float val=old_feature[src_trans*feature_size_+tidMod]*w;
-                assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
+                //assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
                 int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
                 atomicAdd(&acc_h[offset],val);
             }
@@ -227,7 +227,7 @@ FORWARD computation kernel
  * output: new feature
  * 
  * from source to destination
- * _with_weight:    scale
+ * _with_weight:    scalar
  * _tensor_weight:  tensor
  * _without_weight  no_weight
  * with shared memory optimization
@@ -265,17 +265,27 @@ __global__ void aggregate_kernel_from_src_with_weight_optim_nts(const VertexId_C
         __syncthreads();
         totalNumEdges=blkRowEnd-blkRowStart;
         VertexId_CUDA done=0;
+        VertexId_CUDA curr_dst_offset=0;
+        VertexId_CUDA curr_dst_edges=column_offset[blkColStart+1]-column_offset[blkColStart];
+        
         while(totalNumEdges>0){
-            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
-                VertexId_CUDA src_trans= row_indices[blkRowStart+done+tidDiv]-src_s_;//different with threads num
-                VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
-                float w=weight[blkRowStart+done+tidDiv];
+            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){        
+                VertexId_CUDA e_offset=done+tidDiv;
+                // COMPUTING destination ID rather than loading the large destination array in.
+                while(e_offset>=curr_dst_edges){
+                    curr_dst_offset++;
+                    curr_dst_edges+=column_offset[blkColStart+1+curr_dst_offset]-column_offset[blkColStart+curr_dst_offset];
+                }
+                VertexId_CUDA dst_trans= blkColStart+curr_dst_offset;
+                VertexId_CUDA src_trans= row_indices[blkRowStart+e_offset]-src_s_;//different with threads num
+                float w=weight[blkRowStart+e_offset];
                 float val=old_feature[src_trans*feature_size_+tidMod]*w;
-                assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
+//               // assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
                 int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
                 atomicAdd(&acc_h[offset],val);
-            }
-            done+=VtxPerBlock;
+                //acc_h[offset]+=val;
+            }          
+           done+=VtxPerBlock;
            totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
         }
         __syncthreads();
@@ -319,10 +329,18 @@ __global__ void aggregate_kernel_from_src_without_weight_optim_nts(const VertexI
         __syncthreads();
         totalNumEdges=blkRowEnd-blkRowStart;
         VertexId_CUDA done=0;
+        VertexId_CUDA curr_dst_offset=0;
+        VertexId_CUDA curr_dst_edges=column_offset[blkColStart+1]-column_offset[blkColStart];
         while(totalNumEdges>0){
             if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
-                VertexId_CUDA src_trans= row_indices[blkRowStart+done+tidDiv]-src_s_;//different with threads num
-                VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
+                VertexId_CUDA e_offset=done+tidDiv;
+                while(e_offset>=curr_dst_edges){
+                    curr_dst_offset++;
+                    curr_dst_edges+=column_offset[blkColStart+1+curr_dst_offset]-column_offset[blkColStart+curr_dst_offset];
+                }
+                VertexId_CUDA dst_trans= blkColStart+curr_dst_offset;
+                VertexId_CUDA src_trans= row_indices[blkRowStart+e_offset]-src_s_;//different with threads num
+                //VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
                 float val=old_feature[src_trans*feature_size_+tidMod];
                 assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
                 int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
@@ -500,13 +518,22 @@ __global__ void aggregate_kernel_from_dst_with_weight_optim_nts(const VertexId_C
         __syncthreads();
         totalNumEdges=blkColEnd-blkColStart;
         VertexId_CUDA done=0;
+        VertexId_CUDA curr_src_offset=0;
+        VertexId_CUDA curr_src_edges=row_offset[blkRowStart+1]-row_offset[blkRowStart];
         while(totalNumEdges>0){
             if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
-                VertexId_CUDA dst_trans= column_indices[blkColStart+done+tidDiv]-dst_s_;//different with threads num
-                VertexId_CUDA src_trans= (VertexId_CUDA)source[blkColStart+done+tidDiv]-src_s_;//different with threads num
-                float w=weight[blkColStart+done+tidDiv];
+                VertexId_CUDA e_offset=done+tidDiv;
+                
+                // COMPUTING source ID rather than loading the large source array in.
+                while(e_offset>=curr_src_edges){
+                    curr_src_offset++;
+                    curr_src_edges+=row_offset[blkRowStart+1+curr_src_offset]-row_offset[blkRowStart+curr_src_offset];
+                }
+                VertexId_CUDA src_trans= blkRowStart+curr_src_offset;
+                VertexId_CUDA dst_trans= column_indices[blkColStart+e_offset]-dst_s_;
+                float w=weight[blkColStart+e_offset];
                 float val=old_feature[dst_trans*feature_size_+tidMod]*w;
-                assert(src_trans>=blkRowStart&&src_trans<blkRowStart+VtxPerBlock);
+//                assert(src_trans>=blkRowStart&&src_trans<blkRowStart+VtxPerBlock);
                 int offset=(src_trans-blkRowStart)*feature_size_+tidMod;
                 atomicAdd(&acc_h[offset],val);
             }
