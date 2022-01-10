@@ -81,7 +81,7 @@ public:
             });
         double load_rep_time = 0;
         load_rep_time -= get_time();
-        graph->load_replicate3(graph->gnnctx->layer_size);
+        //graph->load_replicate3(graph->gnnctx->layer_size);
         load_rep_time += get_time();
         if (graph->partition_id == 0)
         printf("#load_rep_time=%lf(s)\n", load_rep_time);

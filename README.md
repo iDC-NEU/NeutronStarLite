@@ -66,6 +66,7 @@ distributed:
 ./run_nts_dist.sh 2 gcn_cora.cfg
 ```
 
+ENGINE TYPE:
 We list serveral example in the root dir for your reference
 GCN:
 gcn_cora.cfg
