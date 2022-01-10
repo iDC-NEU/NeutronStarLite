@@ -225,7 +225,7 @@ public:
     VertexId src_end = subgraph->src_range[1];
     VertexId dst_start = subgraph->dst_range[0];
     VertexId dst_end = subgraph->dst_range[1];
-//    if(feature_size>512){
+    if(feature_size>512||!rtminfo->optim_kernel_enable){
         cuda_stream->Gather_By_Dst_From_Src(input_buffer,
                                output_buffer,
                                //weight_buffer, //data
@@ -238,22 +238,21 @@ public:
                                (VertexId)subgraph->batch_size_forward,
                                (VertexId)output_size,
                                rtminfo->with_weight);
-        
-//    }else{
-//        cuda_stream->Gather_By_Dst_From_Src_Optim(input_buffer,
-//                               output_buffer,
-//                               //weight_buffer, //data
-//                               forward_weight_from_pinned,
-//                               row_indices_from_pinned,
-//                               column_offset_from_pinned, //graph
-//                                subgraph->destination_gpu,
-//                               (VertexId)src_start, (VertexId)src_end, 
-//                               (VertexId)dst_start, (VertexId)dst_end,
-//                               (VertexId)subgraph->edge_size,
-//                               (VertexId)subgraph->batch_size_forward,
-//                               (VertexId)output_size,
-//                               rtminfo->with_weight);
-//    }
+    }else{
+        cuda_stream->Gather_By_Dst_From_Src_Optim(input_buffer,
+                               output_buffer,
+                               //weight_buffer, //data
+                               forward_weight_from_pinned,
+                               row_indices_from_pinned,
+                               column_offset_from_pinned, //graph
+                                subgraph->destination_gpu,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_forward,
+                               (VertexId)output_size,
+                               rtminfo->with_weight);
+    }
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     
@@ -383,7 +382,20 @@ public:
         VertexId src_end = subgraph->src_range[1];
         VertexId dst_start = subgraph->dst_range[0];
         VertexId dst_end = subgraph->dst_range[1];
-//        if(feature_size>512){      
+//        if(subgraph->row_offset[subgraph->batch_size_backward]>subgraph->edge_size)
+//            printf("ROW_OFFSET_END ERROR v(%d) index(%d)",subgraph->batch_size_backward,subgraph->row_offset[subgraph->batch_size_backward]);
+//            
+//        for(int i=0;i<subgraph->batch_size_backward;i++){
+//            if(subgraph->row_offset[i]>=subgraph->edge){
+//                printf("ROW_OFFSET_ERROR v(%d) index(%d)",i,subgraph->row_offset_gpu[i]);
+//            }else{
+//                for(int j=row_offset[i];j<row_offset[i+1];j++){
+//                    if(subgraph->column_indices[j]<subgraph->dst_range[0]||subgraph->column_indices[j]>=subgraph->dst_range[1])
+//                    printf("column_index_ERROR v(%d) rank(%d) index(%d) %d %d",i,j,subgraph->column_indices[j],subgraph->dst_range[0],subgraph->dst_range[1]);
+//                }
+//            }
+//        }
+        if(feature_size>512||!rtminfo->optim_kernel_enable){      
             cuda_stream->Gather_By_Src_From_Dst(input_buffer,
                                output_buffer,
                                //weight_buffer, //data
@@ -396,21 +408,21 @@ public:
                                (VertexId)subgraph->batch_size_backward,
                                (VertexId)output_size,
                                rtminfo->with_weight);
-//        }else{
-//            cuda_stream->Gather_By_Src_From_Dst_Optim(input_buffer,
-//                               output_buffer,
-//                               //weight_buffer, //data
-//                               backward_weight_from_pinned,
-//                               row_offset_from_pinned, //graph
-//                               column_indices_from_pinned,
-//                               subgraph->source_backward_gpu,
-//                               (VertexId)src_start, (VertexId)src_end, 
-//                               (VertexId)dst_start, (VertexId)dst_end,
-//                               (VertexId)subgraph->edge_size,
-//                               (VertexId)subgraph->batch_size_backward,
-//                               (VertexId)output_size,
-//                               rtminfo->with_weight);
-//        }
+        }else{
+            cuda_stream->Gather_By_Src_From_Dst_Optim(input_buffer,
+                               output_buffer,
+                               //weight_buffer, //data
+                               backward_weight_from_pinned,
+                               row_offset_from_pinned, //graph
+                               column_indices_from_pinned,
+                               subgraph->source_backward_gpu,
+                               (VertexId)src_start, (VertexId)src_end, 
+                               (VertexId)dst_start, (VertexId)dst_end,
+                               (VertexId)subgraph->edge_size,
+                               (VertexId)subgraph->batch_size_backward,
+                               (VertexId)output_size,
+                               rtminfo->with_weight);
+        }
     }
 
     
@@ -806,6 +818,18 @@ struct Parameter : torch::nn::Module
         V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
         W.set_data(W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon));
     }
+    void learn_local_with_decay_Adam()
+    {
+//        assert(alpha>0.0);
+//        W_g.set_data(W_gradient.cuda());
+//        NtsVar s=W;
+        W_g.set_data(W);
+        W_g=W_g*weight_decay;
+        W_g=W_g+W.grad();//+weight_decay;
+        M_GPU=beta1*M_GPU+(1-beta1)*W_g;
+        V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
+        W.set_data(W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon));
+    }
     void next(){
         if(decay_epoch!=-1&&(curr_epoch!=0&&curr_epoch%decay_epoch==0)){
             alpha_t*=decay_rate;
@@ -817,18 +841,6 @@ struct Parameter : torch::nn::Module
         curr_epoch++;
     }
 
-    void learn(NtsVar from, ValueType learning_rate)
-    {
-        NtsVar a = (W - (from * learning_rate));
-
-        W.set_data(a);
-    }
-    void learn_gpu(NtsVar from, ValueType learning_rate)
-    {
-        NtsVar a = (W - (from * learning_rate));
-        W.set_data(a);
-        //W=a;
-    }
     NtsVar forward(NtsVar x)
     {
 

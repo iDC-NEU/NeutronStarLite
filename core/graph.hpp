@@ -2979,6 +2979,61 @@ public:
     return global_reducer;
   }
   
+    template <typename R, typename M>
+  R forward_single(NtsVar &input_gpu_or_cpu,
+                 std::vector<CSC_segment_pinned *> &graph_partitions,
+                 NtsVar& Y, int feature_size)
+  {
+    int layer_ = rtminfo->curr_layer;
+
+//    if (partition_id == 0)
+//    {
+//      printf("SyncComputeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+
+    
+    Cuda_Stream *cuda_stream = new Cuda_Stream();
+    Nts->ZeroVarMem(Y);
+    Nts->InitBlockSimple(graph_partitions[0],rtminfo,feature_size, 
+                    feature_size, 0,layer_,cuda_stream);
+    Nts->GatherByDstFromSrc(Y,input_gpu_or_cpu,input_gpu_or_cpu);
+
+      
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE();      
+    cuda_stream->destory_Stream();
+    stream_time += MPI_Wtime();
+    
+    R global_reducer;
+    return global_reducer;
+  }
+  
+     template <typename R, typename M>
+  R backward_single(NtsVar &input_gpu_or_cpu,
+                         std::vector<CSC_segment_pinned *> &graph_partitions,
+                         NtsVar& Y,int feature_size)//backward
+  {
+    int layer_ = rtminfo->curr_layer;
+//    if (partition_id == 0)
+//    {
+//      printf("ComputeSync:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();   
+    Cuda_Stream *cuda_stream = new Cuda_Stream();
+    Nts->ZeroVarMem(Y,GPU_T);
+    Nts->InitBlockSimple(graph_partitions[0],rtminfo,feature_size, 
+                 feature_size, 0,layer_,cuda_stream);
+    Nts->GatherBySrcFromDst(Y,input_gpu_or_cpu,input_gpu_or_cpu);
+    Nts->DeviceSynchronize(); 
+    cuda_stream->destory_Stream();  
+
+    R global_reducer;
+    stream_time += MPI_Wtime();
+    return global_reducer;
+  } 
+  
         template <typename R, typename M>
   R compute_sync_decoupled_edge(NtsVar &input_grad,
                                           NtsVar &dst_input_transferred,

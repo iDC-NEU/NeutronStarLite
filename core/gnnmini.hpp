@@ -243,12 +243,6 @@ public:
         return (ValueType)(graph_->in_degree_for_backward[v]);
     }
     
-    void SampleStrategy(VertexId dst,std::vector<CSC_segment_pinned *> &subgraphs){
-    }
-    void SampleStage(NtsVar &X, NtsVar &Y,
-                                  std::vector<CSC_segment_pinned *> &subgraphs, Bitmap* VertexToSample){
-        int feature_size=1;
-    }
     void ProcessForwardCPU(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &subgraphs,
                                    std::function<float(VertexId&, VertexId&)> weight_fun)
     {
@@ -313,7 +307,7 @@ public:
             subgraphs,
             feature_size,
             active_);
-    }
+    }//without lockfree
     void PropagateBackwardCPU_debug(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
     {       
         float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
@@ -347,7 +341,7 @@ public:
             },
             feature_size,
             active_);
-    }
+    }//without lockfree
     
     
     
@@ -422,6 +416,27 @@ public:
             delete [] output_buffer;
     }    
     
+  
+    
+   inline void ForwardSingle(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+    {
+        int feature_size=X.size(1);
+            graph_->forward_single<int, float>(
+                X,
+                graph_partitions,
+                Y,
+                feature_size);
+    }
+   inline void BackwardSingle(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
+    {
+  
+        int feature_size=X.size(1);
+        graph_->backward_single<int, float>(
+                X,
+                graph_partitions,
+                Y,
+                feature_size);
+    }
     
     
    inline void GraphPropagateForward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
@@ -467,7 +482,7 @@ public:
        
     }
    
-       void PropagateForwardEdgeGPU(NtsVar &src_input_transferred,
+    void PropagateForwardEdgeGPU(NtsVar &src_input_transferred,
                                                NtsVar &dst_output,
                                                std::vector<CSC_segment_pinned *> &graph_partitions,
                                                std::function<NtsVar(NtsVar&, NtsVar&, NtsScheduler* nts)> EdgeComputation)
