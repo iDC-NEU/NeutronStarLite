@@ -31,5 +31,5 @@ ${MPI_INCLUDE_PATH}
 )
 set(CMAKE_CXX_FLAGS "-O3 -Wall -std=c++14 -g -fopenmp -march=native")
 #add_subdirectory(core)
-add_executable(nts toolkits/pagerank.cpp)
+add_executable(nts toolkits/main.cpp)
 target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa) # 加入libTorch的库文件路径
