@@ -33,8 +33,6 @@ public:
     std::vector<NtsVar>X;
     std::vector<NtsVar>Y;
     std::vector<NtsVar>X_grad;
-    std::vector<NtsVar>Y_debug;
-    std::vector<NtsVar>X_grad_debug;
     NtsVar F;
     NtsVar loss;
     NtsVar tt;
@@ -272,7 +270,7 @@ void Forward(){
 {
     if (graph->partition_id == 0)
         printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
-        graph->print_info();
+        //graph->print_info();
         
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++){
