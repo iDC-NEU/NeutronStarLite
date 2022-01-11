@@ -181,6 +181,7 @@ public:
   VertexId rep_output_size;
   VertexId **message_write_offset;
   VertexId **message_amount;
+  Cuda_Stream *cuda_stream_public;
   
   
   
@@ -291,6 +292,7 @@ public:
     rtminfo->copy_data = false;
     rtminfo->with_cuda = false;
     rtminfo->lock_free = false;
+    cuda_stream_public=new Cuda_Stream();
   }
   void init_gnnctx(std::string layer_string)
   {
@@ -2165,133 +2167,7 @@ public:
     }
   }
 
- 
-   // process edges
-  template <typename R, typename M>
-    R sample_engine(std::function<void(VertexId)> sparse_signal, 
-                                std::function<void(VertexId, CSC_segment_pinned* ,char* ,std::vector<VertexId>& ,VertexId)> sparse_slot,
-                                std::vector<CSC_segment_pinned *> &graph_partitions,
-                                int feature_size,
-                                Bitmap *active, 
-                                Bitmap *dense_selective = nullptr)
-  {
-    omp_set_num_threads(threads);
-    double stream_time = 0;
-    stream_time -= MPI_Wtime();
-    NtsComm->init_layer_all(feature_size,Master2Mirror,CPU_T);
-          NtsComm->run_all_master_to_mirror_no_wait();
-    R reducer = 0;
-    
-    size_t basic_chunk = 64;
-    {
-      current_send_part_id = partition_id;
-      NtsComm->set_current_send_partition(current_send_part_id);
-#pragma omp parallel for
-      for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk)
-      {
-        VertexId v_i = begin_v_i;
-        unsigned long word = active->data[WORD_OFFSET(v_i)];
-        while (word != 0)
-        {
-          if (word & 1)
-          {
-            sparse_signal(v_i);
-          }
-          v_i++;
-          word = word >> 1;
-        }
-      }
-      for(int step=0;step<partitions;step++){
-          int trigger_partition=(partition_id-step+partitions)%partitions;
-          NtsComm->trigger_one_partition(trigger_partition,trigger_partition==current_send_part_id);
-      }
-     
-      for (int step = 0; step < partitions; step++)
-      {
-        int i = -1;
-        MessageBuffer **used_buffer;      
-        used_buffer=NtsComm->recv_one_partition(i,step);
-        
-        cpu_recv_message_index.resize(partition_offset[i+1]-partition_offset[i]);
-        memset(cpu_recv_message_index.data(),0,sizeof(VertexId)*cpu_recv_message_index.size());
-        for (int s_i = 0; s_i < sockets; s_i++)
-        {
-          char *buffer = used_buffer[s_i]->data;
-          size_t buffer_size = used_buffer[s_i]->count;
-          for (int t_i = 0; t_i < threads; t_i++)
-          {
-            // int s_i = get_socket_id(t_i);
-            int s_j = get_socket_offset(t_i);
-            VertexId partition_size = buffer_size;
-            thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
-            thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
-            if (s_j == threads_per_socket - 1)
-            {
-              thread_state[t_i]->end = buffer_size;
-            }
-            thread_state[t_i]->status = WORKING;
-          }
-#pragma omp parallel reduction(+ \
-                               : reducer)
-          {
-            R local_reducer = 0;
-            int thread_id = omp_get_thread_num();
-            int s_i = get_socket_id(thread_id);
-            while (true)
-            {
-              VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
-              if (b_i >= thread_state[thread_id]->end)
-                break;
-              VertexId begin_b_i = b_i;
-              VertexId end_b_i = b_i + basic_chunk;
-              if (end_b_i > thread_state[thread_id]->end)
-              {
-                end_b_i = thread_state[thread_id]->end;
-              }
-              for (b_i = begin_b_i; b_i < end_b_i; b_i++)
-              {
-                long index= (long)b_i*sizeofM<M>(feature_size);
-                VertexId v_i = *((VertexId*)(buffer+index));
-                M* msg_data = (M*)(buffer+index+sizeof(VertexId));
-                if (outgoing_adj_bitmap[s_i]->get_bit(v_i))
-                {
-                    VertexId v_trans=v_i-partition_offset[i];
-                    cpu_recv_message_index[v_trans]=b_i;
-                }
-              }
-            }
-            reducer += local_reducer;
-          }
-#pragma omp parallel for     
-          for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk){
-                VertexId v_i = begin_v_i;
-                unsigned long word = active->data[WORD_OFFSET(v_i)];
-                while (word != 0){
-                    if (word & 1){
-                    sparse_slot(v_i,graph_partitions[i],buffer,cpu_recv_message_index,i);
-                    }
-                    v_i++;
-                    word = word >> 1;
-                }
-          }          
-          
-        }
-      }
-      NtsComm->release_communicator();
-    }
 
-    R global_reducer;
-    MPI_Datatype dt = get_mpi_data_type<R>();
-    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
-    stream_time += MPI_Wtime();
-#ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id == 0)
-    {
-      printf("process_edges took %lf (s)\n", stream_time);
-    }
-#endif
-    return global_reducer;
-  }
   
   
   
@@ -2421,6 +2297,8 @@ public:
 #endif
     return global_reducer;
   }
+  
+  
   
     // process edges
   template <typename R, typename M>
@@ -3032,7 +2910,78 @@ public:
     R global_reducer;
     stream_time += MPI_Wtime();
     return global_reducer;
+  }  
+        // process edges
+  template <typename R, typename M>
+  R forward_single_edge(NtsVar &message,
+                 std::vector<CSC_segment_pinned *> &graph_partitions,
+                 NtsVar& Y,
+                 int feature_size)
+  {
+    int layer_ = rtminfo->curr_layer;
+//    if (partition_id == 0)
+//    {
+//      printf("SyncComputeDecoupledEdge:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    Nts->ZeroVarMem(Y);
+    int current_recv_part_id = 0;
+    for (int step = 0; step < partitions; step++)
+    {
+        int i=0;
+        Nts->InitBlock(graph_partitions[i],
+                            rtminfo,
+                            feature_size,
+                            feature_size,
+                            current_recv_part_id,
+                            layer_,
+                            cuda_stream_public
+                            );     
+        Nts->GatherByDstFromMessage(Y, message);      
+    }
+    cuda_stream_public->CUDA_DEVICE_SYNCHRONIZE();      
+    stream_time += MPI_Wtime();
+    R global_reducer;
+    return global_reducer;
+  }
+ 
+          template <typename R, typename M>
+  R backward_single_edge(NtsVar &input_grad,
+                         std::vector<CSC_segment_pinned *> &graph_partitions,
+//                       std::function<NtsVar(NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeForward,
+//                       std::function<NtsVar(NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeBackward,
+                         NtsVar &message_grad,
+                         int feature_size)//backward
+  {
+    int layer_ = rtminfo->curr_layer;
+    Cuda_Stream *cuda_stream = new Cuda_Stream();
+//    if (partition_id == 0)
+//    {
+//      printf("ComputeSyncEdgeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
+//    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    Nts->ZeroVarMem(message_grad,GPU_T);    
+
+    current_send_part_id = 0;
+    cpp=0;
+    Nts->InitBlock(graph_partitions[current_send_part_id],rtminfo,feature_size,
+                   feature_size, current_send_part_id, layer_, cuda_stream); 
+    Nts->BackwardScatterGradBackToMessage(input_grad, message_grad);//4-2
+//            //NtsVar src_grad1=EdgeBackward(message_grad,src_inter_grad,Nts); //(2,3)->1
+//            NtsVar src_grad1=EdgeBackward(message_grad,src_input_transferred,Nts);
+//            output_grad=src_grad;//+src_grad1;
+            Nts->DeviceSynchronize();
+
+ cuda_stream->destory_Stream();
+
+    R global_reducer;
+    stream_time += MPI_Wtime();
+    return global_reducer;
   } 
+   
+  
   
         template <typename R, typename M>
   R compute_sync_decoupled_edge(NtsVar &input_grad,

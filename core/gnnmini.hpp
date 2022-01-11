@@ -437,6 +437,27 @@ public:
                 Y,
                 feature_size);
     }
+   void ForwardAggMessage(NtsVar &src_input_transferred, NtsVar &dst_output,
+                            std::vector<CSC_segment_pinned *> &graph_partitions)
+    {
+        int feature_size=src_input_transferred.size(1);
+            graph_->forward_single_edge<int, float>(
+                src_input_transferred,
+                graph_partitions,
+                dst_output,
+                feature_size);
+        
+    }
+   void BackwardScatterMessage(NtsVar &dst_grad_input,NtsVar &msg_grad_output,
+                               std::vector<CSC_segment_pinned *> &graph_partitions)
+    {
+        int feature_size= dst_grad_input.size(1);//= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+            graph_->backward_single_edge<int, float>(
+                dst_grad_input,
+                graph_partitions,
+                msg_grad_output,
+                 feature_size);        
+    }
     
     
    inline void GraphPropagateForward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
