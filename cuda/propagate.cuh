@@ -874,7 +874,7 @@ __global__ void aggregate_kernel_from_src_tensor_weight_optim_nts(const VertexId
 //larger than 512
 template <typename T_v,typename T_l>
 __global__ void aggregate_kernel_from_message_without_weight_sum(const T_l *row_indices,const  T_l *column_offset,
- 		const T_v* message, T_v* new_feature,const T_v* weight,
+ 		const T_v* message, T_v* new_feature,
  		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
 	int threadId = blockIdx.x *blockDim.x + threadIdx.x;

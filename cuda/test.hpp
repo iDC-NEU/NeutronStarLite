@@ -164,7 +164,7 @@ public:
                                                         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
                                                         VertexId_CUDA edges,VertexId_CUDA batch_size,
                                                         VertexId_CUDA feature_size,bool with_weight=false,bool tensor_weight=false);
-        void Gather_By_Dst_From_Message(float *input, float *output, float *weight_forward, //data
+        void Gather_By_Dst_From_Message(float *input, float *output, //data
 							VertexId_CUDA *src, VertexId_CUDA *dst,				//graph
 							VertexId_CUDA src_start, VertexId_CUDA src_end,
 							VertexId_CUDA dst_start, VertexId_CUDA dst_end,

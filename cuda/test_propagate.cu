@@ -168,6 +168,7 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 			row_offset, column_indices, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size);   
             }else{
+                
 		aggregate_kernel_from_dst_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
 			row_offset, column_indices, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size);   
@@ -216,12 +217,12 @@ void Cuda_Stream::Scatter_Grad_Back_To_Message(float* input,float* message_grad,
         }else{
             scatter_grad_back_to_messaage<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
 			row_indices, column_offset, input, message_grad, 
-				src_start, dst_start, edges, feature_size);
+				src_start, dst_start, batch_size, feature_size);
         }
 
 }
 
-void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,float* weight_forward,//data 
+void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,//data 
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
@@ -240,7 +241,7 @@ void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,float* w
             } 
         }else{
                 aggregate_kernel_from_message_without_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_indices, column_offset, input, output, weight_forward, 
+			row_indices, column_offset, input, output, 
 				src_start, dst_start, batch_size, feature_size); 
         }
 }
