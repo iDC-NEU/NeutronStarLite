@@ -1,7 +1,7 @@
 #include "propagate.cuh"
 #include "test.hpp"
 
-#define CUDA_ENABLE 1
+//#define CUDA_ENABLE 1
 
 #if CUDA_ENABLE
 #define CHECK_CUDA_RESULT(N) {											\

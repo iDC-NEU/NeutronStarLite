@@ -14,6 +14,7 @@
 #ifndef CUDA_TYPE_H
 #define CUDA_TYPE_H
 
+#define CUDA_ENABLE 1
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,9 +22,9 @@ extern "C" {
 typedef uint32_t VertexId_CUDA;
 const int CUDA_NUM_THREADS=512;
 const int CUDA_NUM_BLOCKS=512;
-
-#ifdef __cplusplus
 }
+#ifdef __cplusplus
+
 #endif
 
 #endif /* CUDA_TYPE_H */
