@@ -13,17 +13,17 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
    See the License for the specific language governing permissions and
    limitations under the License.
  */
-/* CPU single experiment*/
-//#include "cpuengine.hpp"
-//#include "gpuengine.hpp"
-//#include "gpuclusterengine.hpp"
+
+#include "GCN_CPU_EAGER.hpp"
+#include "GCN_CPU.hpp"
+
+#if CUDA_ENABLE
 #include "GCN.hpp"
 #include "GCN_EAGER.hpp"
 #include "GCN_EAGER_single.hpp"
-#include "GCN_CPU.hpp"
 #include "GAT_GPU.hpp"
-#include "GCN_CPU_EAGER.hpp"
 #include "GAT_GPU_SINGLE.hpp"
+#endif
 
 
 int main(int argc, char **argv)
@@ -64,6 +64,8 @@ int main(int argc, char **argv)
         ntsGCN->init_nn();
         ntsGCN->run();
     }
+
+#if CUDA_ENABLE
     else if (graph->config->algorithm == std::string("GCN"))
     {
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
@@ -112,6 +114,7 @@ int main(int argc, char **argv)
         ntsGAT->init_nn();
         ntsGAT->run();
     }
+#endif
         exec_time += get_time();
         if (graph->partition_id == 0)
         {

@@ -4,7 +4,13 @@
  *  Created on: Dec 3, 2019
  *      Author: wangqg
  */
+
+#include "cuda_type.h"
+
+#if CUDA_ENABLE
 #include "cuda_runtime.h"
+#endif
+
 #ifndef TEST_HPP
 #define TEST_HPP
 #include <iostream>
@@ -12,7 +18,7 @@
 #include <vector>
 #include <string.h>
 //#include"../core/graph.hpp"
-#include "cuda_type.h"
+
 enum graph_type
 {
 	CSR,

@@ -269,11 +269,13 @@ public:
       }
     }
   }
+#if CUDA_ENABLE
   void init_message_buffer(){
         output_cpu_buffer = (float *)cudaMallocPinned(((long)vertices) * gnnctx->max_layer * sizeof(float));
     if (output_cpu_buffer == NULL)
         printf("allocate fail\n");
   }
+#endif
   void init_communicatior(){
         NtsComm->init(partition_offset,owned_vertices,partitions,
         sockets,threads,partition_id, local_send_buffer_limit);
@@ -3220,6 +3222,12 @@ public:
 #endif
     return global_reducer;
   }
+    void free_all_tmp()
+  {
+    FreeEdge(row_indices_intergate);
+    FreeEdge(column_offset_intergate);
+    FreeBuffer(weight_gpu_intergate);
+  }
 #endif       
         
        
@@ -4678,15 +4686,6 @@ public:
     return global_reducer;
   }
 
-    
-    
-
-  void free_all_tmp()
-  {
-    FreeEdge(row_indices_intergate);
-    FreeEdge(column_offset_intergate);
-    FreeBuffer(weight_gpu_intergate);
-  }
   // process vertices
   template <typename R>
   R process_vertices_G(std::function<R(VertexId)> process, Bitmap *active)

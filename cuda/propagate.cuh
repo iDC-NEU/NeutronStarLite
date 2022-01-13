@@ -9,7 +9,7 @@
 #ifndef PROPAGATE_H_
 #define PROPAGATE_H_
 
-
+#include"cuda_type.h"
 #include<stdlib.h>
 #include<stdio.h>
 #include<cstdio>
@@ -17,7 +17,6 @@
 #include <sys/time.h>
 #include<cuda.h>
 #include"cub/cub.cuh"
-#include"cuda_type.h"
 inline double get_time() {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);

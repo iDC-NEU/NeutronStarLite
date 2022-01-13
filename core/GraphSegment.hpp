@@ -42,7 +42,11 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/filesystem.hpp"
 #include "core/time.hpp"
 #include "core/type.hpp"
+#include "cuda/cuda_type.h"
+#if CUDA_ENABLE
 #include "cuda/test.hpp"
+#endif
+
 const bool NOT_SUPPORT_DEVICE_TYPE=false;
 
 typedef struct graph_Tensor_Segment_pinned
