@@ -41,13 +41,10 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/mpi.hpp"
 #include "core/time.hpp"
 #include "core/type.hpp"
-#include "cuda/test.hpp"
-#include "core/GraphSegment.hpp"
 #include "core/NtsScheduler.hpp"
 //#include "torch/torch.h"
 //#include "torch/csrc/autograd/generated/variable_factories.h"
 //#include "torch/nn/module.h"
-//#include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
 
 #define CHUNK_LENGTH 32768 //32768
@@ -168,7 +165,7 @@ public:
   CachedData* cachedData;
   //replication
   int replication_threshold;
-  graph_replication *graph_rep;
+  
   std::vector<Bitmap *> HasRepVtx;
   std::vector<Bitmap *> RepVtx;
   Bitmap *outGoing;
@@ -181,7 +178,7 @@ public:
   VertexId rep_output_size;
   VertexId **message_write_offset;
   VertexId **message_amount;
-  Cuda_Stream *cuda_stream_public;
+  //Cuda_Stream *cuda_stream_public;
   
   
   
@@ -283,16 +280,8 @@ public:
   }
   void init_rtminfo()
   {
-    rtminfo = new runtimeinfo;
-    rtminfo->process_local = false;
-    rtminfo->process_overlap = false;
-    rtminfo->epoch = -1;
-    rtminfo->curr_layer = -1;
-    rtminfo->embedding_size = -1;
-    rtminfo->copy_data = false;
-    rtminfo->with_cuda = false;
-    rtminfo->lock_free = false;
-    cuda_stream_public=new Cuda_Stream();
+    rtminfo = new runtimeinfo();
+    rtminfo->init_rtminfo();
   }
   void init_gnnctx(std::string layer_string)
   {
@@ -2643,7 +2632,6 @@ public:
     double stream_time = 0;
     stream_time -= MPI_Wtime();   
     
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
     Nts->ZeroVarMem(Y,GPU_T);
     
     size_t basic_chunk = 64;
@@ -2659,7 +2647,7 @@ public:
       {
         current_send_part_id = partition_id;
             Nts->InitBlockSimple(graph_partitions[(current_send_part_id + 1) % partitions],rtminfo,feature_size, 
-                 feature_size, (current_send_part_id + 1) % partitions,layer_,cuda_stream);
+                 feature_size, (current_send_part_id + 1) % partitions,layer_);
             Nts->ZeroVarMem(output_gpu_buffered,GPU_T);
             Nts->GatherBySrcFromDst(output_gpu_buffered,input_gpu_or_cpu,input_gpu_or_cpu);
             Nts->SerializeMirrorToMsg(output_cpu_buffer,output_gpu_buffered);
@@ -2671,7 +2659,7 @@ public:
         {
             current_send_part_id = (current_send_part_id + 1) % partitions;
             Nts->InitBlockSimple(graph_partitions[(current_send_part_id + 1) % partitions],rtminfo,feature_size, 
-                 feature_size, (current_send_part_id + 1) % partitions,layer_,cuda_stream);
+                 feature_size, (current_send_part_id + 1) % partitions,layer_);
             Nts->ZeroVarMem(output_gpu_buffered,GPU_T);
             Nts->GatherBySrcFromDst(output_gpu_buffered,input_gpu_or_cpu,input_gpu_or_cpu);
             Nts->SerializeMirrorToMsg(output_cpu_buffer,output_gpu_buffered);
@@ -2689,11 +2677,12 @@ public:
         {
           *thread_state[t_i] = tuned_chunks_dense_backward[i][t_i];
         }
-        cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+        
+        rtminfo->device_sync();
         if (current_send_part_id != partition_id&&process_overlap)
         {
             Nts->InitBlockSimple(graph_partitions[(current_send_part_id + 1) % partitions],rtminfo,feature_size, 
-                 feature_size, (current_send_part_id + 1) % partitions,layer_,cuda_stream);
+                 feature_size, (current_send_part_id + 1) % partitions,layer_);
             Nts->ZeroVarMem(output_gpu_buffered,GPU_T);
             Nts->GatherBySrcFromDst(output_gpu_buffered,input_gpu_or_cpu,input_gpu_or_cpu);
             Nts->SerializeMirrorToMsg(output_cpu_buffer,output_gpu_buffered);
@@ -2758,7 +2747,7 @@ public:
         MessageBuffer **used_buffer;
         used_buffer=NtsComm->recv_one_partition(i,step);
         Nts->InitBlockSimple(graph_partitions[i],rtminfo,feature_size, 
-                        feature_size, i,layer_,cuda_stream);
+                        feature_size, i,layer_);
         for (int s_i = 0; s_i < sockets; s_i++)
         {
           Nts->DeviceSynchronize();
@@ -2767,7 +2756,6 @@ public:
       }
 
       Nts->DeviceSynchronize(); 
-      cuda_stream->destory_Stream();
       NtsComm->release_communicator();      
     }
 
@@ -2805,8 +2793,6 @@ public:
     NtsComm->init_layer_all(feature_size,Master2Mirror,GPU_T);
     NtsComm->run_all_master_to_mirror_no_wait();
     
-    
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
     NtsVar mirror_input=Nts->NewLeafTensor({get_max_partition_size(),(feature_size+1)});
     Nts->ZeroVarMem(Y);
     
@@ -2831,7 +2817,7 @@ public:
         MessageBuffer **used_buffer;
         used_buffer=NtsComm->recv_one_partition(i,step);
         Nts->InitBlockSimple(graph_partitions[i],rtminfo,feature_size, 
-                    feature_size, i,layer_,cuda_stream);
+                    feature_size, i,layer_);
 //         printf("SyncComputeDecoupled\n");
         for (int s_i = 0; s_i < sockets; s_i++)
         {
@@ -2841,9 +2827,7 @@ public:
         }
       }
 
-      
-      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();      
-      cuda_stream->destory_Stream();
+      rtminfo->device_sync();   
       NtsComm->release_communicator();
     }
     stream_time += MPI_Wtime();
@@ -2871,16 +2855,12 @@ public:
     double stream_time = 0;
     stream_time -= MPI_Wtime();
 
-    
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
     Nts->ZeroVarMem(Y);
     Nts->InitBlockSimple(graph_partitions[0],rtminfo,feature_size, 
-                    feature_size, 0,layer_,cuda_stream);
+                    feature_size, 0,layer_);
     Nts->GatherByDstFromSrc(Y,input_gpu_or_cpu,input_gpu_or_cpu);
 
-      
-    cuda_stream->CUDA_DEVICE_SYNCHRONIZE();      
-    cuda_stream->destory_Stream();
+    rtminfo->device_sync();      
     stream_time += MPI_Wtime();
     
     R global_reducer;
@@ -2898,14 +2878,12 @@ public:
 //      printf("ComputeSync:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
 //    }
     double stream_time = 0;
-    stream_time -= MPI_Wtime();   
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
+    stream_time -= MPI_Wtime();
     Nts->ZeroVarMem(Y,GPU_T);
     Nts->InitBlockSimple(graph_partitions[0],rtminfo,feature_size, 
-                 feature_size, 0,layer_,cuda_stream);
+                 feature_size, 0,layer_);
     Nts->GatherBySrcFromDst(Y,input_gpu_or_cpu,input_gpu_or_cpu);
     Nts->DeviceSynchronize(); 
-    cuda_stream->destory_Stream();  
 
     R global_reducer;
     stream_time += MPI_Wtime();
@@ -2935,12 +2913,11 @@ public:
                             feature_size,
                             feature_size,
                             current_recv_part_id,
-                            layer_,
-                            cuda_stream_public
+                            layer_
                             );     
         Nts->GatherByDstFromMessage(Y, message);      
     }
-    cuda_stream_public->CUDA_DEVICE_SYNCHRONIZE();      
+    rtminfo->device_sync();
     stream_time += MPI_Wtime();
     R global_reducer;
     return global_reducer;
@@ -2955,7 +2932,6 @@ public:
                          int feature_size)//backward
   {
     int layer_ = rtminfo->curr_layer;
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
 //    if (partition_id == 0)
 //    {
 //      printf("ComputeSyncEdgeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n", layer_, process_local ? replication_threshold : -1, feature_size, process_local, process_overlap);
@@ -2967,14 +2943,12 @@ public:
     current_send_part_id = 0;
     cpp=0;
     Nts->InitBlock(graph_partitions[current_send_part_id],rtminfo,feature_size,
-                   feature_size, current_send_part_id, layer_, cuda_stream); 
+                   feature_size, current_send_part_id, layer_); 
     Nts->BackwardScatterGradBackToMessage(input_grad, message_grad);//4-2
 //            //NtsVar src_grad1=EdgeBackward(message_grad,src_inter_grad,Nts); //(2,3)->1
 //            NtsVar src_grad1=EdgeBackward(message_grad,src_input_transferred,Nts);
 //            output_grad=src_grad;//+src_grad1;
             Nts->DeviceSynchronize();
-
- cuda_stream->destory_Stream();
 
     R global_reducer;
     stream_time += MPI_Wtime();
@@ -2996,7 +2970,6 @@ public:
     bool process_local = rtminfo->process_local;
     int layer_ = rtminfo->curr_layer;
     bool process_overlap = rtminfo->process_overlap;
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
     NtsComm->init_layer_all(feature_size,Mirror2Master,GPU_T);
     NtsComm->run_all_mirror_to_master();
     
@@ -3025,8 +2998,7 @@ public:
 //                            feature_size,
 //                              feature_size,
 //                                (current_send_part_id + 1) % partitions,
-//                                 layer_,
-//                                  cuda_stream); 
+//                                 layer_); 
 //            NtsVar src_input_transferred;//mark
 //            NtsVar src_input;
 //            NtsVar message=EdgeForward(src_input,src_input_transferred,dst_input,dst_input_transferred,Nts);
@@ -3037,7 +3009,7 @@ public:
 //            NtsVar src_grad=EdgeBackward(message_grad,src_inter_grad,Nts); //(2,3)->1
 //            Nts->SerializeMirrorToMsg(output_cpu_buffer,src_grad);
 //            Nts->DeviceSynchronize();
-//            cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
+//            rtminfo->device_sync();
 //      }
 //      else
       {
@@ -3051,8 +3023,7 @@ public:
                             feature_size,
                               feature_size,
                                 (current_send_part_id + 1) % partitions,
-                                 layer_,
-                                  cuda_stream); 
+                                 layer_); 
             NtsVar src_input_transferred=this->cachedData->mirror_input[layer_][(current_send_part_id + 1) % partitions];
             NtsVar message=this->cachedData->message[layer_][(current_send_part_id + 1) % partitions];
             //NtsVar message=EdgeForward(src_input_transferred,dst_input_transferred,Nts);
@@ -3142,7 +3113,7 @@ public:
         MessageBuffer **used_buffer;          
         used_buffer=NtsComm->recv_one_partition(i,step);
         Nts->InitBlockSimple(graph_partitions[i],rtminfo,feature_size, 
-                        feature_size, i,layer_,cuda_stream);
+                        feature_size, i,layer_);
         for (int s_i = 0; s_i < sockets; s_i++)
         {
           Nts->DeviceSynchronize();
@@ -3152,7 +3123,6 @@ public:
       }
 
       Nts->DeviceSynchronize();
-      cuda_stream->destory_Stream();
       NtsComm->release_communicator();
     }
 
@@ -3195,7 +3165,6 @@ public:
     NtsComm->run_all_master_to_mirror_no_wait();
     
     
-    Cuda_Stream *cuda_stream = new Cuda_Stream();
     NtsVar mirror_input=Nts->NewLeafTensor({get_max_partition_size(),(feature_size+1)});
     Nts->ZeroVarMem(Y);
     
@@ -3228,9 +3197,7 @@ public:
                               feature_size,
                               feature_size,
                               current_recv_part_id,
-                              layer_,
-                              cuda_stream
-                             );
+                              layer_);
             Nts->DeserializeMsgToMirror(input_mirror_trans,used_buffer[s_i]->data,used_buffer[s_i]->count);            
             cpp=i;// must specify the cpp, or the message will be flushed even though call encode function.
             NtsVar message=  EdgeComputation(input_mirror_trans,input_master_trans,Nts);
@@ -3240,8 +3207,7 @@ public:
             this->cachedData->message[layer_][i]=message;
         }            
       }
-      cuda_stream->CUDA_DEVICE_SYNCHRONIZE();      
-      cuda_stream->destory_Stream();
+      rtminfo->device_sync();
       NtsComm->release_communicator();
     }
     stream_time += MPI_Wtime();

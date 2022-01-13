@@ -46,7 +46,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/torch.h"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
-#include "torch/csrc/api/include/torch/cuda.h"
+//#include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
 #include "GraphSegment.hpp"
 
@@ -79,7 +79,7 @@ public:
     }
     void InitBlock(CSC_segment_pinned* graph_partition,runtimeinfo *rtminfo_, VertexId feature_size_, 
                     VertexId output_size_,VertexId current_process_partition_id_,
-                    VertexId current_process_layer_,Cuda_Stream * cuda_stream_){//for DEBUG
+                    VertexId current_process_layer_){//for DEBUG
         src=graph_partition->source;
         dst=graph_partition->destination;
         E=graph_partition->edge_size;
@@ -89,7 +89,7 @@ public:
         dst_start=graph_partition->dst_range[0];        
         srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start).cuda();
         dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start).cuda();
-        cuda_stream=cuda_stream_;
+        cuda_stream=rtminfo_->cuda_stream_public;
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
@@ -99,7 +99,7 @@ public:
     
     void InitBlockSimple(CSC_segment_pinned* graph_partition,runtimeinfo *rtminfo_, VertexId feature_size_, 
                     VertexId output_size_,VertexId current_process_partition_id_,
-                    VertexId current_process_layer_,Cuda_Stream * cuda_stream_){//for DEBUG
+                    VertexId current_process_layer_){//for DEBUG
         src=graph_partition->source;
         dst=graph_partition->destination;
         E=graph_partition->edge_size;
@@ -107,7 +107,7 @@ public:
         output_size=output_size_;
         src_start=graph_partition->src_range[0];
         dst_start=graph_partition->dst_range[0];
-        cuda_stream=cuda_stream_;
+        cuda_stream=rtminfo_->cuda_stream_public;
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
@@ -130,86 +130,6 @@ public:
     inline torch::Tensor PrepareMessage(torch::Tensor index, torch::Tensor &message){
         return torch::sparse_coo_tensor(index,message,
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
-    }
-    
-    inline void AggregateForward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight,torch::Tensor &message){
-         with_weight=true;
-        switch(aggtype){
-            case SD://GIN COMMNET
-                with_weight=false;
-                GatherByDstFromSrc(output, input_src, weight);   
-                break;
-            case SPsD://GAT
-                GatherByDstFromSrc(output, input_src, weight);   
-//               break;
-//            case SPtD:
-//                GatherByDstFromSrcTensorWeight(output, input_src, weight);
-                break;
-            case SWD://GCN
-                GatherByDstFromSrc(output, input_src, weight);
-                break;
-            case MD://GGNN
-                with_weight=false;
-                GatherByDstFromMessage(output, message);
-                break;
-            case MPsD:
-                printf("MPsD not implemented\n");//It can be implemented with pytorch
-                exit(0);
-                break;
-            case MPtD:
-                printf("MPtD not implemented\n");//It can be implemented with pytorch
-                break;
-            case MWD:
-                printf("MWD not implemented\n");//It can be implemented with pytorch
-                break;
-            default:
-                printf("Unknown implemented\n");
-                exit(0);
-        }
-
-    }
-    
-    //BackwardScatterGradBackToWeight(torch::Tensor &input_src,torch::Tensor &grad_output, torch::Tensor &message_grad){
-    inline void AggregateBackward(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight, 
-                                                   torch::Tensor &grad_output, torch::Tensor &weight_grad,torch::Tensor &message_grad){
-        with_weight=true;
-        switch(aggtype){
-            case SD://GIN COMMNET
-                with_weight=false;
-                GatherBySrcFromDst(output,input_src,weight);
-                break;
-            case SPsD://GAT
-                GatherBySrcFromDst(output,input_src,weight);
-                BackwardScatterGradBackToWeight(input_src, grad_output,weight_grad);
-//               break;
-//            case SPtD:   
-//                GatherBySrcFromDstTensorWeight(output,input_src,weight);
-//                BackwardScatterGradBackToTensorWeight(input_src, grad_output,weight_grad);
-                break;
-            case SWD://GCN
-               GatherBySrcFromDst(output,input_src,weight); 
-                break;
-            case MD://GGNN
-                with_weight=false;
-                BackwardScatterGradBackToMessage(grad_output,message_grad);
-                break;
-            case MPsD:
-                printf("MPsD backward not implemented\n");//It can be implemented with pytorch
-                exit(0);
-                break;
-            case MPtD:
-                printf("MPtD backward not implemented\n");//It can be implemented with pytorch
-                break;
-            case MWD:
-                printf("MWD backward not implemented\n");//It can be implemented with pytorch
-                break;
-            default:
-                printf("Unknown backward aggregate implemented\n");
-                exit(0);
-        }
-        
-        GatherBySrcFromDst(output,input_src,weight);
-        BackwardScatterGradBackToWeight(input_src, grad_output,message_grad);
     }
     
     inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){//TODO
@@ -333,19 +253,6 @@ public:
         VertexId src_end = subgraph->src_range[1];
         VertexId dst_start = subgraph->dst_range[0];
         VertexId dst_end = subgraph->dst_range[1];
-//        if(subgraph->row_offset[subgraph->batch_size_backward]>subgraph->edge_size)
-//            printf("ROW_OFFSET_END ERROR v(%d) index(%d)",subgraph->batch_size_backward,subgraph->row_offset[subgraph->batch_size_backward]);
-//            
-//        for(int i=0;i<subgraph->batch_size_backward;i++){
-//            if(subgraph->row_offset[i]>=subgraph->edge){
-//                printf("ROW_OFFSET_ERROR v(%d) index(%d)",i,subgraph->row_offset_gpu[i]);
-//            }else{
-//                for(int j=row_offset[i];j<row_offset[i+1];j++){
-//                    if(subgraph->column_indices[j]<subgraph->dst_range[0]||subgraph->column_indices[j]>=subgraph->dst_range[1])
-//                    printf("column_index_ERROR v(%d) rank(%d) index(%d) %d %d",i,j,subgraph->column_indices[j],subgraph->dst_range[0],subgraph->dst_range[1]);
-//                }
-//            }
-//        }
         if(feature_size>512||!rtminfo->optim_kernel_enable){      
             cuda_stream->Gather_By_Src_From_Dst(input_buffer,
                                output_buffer,
@@ -376,8 +283,6 @@ public:
         }
     }
 
-    
-    
     inline torch::Tensor DeSerializeTensorToGPU(torch::Tensor &var_cpu){
         
          torch::Tensor DeSe_data=torch::zeros_like(var_cpu.cuda(),at::TensorOptions().device_index(0).requires_grad(true));
@@ -521,14 +426,6 @@ public:
                                  feature_size, sync);
     }
     
-    inline void MoveDataInGPU(float* th, torch::Tensor &td, bool sync=false){
-            cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
-                                 td.packed_accessor<float, 2>().data(),
-                                 subgraph->src_range[0],
-                                 subgraph->src_range[1],
-                                 feature_size, sync);
-    }
-    
     inline int BYSRC(){
         return 0;
     }
@@ -605,7 +502,6 @@ struct Parameter : torch::nn::Module
     int row, col;
     NtsVar W_gradient;
     NtsVar W_g;
-    //gpiu_processor *gp;
     ValueType alpha;
     ValueType beta1;
     ValueType beta2;
@@ -654,8 +550,6 @@ struct Parameter : torch::nn::Module
         col = h;
 	ValueType scale=sqrt(6.0/(w+h));
         W = register_parameter("W", (2*scale)*torch::rand({w, h}, torch::kFloat)-scale*torch::ones({w,h},torch::kFloat));
-//	ValueType scale=sqrt(6.0/(w+h));
-//	W=(2*scale)*W-scale;
         W_from = new ValueType[w * h];
         w_gradient_buffer = new ValueType[w * h];
         memset(w_gradient_buffer, 0, sizeof(float) * w * h);
@@ -665,26 +559,6 @@ struct Parameter : torch::nn::Module
         l_r=l_r_;
         curr_epoch=0;
         decay_epoch=-1;
-//	M=torch::zeros({w,h}, torch::kFloat);
-//        V=torch::zeros({w,h}, torch::kFloat);
-//	alpha=0.01;
-//        beta1=0.9;
-//        beta2=0.999;
-//        epsilon=1e-8;
-//	alpha_t=0.01;
-//        beta1_t=0.9;
-//        beta2_t=0.999;
-//        epsilon_t=1e-8;
-    }
-    void Adam_to_GPU(){
-        M_GPU=M.cuda();
-        V_GPU=V.cuda();
-        W_g=W_gradient.cuda();
-        
-    }
-    void set_decay(ValueType decay_rate_,ValueType decay_epoch_){
-        decay_rate=decay_rate_;
-        decay_epoch=decay_epoch_;
     }
     void init_parameter()
     {
@@ -695,13 +569,47 @@ struct Parameter : torch::nn::Module
         W_gradient.set_data(from);
         network_simple->all_reduce_sum(W_gradient.accessor<ValueType, 2>().data());
     }
-//    void resetW(size_t w, size_t h, ValueType *buffer)
-//    {
-//        memcpy(W_from, buffer, sizeof(ValueType) * w * h);
-//        NtsVar new_weight_tensor = torch::from_blob(W_from, {w, h});
-//        W.set_data(new_weight_tensor);
-//    }
+    void set_decay(ValueType decay_rate_,ValueType decay_epoch_){
+        decay_rate=decay_rate_;
+        decay_epoch=decay_epoch_;
+    }
+    void next(){
+        if(decay_epoch!=-1&&(curr_epoch!=0&&curr_epoch%decay_epoch==0)){
+            alpha_t*=decay_rate;
+        }
+        alpha=alpha_t*sqrt(1-beta2)/(1-beta1);
+        beta1*=beta1_t;
+        beta2*=beta2_t;
+        curr_epoch++;
+    }
+    NtsVar forward(NtsVar x)
+    {
 
+        NtsVar x1 = x.mm(W);
+        return x1;
+    }
+    void learnC2C_with_decay_Adam()
+    {
+        W_g=W_gradient+weight_decay*W;	
+        M=beta1*M+(1-beta1)*W_g;
+        V=beta2*V+(1-beta2)*W_g*W_g;
+        //NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
+        W.set_data(W - alpha*M/(torch::sqrt(V)+epsilon));
+    }    
+    void learnC2C_with_decay_SGD(ValueType learning_rate,ValueType weight_decay)
+    {
+        NtsVar tmp = W_gradient;
+        NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
+        W.set_data(a);
+    }
+    
+    
+    void Adam_to_GPU(){
+        M_GPU=M.cuda();
+        V_GPU=V.cuda();
+        W_g=W_gradient.cuda();
+        
+    }
     void learnC2G(ValueType learning_rate)
     {
         NtsVar tmp = W_gradient.cuda();
@@ -715,26 +623,8 @@ struct Parameter : torch::nn::Module
         NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
         W.set_data(a);
     }
-     void learnC2C_with_decay_SGD(ValueType learning_rate,ValueType weight_decay)
-    {
-        NtsVar tmp = W_gradient;
-        NtsVar a = (W - (tmp * learning_rate))*(1-weight_decay);
-        W.set_data(a);
-    }
-    void learnC2C_with_decay_Adam()
-    {
-//        assert(alpha>0.0);
-        W_g=W_gradient+weight_decay*W;	
-        M=beta1*M+(1-beta1)*W_g;
-        V=beta2*V+(1-beta2)*W_g*W_g;
-        //NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);
-        W.set_data(W - alpha*M/(torch::sqrt(V)+epsilon));
-    }
     void learnC2G_with_decay_Adam()
     {
-//        assert(alpha>0.0);
-//        W_g.set_data(W_gradient.cuda());
-//        NtsVar s=W;
         W_g.set_data(W);
         W_g=W_g*weight_decay;
         W_g=W_g+W_gradient.cuda();//+weight_decay;
@@ -744,32 +634,12 @@ struct Parameter : torch::nn::Module
     }
     void learn_local_with_decay_Adam()
     {
-//        assert(alpha>0.0);
-//        W_g.set_data(W_gradient.cuda());
-//        NtsVar s=W;
         W_g.set_data(W);
         W_g=W_g*weight_decay;
         W_g=W_g+W.grad();//+weight_decay;
         M_GPU=beta1*M_GPU+(1-beta1)*W_g;
         V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
         W.set_data(W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon));
-    }
-    void next(){
-        if(decay_epoch!=-1&&(curr_epoch!=0&&curr_epoch%decay_epoch==0)){
-            alpha_t*=decay_rate;
-           // printf("123123123123123123123131221313123123\n");
-        }
-        alpha=alpha_t*sqrt(1-beta2)/(1-beta1);
-        beta1*=beta1_t;
-        beta2*=beta2_t;
-        curr_epoch++;
-    }
-
-    NtsVar forward(NtsVar x)
-    {
-
-        NtsVar x1 = x.mm(W);
-        return x1;
     }
 };
 

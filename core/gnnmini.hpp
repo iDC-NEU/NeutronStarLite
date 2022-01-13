@@ -26,7 +26,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include <unistd.h>
 #include <math.h>
 //#include "comm/Network.hpp"
-#include "cuda/test.hpp"
+//#include "cuda/test.hpp"
 #include "core/input.hpp"
 
 long changelable(std::string la)
@@ -297,9 +297,6 @@ public:
                     VertexId src_trans=src-graph_->partition_offset[recv_id];
                     float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
                     float* local_output=Y_buffer+dst_trans*feature_size;
-//                    if(dst==0&&recv_id==0){
-//                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
-//                    }
                     comp(local_input,local_output,norm_degree(src,dst),feature_size);
                     //comp(local_input,local_output,norm_degree(src,dst),feature_size);
                 }
@@ -620,13 +617,6 @@ public:
             }
             //graph_partitions[i]->getDevicePointerAll();
             graph_partitions[i]->CopyGraphToDevice();
-//                int s=0;
-//                for(int l=graph_partitions[i]->src_range[0];l<graph_partitions[i]->src_range[1];l++){
-//                    if(graph_partitions[i]->src_get_active(l)){
-//                        s++;
-//                    }
-//                }
-//                printf("debug_pre %d\n",s);
         }
         if(GPU_T==dt){
             int max_batch_size = 0;

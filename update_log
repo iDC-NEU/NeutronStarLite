@@ -1,0 +1,9 @@
+1.13:
+
+1) remove legacy code in cuda/test.hpp,test_propagate.cu, and propagate.cuh
+
+2) move cuda stream to NtsScheduler.hpp and GraphSegment.hpp
+
+3) achieve GPU codes and CPU codes in gnnmini.hpp
+
+ 

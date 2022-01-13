@@ -241,29 +241,6 @@ typedef struct graph_Tensor_Segment_pinned
    } 
 } CSC_segment_pinned;
 
-typedef struct rep_graph
-{
-  VertexId *src_rep;                 //rep_edge_size
-  VertexId *dst_rep;                 //rep_edge_size
-  std::vector<VertexId> src_rep_vec; //rep_edge_size
-  std::vector<VertexId> dst_rep_vec; //rep_edge_size
-  VertexId *src_map;                 //rep_node_size*2
-  VertexId *dst_map;
-  float *weight_rep; //rep_edge_size
-  VertexId rep_edge_size;
-  VertexId rep_node_size;
-  VertexId feature_size;
-  float *rep_feature;
-  float *rep_feature_gpu_buffer;
-  float *output_buffer_gpu;
-  VertexId output_size;
-  VertexId *src_rep_gpu;
-  VertexId *dst_rep_gpu;
-  VertexId *src_map_gpu;
-  float *weight_rep_gpu;
-
-} graph_replication;
-
 typedef struct InputInfo
 {
   size_t vertices;
@@ -401,6 +378,23 @@ typedef struct runtimeInfo
   bool forward;
   bool lock_free;
   bool optim_kernel_enable;
+  Cuda_Stream *cuda_stream_public;
+   void init_rtminfo()
+  {
+    process_local = false;
+    process_overlap = false;
+    epoch = -1;
+    curr_layer = -1;
+    embedding_size = -1;
+    copy_data = false;
+    with_cuda = false;
+    lock_free = false;
+    cuda_stream_public=new Cuda_Stream();
+    printf("called CUDA_STREAM\n");
+  }
+  void device_sync(){
+      cuda_stream_public->CUDA_DEVICE_SYNCHRONIZE();
+  } 
   void set(inputinfo *gnncfg){
         this->process_local = gnncfg->process_local;
         this->reduce_comm = gnncfg->process_local;

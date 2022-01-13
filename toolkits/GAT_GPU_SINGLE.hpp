@@ -176,7 +176,7 @@ NtsVar edge_Forward(NtsVar &master_input){
      int feature_size=src_input_transfered.size(1);
      
      graph->Nts->InitBlock(subgraphs[0], graph->rtminfo, feature_size,
-                            feature_size, 0, layer, graph->cuda_stream_public);
+                            feature_size, 0, layer);
      mirror_in[0]=graph->Nts->NewKeyTensor(src_input_transfered);
      mirror_in[0].set_data(src_input_transfered);
      NtsVar m_i_t=graph->Nts->ScatterSrc(mirror_in[0]);
@@ -193,8 +193,6 @@ NtsVar edge_Forward(NtsVar &master_input){
 
 NtsVar edge_Backward(NtsVar &message_grad, NtsVar &src_input_trans, 
                                     NtsScheduler* nts){
-    //printf("before\n");
-    
      size_t layer =graph->rtminfo->curr_layer;
      src_input_trans=mirror_in[pos(graph->cpp,layer)];
      std::cout<<"a.grad "<<src_input_trans.grad().dim()<<std::endl;
