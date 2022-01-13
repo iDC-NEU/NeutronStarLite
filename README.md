@@ -32,6 +32,10 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 export PATH=$MPI_HOME/bin:$CUDA_HOME/bin:$PATH
 ```
 
+
+configure "CUDA_ENABLE" flag in ./cuda/cuda_type.h (line 20) to '1' or '0' to enable or disable GPU compilation.
+
+
 To build:
 ```
 mkdir build
