@@ -414,7 +414,7 @@ public:
     }    
     
   
-    
+#if CUDA_ENABLE
    inline void ForwardSingle(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int feature_size=X.size(1);
@@ -459,11 +459,7 @@ public:
     
    inline void GraphPropagateForward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-       //Process_GPU_overlap_sync_compute_explict(X,Y,graph_partitions);
-       //int current_layer_size = ;//graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         int feature_size=X.size(1);
-        bool selective = graph_->rtminfo->reduce_comm;
-        int layer = graph_->rtminfo->curr_layer;
         NtsVar X_cpu=X.cpu();
         float *X_buffered=X_cpu.accessor<float,2>().data();
         
@@ -481,11 +477,7 @@ public:
 
    inline void GraphPropagateBackward(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
-       //Process_GPU_overlap_lite(X,Y,graph_partitions);
-       //Process_GPU_overlap_explict(X,Y,graph_partitions);
-               int feature_size=X.size(1);
-        bool selective = graph_->rtminfo->reduce_comm;
-        int layer = graph_->rtminfo->curr_layer;
+        int feature_size=X.size(1);
         //if (!selective)
         {       graph_->compute_sync_decoupled<int, float>(
                 X,
@@ -529,8 +521,6 @@ public:
                                                std::function<NtsVar(NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeBackward)
     {
         int feature_size= src_input_origin.size(1);//= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        bool selective = graph_->rtminfo->reduce_comm;
-            //printf("done?\n");
             graph_->compute_sync_decoupled_edge<int, float>(
                 dst_grad_input,
                 src_input_origin,
@@ -549,7 +539,7 @@ public:
             //printf("done!\n");
         
     }
-   
+#endif   
    
    void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt, std::function<float(VertexId,VertexId)>weight_compute)
     {
@@ -618,6 +608,7 @@ public:
             //graph_partitions[i]->getDevicePointerAll();
             graph_partitions[i]->CopyGraphToDevice();
         }
+#if CUDA_ENABLE        
         if(GPU_T==dt){
             int max_batch_size = 0;
             for (int i = 0; i < graph_partitions.size(); i++)
@@ -626,11 +617,14 @@ public:
             }
             graph_->output_gpu_buffered =graph_->Nts->NewLeafTensor({max_batch_size, graph_->gnnctx->max_layer},torch::DeviceType::CUDA);
         }
+#endif        
         delete[] tmp_column_offset;
         delete[] tmp_row_offset;
         if (graph_->partition_id == 0)
             printf("GNNmini::Preprocessing[Graph Segments Prepared]\n");
     }
+   
+   
    void GenerateMessageBitmap(std::vector<CSC_segment_pinned *> &graph_partitions){
         int feature_size=1;
         graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
@@ -686,9 +680,6 @@ public:
                if(subgraphs[i]->dst_get_active(j)){
                    count_act_dst++;
                }
-//               if(subgraphs[i]->to_this_part_get_active(j)){
-//                   count_act_master++;
-//               }
            }
            for(int j=subgraphs[i]->src_range[0];j<subgraphs[i]->src_range[1];j++){
                if(subgraphs[i]->src_get_active(j)){

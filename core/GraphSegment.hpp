@@ -119,11 +119,13 @@ typedef struct graph_Tensor_Segment_pinned
     source_active->clear();
     destination_active->clear();
     forward_active->clear();
-    
+#if CUDA_ENABLE   
     if(dt==GPU_T){  
         column_offset = (VertexId *)cudaMallocPinned((batch_size_forward+1) * sizeof(VertexId));           
         row_offset = (VertexId *)cudaMallocPinned((batch_size_backward+1) * sizeof(VertexId));///  
     }else
+#endif
+        
     if(dt==CPU_T){
         column_offset = (VertexId *)malloc((batch_size_forward+1) * sizeof(VertexId));           
         row_offset = (VertexId *)malloc((batch_size_backward+1) * sizeof(VertexId));/// 
@@ -131,8 +133,10 @@ typedef struct graph_Tensor_Segment_pinned
         assert(NOT_SUPPORT_DEVICE_TYPE);
     } 
   }
+  
+  
     void allocEdgeAssociateData(){
-     
+#if CUDA_ENABLE     
     if(dt==GPU_T){    
     row_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
     edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(float));
@@ -144,6 +148,7 @@ typedef struct graph_Tensor_Segment_pinned
     source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source_backward  = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     }else
+#endif
     if(dt==CPU_T){
         row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
     edge_weight_forward = (float *)malloc((edge_size + 1) * sizeof(float));
@@ -160,7 +165,7 @@ typedef struct graph_Tensor_Segment_pinned
 
   }
     void getDevicePointerAll(){
-    
+#if CUDA_ENABLE   
     if(dt==GPU_T){ 
         column_offset_gpu = (VertexId *)getDevicePointer(column_offset);
         row_indices_gpu = (VertexId *)getDevicePointer(row_indices);
@@ -174,6 +179,7 @@ typedef struct graph_Tensor_Segment_pinned
         destination_gpu = (long *)getDevicePointer(destination);///
         source_backward_gpu=(long*)getDevicePointer(source_backward);
     }else
+#endif
     if(dt==CPU_T){
        ;     
     }else{
@@ -181,7 +187,7 @@ typedef struct graph_Tensor_Segment_pinned
     }
   }
     void CopyGraphToDevice(){
-    
+#if CUDA_ENABLE    
     if(dt==GPU_T){ 
         column_offset_gpu =(VertexId*)cudaMallocGPU((batch_size_forward + 1) * sizeof(VertexId));
         row_indices_gpu = (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
@@ -203,14 +209,9 @@ typedef struct graph_Tensor_Segment_pinned
         source_gpu = (long *)getDevicePointer(source);///
         destination_gpu = (long *)getDevicePointer(destination);///
         source_backward_gpu=(long*)getDevicePointer(source_backward);
-        
-//        destination_gpu = (long *)cudaMallocGPU((edge_size + 1) * sizeof(long));
-//        source_backward_gpu = (long *)cudaMallocGPU((edge_size + 1) * sizeof(long));
-//        move_bytes_in(destination_gpu,destination,(edge_size + 1) * sizeof(long));
-//        move_bytes_in(source_backward_gpu,source_backward,(edge_size + 1) * sizeof(long));
-        
 
     }else
+#endif
     if(dt==CPU_T){
        ;     
     }else{
@@ -378,7 +379,10 @@ typedef struct runtimeInfo
   bool forward;
   bool lock_free;
   bool optim_kernel_enable;
+#if CUDA_ENABLE  
   Cuda_Stream *cuda_stream_public;
+#endif
+  
    void init_rtminfo()
   {
     process_local = false;
@@ -389,12 +393,17 @@ typedef struct runtimeInfo
     copy_data = false;
     with_cuda = false;
     lock_free = false;
+#if CUDA_ENABLE     
     cuda_stream_public=new Cuda_Stream();
     printf("called CUDA_STREAM\n");
+#endif
   }
+#if CUDA_ENABLE    
   void device_sync(){
       cuda_stream_public->CUDA_DEVICE_SYNCHRONIZE();
-  } 
+  }
+#endif
+  
   void set(inputinfo *gnncfg){
         this->process_local = gnncfg->process_local;
         this->reduce_comm = gnncfg->process_local;
@@ -404,6 +413,7 @@ typedef struct runtimeInfo
   }
 
 } runtimeinfo;
+
 typedef struct GNNContext
 {
   std::vector<int> layer_size;

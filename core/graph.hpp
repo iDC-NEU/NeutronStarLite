@@ -2609,7 +2609,7 @@ public:
        
         
         
-        
+#if CUDA_ENABLE       
    template <typename R, typename M>
   R compute_sync_decoupled(NtsVar &input_gpu_or_cpu,
                          std::vector<CSC_segment_pinned *> &graph_partitions,
@@ -3220,7 +3220,7 @@ public:
 #endif
     return global_reducer;
   }
-        
+#endif       
         
        
   void generate_backward_structure()

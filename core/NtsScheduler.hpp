@@ -41,14 +41,13 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/mpi.hpp"
 #include "core/time.hpp"
 #include "core/type.hpp"
-#include "cuda/test.hpp"
-#include "comm/Network.hpp"
+
 #include "torch/torch.h"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
-//#include "torch/csrc/api/include/torch/cuda.h"
 #include "ATen/ATen.h"
 #include "GraphSegment.hpp"
+#include "comm/Network.hpp"
 
 typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
@@ -86,10 +85,15 @@ public:
         feature_size=feature_size_;
         output_size=output_size_;
         src_start=graph_partition->src_range[0];
-        dst_start=graph_partition->dst_range[0];        
+        dst_start=graph_partition->dst_range[0];
+#if CUDA_ENABLE         
         srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start).cuda();
         dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start).cuda();
         cuda_stream=rtminfo_->cuda_stream_public;
+#else
+        srcT=(torch::from_blob(src, {E, 1},torch::kLong)-(long)src_start);
+        dstT=(torch::from_blob(dst, {E, 1},torch::kLong)-(long)dst_start);
+#endif
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
@@ -107,7 +111,9 @@ public:
         output_size=output_size_;
         src_start=graph_partition->src_range[0];
         dst_start=graph_partition->dst_range[0];
+#if CUDA_ENABLE 
         cuda_stream=rtminfo_->cuda_stream_public;
+#endif
         subgraph=graph_partition;
         current_process_layer=current_process_layer_;
         current_process_partition_id=current_process_partition_id_;
@@ -117,12 +123,12 @@ public:
     
     
     inline torch::Tensor ScatterSrc(torch::Tensor &src_input){
-        //srcT=torch::from_blob(src, {E, 1},torch::kInt64).cuda();
         return src_input.gather(0,(srcT).expand({srcT.size(0),src_input.size(1)}));
     }
     inline torch::Tensor ScatterDst(torch::Tensor &dst_input){
         return dst_input.gather(0,(dstT).expand({dstT.size(0),dst_input.size(1)}));
     }
+#if CUDA_ENABLE
     inline torch::Tensor PrepareMessage(torch::Tensor &message){
         return torch::sparse_coo_tensor(torch::cat({srcT,dstT},1).t(),message,
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
@@ -130,8 +136,7 @@ public:
     inline torch::Tensor PrepareMessage(torch::Tensor index, torch::Tensor &message){
         return torch::sparse_coo_tensor(index,message,
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
-    }
-    
+    }  
     inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){//TODO
         float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
         float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
@@ -240,7 +245,6 @@ public:
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();   
     }
     
- 
     inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TO DO
         float *input_buffer=getWritableBuffer(input_src);
         float *weight_buffer=getWritableBuffer(weight);
@@ -311,20 +315,6 @@ public:
             return DeSe_data;
         }
     }
-
-    void ZeroVar(NtsVar& t){
-        t.zero_();
-    }
-    //zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));  
-    void ZeroVarMem(NtsVar& t,DeviceLocation dl=GPU_T){
-        if(dl==GPU_T)
-            zero_buffer(t.packed_accessor<float,2>().data(), t.size(0) * t.size(1));
-        else if (dl=CPU_T)
-            memset(t.accessor<float,2>().data(), 0, t.size(0) * t.size(1));
-        else{
-            printf("ZeroVarMem Error\n");
-        }
-    }
     char* getPinnedDevicePointer(char* h_ptr){
         return (char *)getDevicePointer(h_ptr);
     }
@@ -344,50 +334,94 @@ public:
     inline void DeviceSynchronize(){
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     }
-        inline torch::Tensor NewKeyTensor(torch::Tensor &mould,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
-        
+    void SerializeMirrorToMsg(float* th, torch::Tensor &td, bool sync=false){
+        cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
+                                 td.packed_accessor<float, 2>().data(),
+                                 subgraph->src_range[0],
+                                 subgraph->src_range[1],
+                                 feature_size, sync);
+    }
+#endif
+    
+    void ZeroVar(NtsVar& t){
+        t.zero_();
+    }
+    //zero_buffer(local_data_buffer, (partition_offset[partition_id + 1] - partition_offset[partition_id]) * (feature_size));  
+    void ZeroVarMem(NtsVar& t,DeviceLocation dl=GPU_T){
+#if CUDA_ENABLE
+        if(dl==GPU_T)
+            zero_buffer(t.packed_accessor<float,2>().data(), t.size(0) * t.size(1));
+        else 
+#endif
+        if (dl=CPU_T)
+            memset(t.accessor<float,2>().data(), 0, t.size(0) * t.size(1));
+        else{
+            printf("ZeroVarMem Error\n");
+        }
+    }
+
+    
+    inline torch::Tensor NewKeyTensor(torch::Tensor &mould,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE        
         if(torch::DeviceType::CUDA==location){
            return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));  
-        }else{
+        }else
+#endif            
+        {
+          // assert(!torch::DeviceType location==torch::DeviceType::CUDA); 
            return torch::zeros_like(mould,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));  
         }
     }
      inline torch::Tensor NewKeyTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
            return torch::zeros(size,at::TensorOptions().device_index(device_id).requires_grad(true).dtype(torch::kFloat));
-        }else{
+        }else
+#endif
+        {
            return torch::zeros(size,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));
         }
     }
      
      inline torch::Tensor NewLeafTensor(torch::Tensor &mould, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
-        
+#if CUDA_ENABLE         
         if(torch::DeviceType::CUDA==location){
              return torch::zeros_like(mould,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));  
-        }else{
+        }else
+#endif
+        {
              return torch::zeros_like(mould,at::TensorOptions().dtype(torch::kFloat));  
         }
     }
      inline torch::Tensor NewLeafTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
            return torch::zeros(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
-        }else{
+        }else
+#endif
+        {
            return torch::zeros(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
     inline torch::Tensor NewKeyTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
             return torch::from_blob(data,size,at::TensorOptions().requires_grad(true).device_index(device_id).dtype(torch::kFloat));
-        }else{
+        }else
+#endif
+        {
             return torch::from_blob(data,size,at::TensorOptions().requires_grad(true).dtype(torch::kFloat));    
         }
 
     }
     inline torch::Tensor NewLeafTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
-        return torch::from_blob(data,size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
-        }else{
-        return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kFloat));    
+            return torch::from_blob(data,size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
+        }else
+#endif
+        {
+            return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kFloat));    
         }
     } 
     inline torch::Tensor NewLeafKLongTensor(long* data,at::IntArrayRef size){
@@ -397,17 +431,23 @@ public:
         return torch::from_blob(data,size,at::TensorOptions().dtype(torch::kInt32));    
     } 
     inline torch::Tensor NewOnesTensor(at::IntArrayRef size, torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
            return torch::ones(size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
-        }else{
+        }else
+#endif
+        {
            return torch::ones(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
     inline float* getWritableBuffer(torch::Tensor &T_var,torch::DeviceType location=torch::DeviceType::CUDA){
+#if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
-        return T_var.packed_accessor<float,2>().data();
-        }else{
-        return T_var.accessor<float,2>().data();    
+            return T_var.packed_accessor<float,2>().data();
+        }else
+#endif
+        {
+            return T_var.accessor<float,2>().data();    
         }
     }
     
@@ -418,13 +458,7 @@ public:
    std::string VarEncode(std::string name){
       return name.append("_").append(std::to_string(current_process_layer)).append("_").append(std::to_string(current_process_partition_id));
    }
-    void SerializeMirrorToMsg(float* th, torch::Tensor &td, bool sync=false){
-            cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
-                                 td.packed_accessor<float, 2>().data(),
-                                 subgraph->src_range[0],
-                                 subgraph->src_range[1],
-                                 feature_size, sync);
-    }
+
     
     inline int BYSRC(){
         return 0;
@@ -446,11 +480,13 @@ public:
     bool with_weight;
     VertexId current_process_partition_id;
     VertexId current_process_layer;
+#if CUDA_ENABLE
     Cuda_Stream * cuda_stream;
+#endif
     CSC_segment_pinned*  subgraph;
-    std::map<std::string,torch::Tensor>KeyVar;//key roles in the compute graph
-    std::map<std::string,torch::Tensor>InterVar;//key roles in the compute graph
-    std::map<std::string,torch::Tensor>CacheVar;//used for caching data;
+    std::map<std::string, torch::Tensor>KeyVar; //key roles in the compute graph
+    std::map<std::string, torch::Tensor>InterVar; //key roles in the compute graph
+    std::map<std::string, torch::Tensor>CacheVar; //used for caching data;
     runtimeinfo *rtminfo;
     AGGTYPE aggtype;
     //src_input.cpu() dst_input.cpu()
@@ -603,7 +639,7 @@ struct Parameter : torch::nn::Module
         W.set_data(a);
     }
     
-    
+#if CUDA_ENABLE    
     void Adam_to_GPU(){
         M_GPU=M.cuda();
         V_GPU=V.cuda();
@@ -641,6 +677,7 @@ struct Parameter : torch::nn::Module
         V_GPU=beta2*V_GPU+(1-beta2)*W_g*W_g;
         W.set_data(W - alpha*M_GPU/(torch::sqrt(V_GPU)+epsilon));
     }
+#endif
 };
 
 #endif

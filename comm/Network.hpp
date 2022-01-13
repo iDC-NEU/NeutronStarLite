@@ -83,6 +83,7 @@ struct MessageBuffer
   }
   void resize_pinned(long new_capacity)
   {
+#if CUDA_ENABLE
     if ((new_capacity > capacity))
     {
       if (!pinned)
@@ -96,6 +97,17 @@ struct MessageBuffer
       capacity = new_capacity; //**********************************************************************8
       pinned = true;
     }
+#endif
+    if (new_capacity > capacity)
+    {
+      char *new_data = NULL;
+      new_data = (char *)numa_realloc(data, capacity, new_capacity);
+      //printf("alloc success%d  %d\n",new_capacity, new_data != NULL);
+      assert(new_data != NULL);
+      data = new_data;
+      capacity = new_capacity; //**********************************************************************8
+      pinned = false;
+    } 
   }
   //template <typename MsgData>
   int *getMsgUnit(int i, int msg_unit_size)
@@ -165,16 +177,28 @@ public:
         if(et==Master2Mirror){
             if(CPU_T==dl){
                 init_message_buffer_master_to_mirror();
-            }else
-            if(GPU_T==dl){
+            }
+#if CUDA_ENABLE
+            else if(GPU_T==dl){
                 init_message_buffer_master_to_mirror_pipe();
+            }
+#endif
+            else{
+                printf("CUDA disable\n");
+                assert(0);
             }
         }else if(Mirror2Master==et){
             if(CPU_T==dl){
                 init_message_buffer_mirror_to_master();
-            }else
-            if(GPU_T==dl){
+            }
+#if CUDA_ENABLE
+            else if(GPU_T==dl){
                 init_message_buffer_mirror_to_master_pipe();
+            }
+#endif
+            else{
+                printf("CUDA disable\n");
+                assert(0);
             }
         }
          
