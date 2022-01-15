@@ -64,7 +64,7 @@ public:
         graph->rtminfo->copy_data = false;
         graph->rtminfo->process_overlap = graph->config->overlap;
         graph->rtminfo->with_weight=true;
-        graph->rtminfo->with_cuda=true;
+        graph->rtminfo->with_cuda=false;
         graph->rtminfo->lock_free=graph->config->lock_free;
        
     } 
@@ -214,6 +214,7 @@ void Backward(){
 void Update(){
     for(int i=0;i<P.size()-1;i++){
         P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
+        //P[i]->learnC2C_with_decay_SGD(learn_rate,weight_decay);
         P[i]->learnC2C_with_decay_Adam();
         P[i]->next();
         //P[i]->learnC2C_with_decay(learn_rate,weight_decay);
@@ -222,7 +223,7 @@ void Update(){
     }
 }
 void Forward(){
-//    graph->rtminfo->forward = true;    
+    graph->rtminfo->forward = true;    
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
     graph->rtminfo->curr_layer = i;
     if(i!=0){
@@ -238,7 +239,7 @@ void Infer_Forward(){
     graph->rtminfo->forward = true;
     for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
     graph->rtminfo->curr_layer = i;
-    gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
+    gt->PropagateForwardCPU_Lockfree(X[i], Y[i],subgraphs);
     X[i+1]=vertexForward(Y[i],X[i]);
     }
 }
@@ -248,6 +249,7 @@ void run()
     if (graph->partition_id == 0)
         printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n",iterations);
        // graph->print_info();
+    //std::cout <<"LOCAL EDGE NUM"<<graph->gnnctx->l_e_num<<std::endl;
         
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++){
@@ -270,6 +272,7 @@ void run()
            std::cout<<"Nts::Running.Epoch["<<i_i<<"]:loss\t"<<loss<< std::endl;       
     }
     exec_time += get_time();
+    
     delete active;
 }
 

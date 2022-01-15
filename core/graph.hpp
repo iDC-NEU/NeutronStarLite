@@ -2607,9 +2607,166 @@ public:
     }
 #endif
     return global_reducer;
-  } 
-       
+  }
+
         
+    // process edges
+  template <typename R, typename M>
+  R get_from_dep_neighbor(std::function<void(VertexId,int)> sparse_signal, 
+                                std::function<void(VertexId, M*, VertexId)> sparse_slot,
+                                std::vector<CSC_segment_pinned *> &graph_partitions,
+                                int feature_size,
+                                Bitmap *active, 
+                                Bitmap *dense_selective = nullptr)
+  {
+    omp_set_num_threads(threads);
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    NtsComm->init_layer_all(feature_size,Master2Mirror,CPU_T);
+    //printf("call lock_free forward %d\n",rtminfo->lock_free);
+    if(rtminfo->lock_free){
+        NtsComm->run_all_master_to_mirror_lock_free_no_wait();
+    }else{
+        NtsComm->run_all_master_to_mirror_no_wait();
+    }
+    R reducer = 0;
+    
+    size_t basic_chunk = 64;
+    {
+        
+        if(rtminfo->lock_free){
+            for(int step=0;step<partitions;step++){
+                int trigger_partition=(partition_id-step+partitions)%partitions;
+                current_send_part_id = trigger_partition;
+                NtsComm->set_current_send_partition(current_send_part_id);
+#pragma omp parallel for
+                for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk)
+                {
+                    VertexId v_i = begin_v_i;
+                    unsigned long word = active->data[WORD_OFFSET(v_i)];
+                    while (word != 0)
+                    {
+                        if (word & 1)
+                        {
+                            sparse_signal(v_i,current_send_part_id);
+                        }
+                        v_i++;
+                        word = word >> 1;
+                    }
+                }
+                NtsComm->trigger_one_partition(trigger_partition,trigger_partition==current_send_part_id);
+            }
+        }else{
+            current_send_part_id = partition_id;
+            NtsComm->set_current_send_partition(current_send_part_id);
+#pragma omp parallel for
+            for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk)
+            {
+                VertexId v_i = begin_v_i;
+                unsigned long word = active->data[WORD_OFFSET(v_i)];
+                while (word != 0)
+                {
+                    if (word & 1)
+                    {
+                        sparse_signal(v_i,-1);
+                    }
+                    v_i++;
+                    word = word >> 1;
+                }
+            }
+            for(int step=0;step<partitions;step++){
+                int trigger_partition=(partition_id-step+partitions)%partitions;
+                NtsComm->trigger_one_partition(trigger_partition,trigger_partition==current_send_part_id);
+            }
+        }
+     
+      for (int step = 0; step < partitions; step++)
+      {
+        int i = -1;
+        MessageBuffer **used_buffer;      
+        used_buffer=NtsComm->recv_one_partition(i,step);
+        
+        cpu_recv_message_index.resize(partition_offset[i+1]-partition_offset[i]);
+        memset(cpu_recv_message_index.data(),0,sizeof(VertexId)*cpu_recv_message_index.size());
+        for (int s_i = 0; s_i < sockets; s_i++)
+        {
+          char *buffer = used_buffer[s_i]->data;
+          size_t buffer_size = used_buffer[s_i]->count;
+          for (int t_i = 0; t_i < threads; t_i++)
+          {
+            // int s_i = get_socket_id(t_i);
+            int s_j = get_socket_offset(t_i);
+            VertexId partition_size = buffer_size;
+            thread_state[t_i]->curr = partition_size / threads_per_socket / basic_chunk * basic_chunk * s_j;
+            thread_state[t_i]->end = partition_size / threads_per_socket / basic_chunk * basic_chunk * (s_j + 1);
+            if (s_j == threads_per_socket - 1)
+            {
+              thread_state[t_i]->end = buffer_size;
+            }
+            thread_state[t_i]->status = WORKING;
+          }
+#pragma omp parallel reduction(+ \
+                               : reducer)
+          {
+            R local_reducer = 0;
+            int thread_id = omp_get_thread_num();
+            int s_i = get_socket_id(thread_id);
+            while (true)
+            {
+              VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr, basic_chunk);
+              if (b_i >= thread_state[thread_id]->end)
+                break;
+              VertexId begin_b_i = b_i;
+              VertexId end_b_i = b_i + basic_chunk;
+              if (end_b_i > thread_state[thread_id]->end)
+              {
+                end_b_i = thread_state[thread_id]->end;
+              }
+              for (b_i = begin_b_i; b_i < end_b_i; b_i++)
+              {
+                long index= (long)b_i*sizeofM<M>(feature_size);
+                VertexId v_i = *((VertexId*)(buffer+index));
+                M* msg_data = (M*)(buffer+index+sizeof(VertexId));
+                if (outgoing_adj_bitmap[s_i]->get_bit(v_i))
+                {
+                   sparse_slot(v_i,msg_data,i);
+                   // VertexId v_trans=v_i-partition_offset[i];
+                   // cpu_recv_message_index[v_trans]=b_i;
+                }
+              }
+            }
+            reducer += local_reducer;
+          }
+//#pragma omp parallel for     
+//          for (VertexId begin_v_i = partition_offset[partition_id]; begin_v_i < partition_offset[partition_id + 1]; begin_v_i += basic_chunk){
+//                VertexId v_i = begin_v_i;
+//                unsigned long word = active->data[WORD_OFFSET(v_i)];
+//                while (word != 0){
+//                    if (word & 1){
+//                    sparse_slot(v_i,graph_partitions[i],buffer,cpu_recv_message_index,i);
+//                    }
+//                    v_i++;
+//                    word = word >> 1;
+//                }
+//          }          
+          
+        }
+      }
+      NtsComm->release_communicator();
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0)
+    {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }        
         
 #if CUDA_ENABLE       
    template <typename R, typename M>

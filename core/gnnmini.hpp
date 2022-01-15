@@ -276,72 +276,7 @@ public:
     }//graph propagation engine    
     
     
-    
-    void PropagateForwardCPU_debug(NtsVar &X, NtsVar &Y,
-                                  std::vector<CSC_segment_pinned *> &subgraphs){
-       float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
-       float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
-       memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
-       //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-       int feature_size=X.size(1);
-       //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
-       graph_->process_edges_forward_decoupled_dynamic_length<int,float>( // For EACH Vertex Processing
-           [&](VertexId src) {
-                   //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-                  graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
-               },
-           [&](VertexId dst, CSC_segment_pinned* subgraph,char* recv_buffer, std::vector<VertexId>& src_index,VertexId recv_id) {
-               VertexId dst_trans=dst-graph_->partition_offset[graph_->partition_id];
-               for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
-                    VertexId src=subgraph->row_indices[idx];
-                    VertexId src_trans=src-graph_->partition_offset[recv_id];
-                    float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
-                    float* local_output=Y_buffer+dst_trans*feature_size;
-                    comp(local_input,local_output,norm_degree(src,dst),feature_size);
-                    //comp(local_input,local_output,norm_degree(src,dst),feature_size);
-                }
-            },
-            subgraphs,
-            feature_size,
-            active_);
-    }//without lockfree
-    void PropagateBackwardCPU_debug(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
-    {       
-        float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
-        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
-        memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
-        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        int feature_size=X_grad.size(1);
-        float* output_buffer=new float[feature_size*graph_->threads];
-        //graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
-        graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
-            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
-                float* local_output_buffer=output_buffer+feature_size*thread_id;
-                memset(local_output_buffer,0,sizeof(float)*feature_size);
-                VertexId src_trans=src-graph_->partition_offset[recv_id];
-                //for (AdjUnit<Empty> *ptr = outgoing_adj.begin; ptr != outgoing_adj.end; ptr++)
-                for(long d_idx=subgraphs[recv_id]->row_offset[src_trans];d_idx<subgraphs[recv_id]->row_offset[src_trans+1];d_idx++)
-                {
-                    //VertexId dst = ptr->neighbour;
-                    VertexId dst=subgraphs[recv_id]->column_indices[d_idx];
-                    VertexId dst_trans=dst-start_;
-                    float* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
-                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);   
-                    //comp(local_input_buffer,local_output_buffer,1,feature_size);     
-                }
-                //graph_->emit_buffer(src, local_output_buffer,feature_size);
-                graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
-            },
-            [&](VertexId src, float* msg) {
-                acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
-                return 1;
-            },
-            feature_size,
-            active_);
-    }//without lockfree
-    
-    
-    
+//    
     void PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                                   std::vector<CSC_segment_pinned *> &subgraphs){
        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
@@ -375,6 +310,7 @@ public:
             feature_size,
             active_);
     }
+    
     void PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
     {       
         float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
@@ -411,9 +347,78 @@ public:
             feature_size,
             active_);
             delete [] output_buffer;
-    }    
+    }
     
-  
+    void GetFromDepNeighbor(NtsVar &X, std::vector<NtsVar> &Y_list,
+                                  std::vector<CSC_segment_pinned *> &subgraphs){
+       float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+       //float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+       //memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+       //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+       float ** Y_buffer=new float*[graph_->partitions];
+       for(int i=0;i<graph_->partitions;i++){
+           Y_buffer[i]=graph_->Nts->getWritableBuffer(Y_list[i],torch::DeviceType::CPU);
+       }
+       int feature_size=X.size(1);
+       graph_->get_from_dep_neighbor<int,float>( // For EACH Vertex Processing
+           [&](VertexId src,int current_send_partition) {
+               if(graph_->rtminfo->lock_free){
+                    VertexId src_trans=src-graph_->gnnctx->p_v_s;
+                    if(subgraphs[current_send_partition]->get_forward_active(src_trans)){
+                        VertexId write_index=subgraphs[current_send_partition]->forward_message_index[src_trans];
+                        graph_->NtsComm->emit_buffer_lock_free(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size,write_index, feature_size);
+                    }
+               }else{
+                   graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
+               }
+               },
+           [&](VertexId dst, float* recv_buffer, VertexId recv_id) {
+               VertexId dst_trans=dst-graph_->partition_offset[recv_id];
+               //Y_list[recv_id]
+               memcpy(Y_buffer[recv_id]+dst_trans*feature_size,recv_buffer,sizeof(float)*feature_size);
+               return 0;
+            },
+            subgraphs,
+            feature_size,
+            active_);
+            delete []Y_buffer;
+    }  
+    
+    void PostToDepNeighbor(std::vector<NtsVar> &X_grad_list, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
+    {       
+        //float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
+        float ** X_grad_buffer=new float*[graph_->partitions];
+        for(int i=0;i<graph_->partitions;i++){
+           X_grad_buffer[i]=graph_->Nts->getWritableBuffer(X_grad_list[i],torch::DeviceType::CPU);
+       }        
+        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
+        memset(Y_grad_buffer,0,sizeof(float)*Y_grad.size(0)*Y_grad.size(1));
+        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+        int feature_size=Y_grad.size(1);
+        graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
+            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
+
+                VertexId src_trans=src-graph_->partition_offset[recv_id];
+                float * local_output_buffer=X_grad_buffer[recv_id]+src_trans*feature_size;
+                
+                if(graph_->rtminfo->lock_free){
+                    if(subgraphs[recv_id]->source_active->get_bit(src_trans)){
+                        VertexId write_index=subgraphs[recv_id]->backward_message_index[src_trans]; 
+                        graph_->NtsComm->emit_buffer_lock_free(src, local_output_buffer,write_index, feature_size);
+                    }
+                }else{
+                    graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
+                }
+            },
+            [&](VertexId src, float* msg) {
+                acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
+                return 1;
+            },
+            feature_size,
+            active_);
+    }
+    
+    
 #if CUDA_ENABLE
    inline void ForwardSingle(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
@@ -688,65 +693,7 @@ public:
            }
         printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR %d\n",graph_->partition_id,i,count_act_src,count_act_dst,count_act_master);   
        } 
-   }
-   
-       
-    void PropagateForwardCPU(NtsVar &X, NtsVar &Y)
-    {
-        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
-        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
-        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
-        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        float* output_buffer=new float[feature_size*graph_->threads];
-        memset(output_buffer,0,sizeof(float)*feature_size*graph_->threads);//=new float[feature_size*graph_->threads];
-        graph_->process_edges_forward<int,float>( // For EACH Vertex Processing
-            [&](VertexId dst, VertexAdjList<Empty> incoming_adj,VertexId thread_id) {
-                float* local_output_buffer=output_buffer+feature_size*thread_id;
-                memset(local_output_buffer,0,sizeof(float)*feature_size);
-                for (AdjUnit<Empty> *ptr = incoming_adj.begin; ptr != incoming_adj.end; ptr++)
-                { //pull model
-                    VertexId src = ptr->neighbour;
-                    float* local_input_buffer=X_buffer+(src-start_)*feature_size;  
-                    comp(local_input_buffer,local_output_buffer,1,feature_size);
-                }
-               graph_->emit_buffer(dst, local_output_buffer,feature_size);
-            },
-            [&](VertexId dst, float* msg) {
-                acc(msg,Y_buffer+(dst-start_)*feature_size,feature_size);
-                return 0;
-            },
-            feature_size,
-            active_);
-            free(output_buffer);
-    }//Gemini engine
-    void PropagateBackwardCPU(NtsVar &X_grad, NtsVar &Y_grad)
-    {       
-        float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
-        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
-        memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
-        int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-        float* output_buffer=new float[feature_size*graph_->threads];
-        graph_->process_edges_backward<int, float>( // For EACH Vertex Processing
-            [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
-                float* local_output_buffer=output_buffer+feature_size*thread_id;
-                memset(local_output_buffer,0,sizeof(float)*feature_size);
-                for (AdjUnit<Empty> *ptr = outgoing_adj.begin; ptr != outgoing_adj.end; ptr++)
-                {
-                    VertexId dst = ptr->neighbour;
-                    float* local_input_buffer=X_grad_buffer+(dst-start_)*feature_size;  
-                    comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);        
-                }
-                graph_->emit_buffer(src, local_output_buffer,feature_size);
-            },
-            [&](VertexId src, float* msg) {
-                acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
-                return 0;
-            },
-            feature_size,
-            active_);
-    } //Gemini engine
-    
-          
+   } 
    
 };
 

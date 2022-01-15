@@ -6,4 +6,8 @@
 
 3) achieve GPU codes and CPU codes in gnnmini.hpp
 
- 
+1.14:
+
+1) GetFromDepNeighbor
+
+2) PostToDepNeighbor
