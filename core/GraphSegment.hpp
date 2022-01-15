@@ -62,8 +62,8 @@ typedef struct graph_Tensor_Segment_pinned
   long *destination;
   long *source_backward;
   
-  float *edge_weight_forward;          //edge_size
-  float *edge_weight_backward;
+  ValueType *edge_weight_forward;          //edge_size
+  ValueType *edge_weight_backward;
   
   VertexId *backward_message_index;
   VertexId *forward_message_index;
@@ -78,8 +78,8 @@ typedef struct graph_Tensor_Segment_pinned
   
   long *source_backward_gpu;
   
-  float *edge_weight_forward_gpu;      //edge_size
-  float *edge_weight_backward_gpu;      //edge_size
+  ValueType *edge_weight_forward_gpu;      //edge_size
+  ValueType *edge_weight_backward_gpu;      //edge_size
   
   int edge_size;
   int batch_size_forward;
@@ -143,10 +143,10 @@ typedef struct graph_Tensor_Segment_pinned
 #if CUDA_ENABLE     
     if(dt==GPU_T){    
     row_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));
-    edge_weight_forward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(float));
+    edge_weight_forward = (ValueType *)cudaMallocPinned((edge_size + 1) * sizeof(ValueType));
 
     column_indices = (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId));///
-    edge_weight_backward = (float *)cudaMallocPinned((edge_size + 1) * sizeof(float));///
+    edge_weight_backward = (ValueType *)cudaMallocPinned((edge_size + 1) * sizeof(ValueType));///
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source      = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
@@ -155,10 +155,10 @@ typedef struct graph_Tensor_Segment_pinned
 #endif
     if(dt==CPU_T){
         row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
-    edge_weight_forward = (float *)malloc((edge_size + 1) * sizeof(float));
+    edge_weight_forward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));
 
     column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));///
-    edge_weight_backward = (float *)malloc((edge_size + 1) * sizeof(float));///
+    edge_weight_backward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));///
 
     destination = (long *)malloc((edge_size + 1) * sizeof(long));
     source      = (long *)malloc((edge_size + 1) * sizeof(long));
@@ -173,11 +173,11 @@ typedef struct graph_Tensor_Segment_pinned
     if(dt==GPU_T){ 
         column_offset_gpu = (VertexId *)getDevicePointer(column_offset);
         row_indices_gpu = (VertexId *)getDevicePointer(row_indices);
-        edge_weight_forward_gpu = (float *)getDevicePointer(edge_weight_forward);
+        edge_weight_forward_gpu = (ValueType *)getDevicePointer(edge_weight_forward);
         
         row_offset_gpu = (VertexId *)getDevicePointer(row_offset);///
         column_indices_gpu = (VertexId *)getDevicePointer(column_indices);///
-        edge_weight_backward_gpu = (float *)getDevicePointer(edge_weight_backward);/// 
+        edge_weight_backward_gpu = (ValueType *)getDevicePointer(edge_weight_backward);/// 
        
         source_gpu = (long *)getDevicePointer(source);///
         destination_gpu = (long *)getDevicePointer(destination);///
@@ -195,19 +195,19 @@ typedef struct graph_Tensor_Segment_pinned
     if(dt==GPU_T){ 
         column_offset_gpu =(VertexId*)cudaMallocGPU((batch_size_forward + 1) * sizeof(VertexId));
         row_indices_gpu = (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
-        edge_weight_forward_gpu = (float *)cudaMallocGPU((edge_size + 1) * sizeof(float));
+        edge_weight_forward_gpu = (ValueType *)cudaMallocGPU((edge_size + 1) * sizeof(ValueType));
         
         move_bytes_in(column_offset_gpu,column_offset,(batch_size_forward + 1) * sizeof(VertexId));
         move_bytes_in(row_indices_gpu,row_indices,(edge_size + 1) * sizeof(VertexId));
-        move_bytes_in(edge_weight_forward_gpu,edge_weight_forward,(edge_size + 1) * sizeof(float));
+        move_bytes_in(edge_weight_forward_gpu,edge_weight_forward,(edge_size + 1) * sizeof(ValueType));
         
         row_offset_gpu = (VertexId*)cudaMallocGPU((batch_size_backward + 1) * sizeof(VertexId));
         column_indices_gpu = (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
-        edge_weight_backward_gpu = (float *)cudaMallocGPU((edge_size + 1) * sizeof(float));
+        edge_weight_backward_gpu = (ValueType *)cudaMallocGPU((edge_size + 1) * sizeof(ValueType));
         
         move_bytes_in(row_offset_gpu,row_offset,(batch_size_backward + 1) * sizeof(VertexId));
         move_bytes_in(column_indices_gpu,column_indices,(edge_size + 1) * sizeof(VertexId));
-        move_bytes_in(edge_weight_backward_gpu,edge_weight_backward,(edge_size + 1) * sizeof(float));
+        move_bytes_in(edge_weight_backward_gpu,edge_weight_backward,(edge_size + 1) * sizeof(ValueType));
         
        
         source_gpu = (long *)getDevicePointer(source);///

@@ -173,7 +173,7 @@ public:
   std::vector<std::vector<VertexId>> EdgeRemote2Remote;
   std::vector<std::vector<VertexId>> RemoteVteIndex;
   std::vector<ValueType> RepFeatures;
-  float *rep_output_buffer;
+  ValueType *rep_output_buffer;
   VertexId *output_map;
   VertexId rep_output_size;
   VertexId **message_write_offset;
@@ -188,13 +188,13 @@ public:
   VertexId *column_offset_intergate;
   VertexId *row_indices_intergate;
 
-  float *weight_gpu_intergate;
+  ValueType *weight_gpu_intergate;
   NtsVar output_gpu_buffered;
   
   //cpu data;
   std::vector<VertexId>cpu_recv_message_index;
   //gpu cache
-  float *output_cpu_buffer;
+  ValueType *output_cpu_buffer;
   VertexId cpp;//Current Porcessing Partition
 
   //timer
@@ -271,7 +271,7 @@ public:
   }
 #if CUDA_ENABLE
   void init_message_buffer(){
-        output_cpu_buffer = (float *)cudaMallocPinned(((long)vertices) * gnnctx->max_layer * sizeof(float));
+        output_cpu_buffer = (ValueType *)cudaMallocPinned(((long)vertices) * gnnctx->max_layer * sizeof(ValueType));
     if (output_cpu_buffer == NULL)
         printf("allocate fail\n");
   }
@@ -2095,9 +2095,9 @@ public:
     int s_i = get_socket_id(t_i);
     int pos = __sync_fetch_and_add(&send_buffer[current_send_part_id][s_i]->count, local_send_buffer[t_i]->count);
     if (local_send_buffer[t_i]->count != 0)
-      memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<float>(f_size)) * pos,
+      memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<ValueType>(f_size)) * pos,
              local_send_buffer[t_i]->data,
-             (sizeofM<float>(f_size)) * local_send_buffer[t_i]->count);
+             (sizeofM<ValueType>(f_size)) * local_send_buffer[t_i]->count);
     local_send_buffer[t_i]->count = 0;
   }
 
@@ -2108,7 +2108,7 @@ public:
     //  printf("send buffer is NULL(%d)\n", pos);
   }
 
-  void flush_data_to_send_buffer_buffer_lock_free_write(int t_i, int f_size, VertexId key, float *value, VertexId message_write_offset_key)
+  void flush_data_to_send_buffer_buffer_lock_free_write(int t_i, int f_size, VertexId key, ValueType *value, VertexId message_write_offset_key)
   {
     int s_i = get_socket_id(t_i);
     //int pos = __sync_fetch_and_add(&send_buffer[current_send_part_id][s_i]->count, local_send_buffer[t_i]->count);
@@ -2117,10 +2117,10 @@ public:
       printf("something wrong %d %d\n", key, current_send_part_id);
     // if (pos < partition_offset[current_send_part_id + 1] - partition_offset[current_send_part_id])
     //printf("POSITION %d %d %d %d\n", pos, (partition_offset[current_send_part_id + 1] - partition_offset[current_send_part_id]), current_send_part_id, partition_id);
-    memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<float>(f_size)) * pos, &key, sizeof(VertexId));
-    memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<float>(f_size)) * pos + sizeof(VertexId),
+    memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<ValueType>(f_size)) * pos, &key, sizeof(VertexId));
+    memcpy(send_buffer[current_send_part_id][s_i]->data + (sizeofM<ValueType>(f_size)) * pos + sizeof(VertexId),
            value,
-           f_size * sizeof(float));
+           f_size * sizeof(ValueType));
   }
 
   // emit a message to a vertex's master (dense) / mirror (sparse)
@@ -2131,10 +2131,9 @@ public:
     int t_i = omp_get_thread_num();
     char *s_buffer = NULL;
         s_buffer = (char *)local_send_buffer[t_i]->data;
-    //printf("sizeofM<float>(f_size)%d %d %d %d\n",sizeofM<float>(f_size),local_send_buffer_limit,local_send_buffer[t_i]->count,s_buffer!=NULL);
     
-    memcpy(s_buffer + local_send_buffer[t_i]->count * sizeofM<float>(f_size), &vtx, sizeof(VertexId));
-    memcpy(s_buffer + local_send_buffer[t_i]->count * sizeofM<float>(f_size) + sizeof(VertexId), buffer, sizeof(float) * f_size);
+    memcpy(s_buffer + local_send_buffer[t_i]->count * sizeofM<ValueType>(f_size), &vtx, sizeof(VertexId));
+    memcpy(s_buffer + local_send_buffer[t_i]->count * sizeofM<ValueType>(f_size) + sizeof(VertexId), buffer, sizeof(ValueType) * f_size);
     local_send_buffer[t_i]->count += 1;
 
     if (local_send_buffer[t_i]->count == local_send_buffer_limit)

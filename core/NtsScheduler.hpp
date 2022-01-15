@@ -138,9 +138,9 @@ public:
                 at::TensorOptions().device_index(0).dtype(torch::kFloat).requires_grad(true));
     }  
     inline void GatherByDstFromSrc(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor weight){//TODO
-        float *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
-        float *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
-        float *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
+        ValueType *input_buffer=getWritableBuffer(input_src);//.packed_accessor<float,2>().data();
+        ValueType *weight_buffer=getWritableBuffer(weight);//.packed_accessor<float,2>().data();
+        ValueType *output_buffer=getWritableBuffer(output);//.packed_accessor<float,2>().data();
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
         ValueType *forward_weight_from_pinned=subgraph->edge_weight_forward_gpu;
@@ -181,8 +181,8 @@ public:
     //cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
     }
     inline void GatherByDstFromMessage(torch::Tensor& output, torch::Tensor &message){
-        float *message_buffer=getWritableBuffer(message);
-        float *output_buffer=getWritableBuffer(output);
+        ValueType *message_buffer=getWritableBuffer(message);
+        ValueType *output_buffer=getWritableBuffer(output);
         VertexId *column_offset_from_pinned=subgraph->column_offset_gpu;
         VertexId *row_indices_from_pinned=subgraph->row_indices_gpu;
         
@@ -204,9 +204,9 @@ public:
     }
     
     inline void BackwardScatterGradBackToWeight(torch::Tensor &input_src,torch::Tensor &grad_output, torch::Tensor &weight_grad){
-        float *input_src_buffer=getWritableBuffer(input_src);
-        float *grad_output_buffer=getWritableBuffer(grad_output);//.packed_accessor<float,2>().data();
-        float *weight_grad_buffer=getWritableBuffer(weight_grad);//.packed_accessor<float,2>().data();
+        ValueType *input_src_buffer=getWritableBuffer(input_src);
+        ValueType *grad_output_buffer=getWritableBuffer(grad_output);//.packed_accessor<float,2>().data();
+        ValueType *weight_grad_buffer=getWritableBuffer(weight_grad);//.packed_accessor<float,2>().data();
         VertexId src_start = subgraph->src_range[0];
         VertexId src_end = subgraph->src_range[1];
         VertexId dst_start = subgraph->dst_range[0];
@@ -225,8 +225,8 @@ public:
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();   
     }
     inline void BackwardScatterGradBackToMessage(torch::Tensor &grad_dst, torch::Tensor &message_grad){
-        float *grad_dst_buffer=getWritableBuffer(grad_dst);
-        float *message_grad_buffer=getWritableBuffer(message_grad);//.packed_accessor<float,2>().data();
+        ValueType *grad_dst_buffer=getWritableBuffer(grad_dst);
+        ValueType *message_grad_buffer=getWritableBuffer(message_grad);//.packed_accessor<float,2>().data();
         VertexId src_start = subgraph->src_range[0];
         VertexId src_end = subgraph->src_range[1];
         VertexId dst_start = subgraph->dst_range[0];
@@ -246,9 +246,9 @@ public:
     }
     
     inline void GatherBySrcFromDst(torch::Tensor& output, torch::Tensor &input_src,torch::Tensor &weight){//TO DO
-        float *input_buffer=getWritableBuffer(input_src);
-        float *weight_buffer=getWritableBuffer(weight);
-        float *output_buffer=getWritableBuffer(output);
+        ValueType *input_buffer=getWritableBuffer(input_src);
+        ValueType *weight_buffer=getWritableBuffer(weight);
+        ValueType *output_buffer=getWritableBuffer(output);
         VertexId *row_offset_from_pinned=subgraph->row_offset_gpu;
         VertexId *column_indices_from_pinned=subgraph->column_indices_gpu;
         ValueType *backward_weight_from_pinned=subgraph->edge_weight_backward_gpu;
@@ -322,21 +322,21 @@ public:
         if(msg_count<=0)
             return;
         ZeroVarMem(mirror_input);
-        float*gmb=(float*)getPinnedDevicePointer(msg);
-        cuda_stream->deSerializeToGPU(mirror_input.packed_accessor<float,2>().data(), gmb, msg_count, feature_size, subgraph->src_range[0], subgraph->src_range[1], false);    
+        ValueType* gmb=(ValueType*)getPinnedDevicePointer(msg);
+        cuda_stream->deSerializeToGPU(mirror_input.packed_accessor<ValueType,2>().data(), gmb, msg_count, feature_size, subgraph->src_range[0], subgraph->src_range[1], false);    
     }
     inline void AggMsgToMaster(NtsVar& master_output, char* msg,VertexId msg_count,bool sync=false){
         if(msg_count<=0)
             return;
-        float*gmb=(float*)getPinnedDevicePointer(msg);
-        cuda_stream->aggregate_comm_result_debug(master_output.packed_accessor<float,2>().data(), gmb, msg_count, feature_size, subgraph->dst_range[0], subgraph->dst_range[1], false);   
+        ValueType* gmb=(ValueType*)getPinnedDevicePointer(msg);
+        cuda_stream->aggregate_comm_result_debug(master_output.packed_accessor<ValueType,2>().data(), gmb, msg_count, feature_size, subgraph->dst_range[0], subgraph->dst_range[1], false);   
     }
     inline void DeviceSynchronize(){
         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
     }
-    void SerializeMirrorToMsg(float* th, torch::Tensor &td, bool sync=false){
+    void SerializeMirrorToMsg(ValueType* th, torch::Tensor &td, bool sync=false){
         cuda_stream->move_result_out(th + (subgraph->src_range[0] * feature_size),
-                                 td.packed_accessor<float, 2>().data(),
+                                 td.packed_accessor<ValueType, 2>().data(),
                                  subgraph->src_range[0],
                                  subgraph->src_range[1],
                                  feature_size, sync);
@@ -350,11 +350,11 @@ public:
     void ZeroVarMem(NtsVar& t,DeviceLocation dl=GPU_T){
 #if CUDA_ENABLE
         if(dl==GPU_T)
-            zero_buffer(t.packed_accessor<float,2>().data(), t.size(0) * t.size(1));
+            zero_buffer(t.packed_accessor<ValueType,2>().data(), t.size(0) * t.size(1));
         else 
 #endif
         if (dl=CPU_T)
-            memset(t.accessor<float,2>().data(), 0, t.size(0) * t.size(1));
+            memset(t.accessor<ValueType,2>().data(), 0, t.size(0) * t.size(1));
         else{
             printf("ZeroVarMem Error\n");
         }
@@ -403,7 +403,7 @@ public:
            return torch::zeros(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
-    inline torch::Tensor NewKeyTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+    inline torch::Tensor NewKeyTensor(ValueType* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
 #if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
             return torch::from_blob(data,size,at::TensorOptions().requires_grad(true).device_index(device_id).dtype(torch::kFloat));
@@ -414,7 +414,7 @@ public:
         }
 
     }
-    inline torch::Tensor NewLeafTensor(float* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
+    inline torch::Tensor NewLeafTensor(ValueType* data,at::IntArrayRef size,torch::DeviceType location=torch::DeviceType::CUDA, int device_id=0){
 #if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
             return torch::from_blob(data,size,at::TensorOptions().device_index(device_id).dtype(torch::kFloat));
@@ -440,14 +440,14 @@ public:
            return torch::ones(size,at::TensorOptions().dtype(torch::kFloat));
         }
     }
-    inline float* getWritableBuffer(torch::Tensor &T_var,torch::DeviceType location=torch::DeviceType::CUDA){
+    inline ValueType* getWritableBuffer(torch::Tensor &T_var,torch::DeviceType location=torch::DeviceType::CUDA){
 #if CUDA_ENABLE 
         if(torch::DeviceType::CUDA==location){
-            return T_var.packed_accessor<float,2>().data();
+            return T_var.packed_accessor<ValueType,2>().data();
         }else
 #endif
         {
-            return T_var.accessor<float,2>().data();    
+            return T_var.accessor<ValueType,2>().data();    
         }
     }
     
@@ -534,7 +534,7 @@ struct Parameter : torch::nn::Module
     NtsVar V_GPU;
     ValueType *W_from;
     ValueType *w_gradient_buffer;
-    Network_simple<float> *network_simple;
+    Network_simple<ValueType> *network_simple;
     int row, col;
     NtsVar W_gradient;
     NtsVar W_g;
@@ -562,9 +562,9 @@ struct Parameter : torch::nn::Module
 //	W=(2*scale)*W-scale;
         W_from = new ValueType[w * h];
         w_gradient_buffer = new ValueType[w * h];
-        memset(w_gradient_buffer, 0, sizeof(float) * w * h);
+        memset(w_gradient_buffer, 0, sizeof(ValueType) * w * h);
         W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
-        network_simple = new Network_simple<float>(row, col);
+        network_simple = new Network_simple<ValueType>(row, col);
 	M=torch::zeros({w,h}, torch::kFloat);
         V=torch::zeros({w,h}, torch::kFloat);
 	alpha=alpha_;
@@ -588,9 +588,9 @@ struct Parameter : torch::nn::Module
         W = register_parameter("W", (2*scale)*torch::rand({w, h}, torch::kFloat)-scale*torch::ones({w,h},torch::kFloat));
         W_from = new ValueType[w * h];
         w_gradient_buffer = new ValueType[w * h];
-        memset(w_gradient_buffer, 0, sizeof(float) * w * h);
+        memset(w_gradient_buffer, 0, sizeof(ValueType) * w * h);
         W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
-        network_simple = new Network_simple<float>(row, col);
+        network_simple = new Network_simple<ValueType>(row, col);
         weight_decay=weight_decay;
         l_r=l_r_;
         curr_epoch=0;

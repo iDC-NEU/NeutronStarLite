@@ -50,7 +50,7 @@ class GNNDatum
 {
 public:
     gnncontext *gnnctx;
-    float *local_feature;
+    ValueType *local_feature;
     long *local_label;
     int *local_mask;
     Graph<Empty>* graph;
@@ -60,7 +60,7 @@ public:
     GNNDatum(gnncontext *_gnnctx, Graph<Empty>* graph_)
     {
         gnnctx = _gnnctx;
-        local_feature = new float[gnnctx->l_v_num * gnnctx->layer_size[0]];
+        local_feature = new ValueType[gnnctx->l_v_num * gnnctx->layer_size[0]];
         local_label = new long[gnnctx->l_v_num];
         local_mask= new int[gnnctx->l_v_num];
         memset(local_mask,0,sizeof(int)*gnnctx->l_v_num);
@@ -105,7 +105,7 @@ public:
             std::cout<<"open label file fail!"<<std::endl;
             return;
         }
-        float *con_tmp = new float[gnnctx->layer_size[0]];
+        ValueType *con_tmp = new ValueType[gnnctx->layer_size[0]];
         std::string la;
         //std::cout<<"finish1"<<std::endl;
         VertexId id=0;
@@ -156,7 +156,7 @@ public:
             std::cout<<"open mask file fail!"<<std::endl;
             return;
         }
-        float *con_tmp = new float[gnnctx->layer_size[0]];
+        ValueType *con_tmp = new ValueType[gnnctx->layer_size[0]];
         std::string la;
         //std::cout<<"finish1"<<std::endl;
         VertexId id=0;
@@ -222,37 +222,37 @@ public:
         end_ = graph->gnnctx->p_v_e;
         range_=end_-start_;
     }
-    void comp(float* input,float*output,float weight,int feat_size){
+    void comp(ValueType* input,ValueType*output,ValueType weight,int feat_size){
         for(int i=0;i<feat_size;i++){
             output[i]+=input[i]*weight;
         }
     }
-    void acc(float* input,float*output,int feat_size){
+    void acc(ValueType* input,ValueType *output,int feat_size){
         for(int i=0;i<feat_size;i++){
             write_add(&output[i],input[i]);
         }
     }
-    float norm_degree(VertexId src,VertexId dst){
+    ValueType norm_degree(VertexId src,VertexId dst){
         return 1/((ValueType)std::sqrt(graph_->out_degree_for_backward[src])* 
                     (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));              
     }
-    float out_degree(VertexId v){
+    ValueType out_degree(VertexId v){
         return (ValueType)(graph_->out_degree_for_backward[v]);
     }
-    float in_degree(VertexId v){
+    ValueType in_degree(VertexId v){
         return (ValueType)(graph_->in_degree_for_backward[v]);
     }
     
     void ProcessForwardCPU(NtsVar &X, NtsVar &Y,std::vector<CSC_segment_pinned *> &subgraphs,
-                                   std::function<float(VertexId&, VertexId&)> weight_fun)
+                                   std::function<ValueType(VertexId&, VertexId&)> weight_fun)
     {
-        float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
-        float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
-        memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+        ValueType* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+        ValueType* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+        memset(Y_buffer,0,sizeof(ValueType)*X.size(0)*X.size(1));
         int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         
         //graph_->process_edges_forward_debug<int,float>( // For EACH Vertex Processing
-        graph_->process_edges_forward_decoupled_dynamic_length<int,float>( // For EACH Vertex Processing
+        graph_->process_edges_forward_decoupled_dynamic_length<int,ValueType>( // For EACH Vertex Processing
             [&](VertexId src) {
                     //graph_->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                    graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
@@ -262,8 +262,8 @@ public:
                 for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
                     VertexId src=subgraph->row_indices[idx];
                     VertexId src_trans=src-graph_->partition_offset[recv_id];
-                    float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
-                    float* local_output=Y_buffer+dst_trans*feature_size;
+                    ValueType* local_input=(ValueType*)(recv_buffer+graph_->sizeofM<ValueType>(feature_size)*src_index[src_trans]+sizeof(VertexId));
+                    ValueType* local_output=Y_buffer+dst_trans*feature_size;
 //                    if(dst==0&&recv_id==0){
 //                        printf("DEBUGGGG%d :%d %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
 //                    }
@@ -279,12 +279,12 @@ public:
 //    
     void PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                                   std::vector<CSC_segment_pinned *> &subgraphs){
-       float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
-       float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
-       memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
+       ValueType* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+       ValueType* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
+       memset(Y_buffer,0,sizeof(ValueType)*X.size(0)*X.size(1));
        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
        int feature_size=X.size(1);
-       graph_->process_edges_forward_decoupled<int,float>( // For EACH Vertex Processing
+       graph_->process_edges_forward_decoupled<int,ValueType>( // For EACH Vertex Processing
            [&](VertexId src,int current_send_partition) {
                if(graph_->rtminfo->lock_free){
                     VertexId src_trans=src-graph_->gnnctx->p_v_s;
@@ -301,8 +301,8 @@ public:
                for(long idx=subgraph->column_offset[dst_trans];idx<subgraph->column_offset[dst_trans+1];idx++){
                     VertexId src=subgraph->row_indices[idx];
                     VertexId src_trans=src-graph_->partition_offset[recv_id];
-                    float* local_input=(float*)(recv_buffer+graph_->sizeofM<float>(feature_size)*src_index[src_trans]+sizeof(VertexId));
-                    float* local_output=Y_buffer+dst_trans*feature_size;
+                    ValueType* local_input=(ValueType*)(recv_buffer+graph_->sizeofM<ValueType>(feature_size)*src_index[src_trans]+sizeof(VertexId));
+                    ValueType* local_output=Y_buffer+dst_trans*feature_size;
                     comp(local_input,local_output,norm_degree(src,dst),feature_size);
                 }
             },
@@ -313,22 +313,22 @@ public:
     
     void PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
     {       
-        float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
-        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
-        memset(Y_grad_buffer,0,sizeof(float)*X_grad.size(0)*X_grad.size(1));
+        ValueType* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
+        ValueType* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
+        memset(Y_grad_buffer,0,sizeof(ValueType)*X_grad.size(0)*X_grad.size(1));
         //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         int feature_size=X_grad.size(1);
-        float* output_buffer=new float[feature_size*graph_->threads];
-        graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
+        ValueType* output_buffer=new ValueType[feature_size*graph_->threads];
+        graph_->process_edges_backward_decoupled<int, ValueType>( // For EACH Vertex Processing
             [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
-                float* local_output_buffer=output_buffer+feature_size*thread_id;
-                memset(local_output_buffer,0,sizeof(float)*feature_size);
+                ValueType* local_output_buffer=output_buffer+feature_size*thread_id;
+                memset(local_output_buffer,0,sizeof(ValueType)*feature_size);
                 VertexId src_trans=src-graph_->partition_offset[recv_id];
                 for(long d_idx=subgraphs[recv_id]->row_offset[src_trans];d_idx<subgraphs[recv_id]->row_offset[src_trans+1];d_idx++)
                 {
                     VertexId dst=subgraphs[recv_id]->column_indices[d_idx];
                     VertexId dst_trans=dst-start_;
-                    float* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
+                    ValueType* local_input_buffer=X_grad_buffer+(dst_trans)*feature_size;  
                     comp(local_input_buffer,local_output_buffer,norm_degree(src,dst),feature_size);   
                 }
                 if(graph_->rtminfo->lock_free){
@@ -340,7 +340,7 @@ public:
                     graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
                 }
             },
-            [&](VertexId src, float* msg) {
+            [&](VertexId src, ValueType* msg) {
                 acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
                 return 1;
             },
@@ -351,16 +351,16 @@ public:
     
     void GetFromDepNeighbor(NtsVar &X, std::vector<NtsVar> &Y_list,
                                   std::vector<CSC_segment_pinned *> &subgraphs){
-       float* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
+       ValueType* X_buffer=graph_->Nts->getWritableBuffer(X,torch::DeviceType::CPU);
        //float* Y_buffer=graph_->Nts->getWritableBuffer(Y,torch::DeviceType::CPU);
        //memset(Y_buffer,0,sizeof(float)*X.size(0)*X.size(1));
        //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-       float ** Y_buffer=new float*[graph_->partitions];
+       ValueType ** Y_buffer=new ValueType*[graph_->partitions];
        for(int i=0;i<graph_->partitions;i++){
            Y_buffer[i]=graph_->Nts->getWritableBuffer(Y_list[i],torch::DeviceType::CPU);
        }
        int feature_size=X.size(1);
-       graph_->get_from_dep_neighbor<int,float>( // For EACH Vertex Processing
+       graph_->get_from_dep_neighbor<int,ValueType>( // For EACH Vertex Processing
            [&](VertexId src,int current_send_partition) {
                if(graph_->rtminfo->lock_free){
                     VertexId src_trans=src-graph_->gnnctx->p_v_s;
@@ -372,10 +372,10 @@ public:
                    graph_->NtsComm->emit_buffer(src, X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
                }
                },
-           [&](VertexId dst, float* recv_buffer, VertexId recv_id) {
+           [&](VertexId dst, ValueType* recv_buffer, VertexId recv_id) {
                VertexId dst_trans=dst-graph_->partition_offset[recv_id];
                //Y_list[recv_id]
-               memcpy(Y_buffer[recv_id]+dst_trans*feature_size,recv_buffer,sizeof(float)*feature_size);
+               memcpy(Y_buffer[recv_id]+dst_trans*feature_size,recv_buffer,sizeof(ValueType)*feature_size);
                return 0;
             },
             subgraphs,
@@ -387,19 +387,19 @@ public:
     void PostToDepNeighbor(std::vector<NtsVar> &X_grad_list, NtsVar &Y_grad,std::vector<CSC_segment_pinned *> &subgraphs)
     {       
         //float* X_grad_buffer=graph_->Nts->getWritableBuffer(X_grad,torch::DeviceType::CPU);
-        float ** X_grad_buffer=new float*[graph_->partitions];
+        ValueType ** X_grad_buffer=new ValueType*[graph_->partitions];
         for(int i=0;i<graph_->partitions;i++){
            X_grad_buffer[i]=graph_->Nts->getWritableBuffer(X_grad_list[i],torch::DeviceType::CPU);
        }        
-        float* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
-        memset(Y_grad_buffer,0,sizeof(float)*Y_grad.size(0)*Y_grad.size(1));
+        ValueType* Y_grad_buffer=graph_->Nts->getWritableBuffer(Y_grad,torch::DeviceType::CPU);
+        memset(Y_grad_buffer,0,sizeof(ValueType)*Y_grad.size(0)*Y_grad.size(1));
         //int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
         int feature_size=Y_grad.size(1);
-        graph_->process_edges_backward_decoupled<int, float>( // For EACH Vertex Processing
+        graph_->process_edges_backward_decoupled<int, ValueType>( // For EACH Vertex Processing
             [&](VertexId src, VertexAdjList<Empty> outgoing_adj,VertexId thread_id,VertexId recv_id) {           //pull
 
                 VertexId src_trans=src-graph_->partition_offset[recv_id];
-                float * local_output_buffer=X_grad_buffer[recv_id]+src_trans*feature_size;
+                ValueType * local_output_buffer=X_grad_buffer[recv_id]+src_trans*feature_size;
                 
                 if(graph_->rtminfo->lock_free){
                     if(subgraphs[recv_id]->source_active->get_bit(src_trans)){
@@ -410,7 +410,7 @@ public:
                     graph_->NtsComm->emit_buffer(src, local_output_buffer,feature_size);
                 }
             },
-            [&](VertexId src, float* msg) {
+            [&](VertexId src, ValueType* msg) {
                 acc(msg,Y_grad_buffer+(src-start_)*feature_size,feature_size);
                 return 1;
             },
@@ -423,7 +423,7 @@ public:
    inline void ForwardSingle(NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int feature_size=X.size(1);
-            graph_->forward_single<int, float>(
+            graph_->forward_single<int, ValueType>(
                 X,
                 graph_partitions,
                 Y,
@@ -433,7 +433,7 @@ public:
     {
   
         int feature_size=X.size(1);
-        graph_->backward_single<int, float>(
+        graph_->backward_single<int, ValueType>(
                 X,
                 graph_partitions,
                 Y,
@@ -443,7 +443,7 @@ public:
                             std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int feature_size=src_input_transferred.size(1);
-            graph_->forward_single_edge<int, float>(
+            graph_->forward_single_edge<int, ValueType>(
                 src_input_transferred,
                 graph_partitions,
                 dst_output,
@@ -454,7 +454,7 @@ public:
                                std::vector<CSC_segment_pinned *> &graph_partitions)
     {
         int feature_size= dst_grad_input.size(1);//= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-            graph_->backward_single_edge<int, float>(
+            graph_->backward_single_edge<int, ValueType>(
                 dst_grad_input,
                 graph_partitions,
                 msg_grad_output,
@@ -466,10 +466,10 @@ public:
     {
         int feature_size=X.size(1);
         NtsVar X_cpu=X.cpu();
-        float *X_buffered=X_cpu.accessor<float,2>().data();
+        ValueType *X_buffered=X_cpu.accessor<ValueType,2>().data();
         
         { // original communication
-            graph_->sync_compute_decoupled<int, float>(
+            graph_->sync_compute_decoupled<int, ValueType>(
                 X,
                 graph_partitions,
                 [&](VertexId src) { 
@@ -484,7 +484,7 @@ public:
     {
         int feature_size=X.size(1);
         //if (!selective)
-        {       graph_->compute_sync_decoupled<int, float>(
+        {       graph_->compute_sync_decoupled<int, ValueType>(
                 X,
                 graph_partitions,
                 [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { //pull
@@ -504,8 +504,8 @@ public:
     {
         int feature_size=src_input_transferred.size(1);
         NtsVar X_cpu=src_input_transferred.cpu();
-        float *X_buffered=X_cpu.accessor<float,2>().data();
-            graph_->sync_compute_decoupled_edge<int, float>(
+        ValueType *X_buffered=X_cpu.accessor<ValueType,2>().data();
+            graph_->sync_compute_decoupled_edge<int, ValueType>(
                 src_input_transferred,
                 graph_partitions,
                 [&](VertexId src) {
@@ -526,7 +526,7 @@ public:
                                                std::function<NtsVar(NtsVar&,NtsVar&,NtsScheduler* nts)> EdgeBackward)
     {
         int feature_size= src_input_origin.size(1);//= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-            graph_->compute_sync_decoupled_edge<int, float>(
+            graph_->compute_sync_decoupled_edge<int, ValueType>(
                 dst_grad_input,
                 src_input_origin,
                 graph_partitions,
@@ -546,7 +546,7 @@ public:
     }
 #endif   
    
-   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt, std::function<float(VertexId,VertexId)>weight_compute)
+   void GenerateGraphSegment(std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt, std::function<ValueType(VertexId,VertexId)>weight_compute)
     {
         graph_partitions.clear();
         int *tmp_column_offset = new int[graph_->vertices + 1];
