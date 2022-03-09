@@ -1,4 +1,4 @@
-![logo](https://user-images.githubusercontent.com/11622204/157366987-674a875b-f3af-4632-8e16-3b521e371b0c.png)
+![logo](https://github.com/Wangqge/NeutronStarLite/blob/master/logo/logo.png)
 
 **NeutronStar** is a distributed Graph Neural Networks (GNN) training framework that supports CPU-GPU heterogeneous computation on multiple workers. 
 
