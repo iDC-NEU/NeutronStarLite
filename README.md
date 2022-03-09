@@ -1,4 +1,8 @@
-NeutronStar is a distributed Graph Neural Networks (GNN) training framework that supports CPU-GPU heterogeneous computation on multiple workers. NeutronStar distinguishes itself from other GNN training frameworks with the following new properties:
+![logo](https://user-images.githubusercontent.com/11622204/157365296-5a7d7f97-fdbe-4bd0-b5a9-24d9e7fdeda6.png)
+
+NeutronStar is a distributed Graph Neural Networks (GNN) training framework that supports CPU-GPU heterogeneous computation on multiple workers. 
+
+NeutronStar distinguishes itself from other GNN training frameworks with the following new properties:
 
  * The dependency management (how to acquire the embeddings and gradients from neighbors) plays a key role in distributed GNN training. NeutronStar combines the cache-based dependency management that are adopted by DGL and Aligraph and the communication-based dependency management method that are widely adopted by traditional graph computing systems, and proposes a hybrid dependency management GNN distributed training system. NeutronStar can determine the optimal way to acquire the embeddings (during forward propagation) and the gradients (during backward propagation) from neighboring vertices. 
  * NeutronStar integrates the pytorch automatic differentiation library libtorch and tensorflow to support automatic differentiation (automatic backpropagation) across workers. 
