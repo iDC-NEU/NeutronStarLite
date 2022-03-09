@@ -1,6 +1,5 @@
 ![logo](https://user-images.githubusercontent.com/11622204/157366987-674a875b-f3af-4632-8e16-3b521e371b0c.png)
 
-
 **NeutronStar** is a distributed Graph Neural Networks (GNN) training framework that supports CPU-GPU heterogeneous computation on multiple workers. 
 
 NeutronStar distinguishes itself from other GNN training frameworks with the following new properties:
@@ -11,6 +10,9 @@ NeutronStar distinguishes itself from other GNN training frameworks with the fol
  * NeutronStar shows better performance than many state-of-the-art GNN training systems. The following figure shows the performance comparison. DistDGL is a distributed version of DGL system. ROC is a system originated from Stanford. DepCache is a variantion of NeutronStar that acquires dependencies by caching. DepComm is a variantion of NeutronStar that acquires dependencies from remote servers.
 
 ![result](https://user-images.githubusercontent.com/11622204/157364687-39e7e4be-7494-41c2-a9f8-7835334b50ad.png)
+
+The overall architecture of NeutronStar
+![architecture](https://user-images.githubusercontent.com/11622204/157367313-275431a3-09f5-4a7c-a8eb-b86317ef6713.png)
 
 
 ## Quick Start
