@@ -16,6 +16,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 
 #include "GCN_CPU_EAGER.hpp"
 #include "GCN_CPU.hpp"
+#include "GIN_GPU.hpp"
 
 #if CUDA_ENABLE
 #include "GCN.hpp"
@@ -46,8 +47,17 @@ int main(int argc, char **argv)
 
     int iterations = graph->config->epochs;
     graph->replication_threshold = graph->config->repthreshold ;
+   
 
-    if (graph->config->algorithm == std::string("GCNCPU"))
+    if (graph->config->algorithm == std::string("GINGPU"))
+    {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
+        GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
+        ntsGIN->init_graph();
+        ntsGIN->init_nn();
+        ntsGIN->run();
+    }else if (graph->config->algorithm == std::string("GCNCPU"))
     {
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
         graph->generate_backward_structure();
