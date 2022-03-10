@@ -16,9 +16,10 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 
 #include "GCN_CPU_EAGER.hpp"
 #include "GCN_CPU.hpp"
-#include "GIN_GPU.hpp"
 
 #if CUDA_ENABLE
+#include "GIN_GPU.hpp"
+#include "COMMNET_GPU.hpp"
 #include "GCN.hpp"
 #include "GCN_EAGER.hpp"
 #include "GCN_EAGER_single.hpp"
@@ -48,8 +49,16 @@ int main(int argc, char **argv)
     int iterations = graph->config->epochs;
     graph->replication_threshold = graph->config->repthreshold ;
    
-
-    if (graph->config->algorithm == std::string("GINGPU"))
+    
+    if (graph->config->algorithm == std::string("COMMNETGPU"))
+    {
+        graph->load_directed(graph->config->edge_file, graph->config->vertices);
+        graph->generate_backward_structure();
+        COMMNET_impl *ntsCOMM=new COMMNET_impl(graph,iterations);
+        ntsCOMM->init_graph();
+        ntsCOMM->init_nn();
+        ntsCOMM->run();
+    }else if (graph->config->algorithm == std::string("GINGPU"))
     {
         graph->load_directed(graph->config->edge_file, graph->config->vertices);
         graph->generate_backward_structure();
