@@ -35,7 +35,7 @@ sudo apt install libnuma-dev"
 
 unzip the **libtorch** package in the root dir of **NeutronStar** and change CMAKE_PREFIX_PATH in "CMakeList.txt"to your own path
 
-download **cub** to the ./rNeytronStar/cuda/ dictionary.
+download **cub** to the ./NeutronStar/cuda/ dictionary.
 
 
 configure PATH and LD_LIBRARY_PATH for **cuda** and **mpi**
