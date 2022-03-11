@@ -19,84 +19,68 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 #include <stdint.h>
 
+// class Network;
 
+enum DeviceLocation { CPU_T, GPU_T };
 
-
-//class Network;
-
-enum DeviceLocation{
-    CPU_T,
-    GPU_T
-};
-
-struct Empty { };
+struct Empty {};
 
 typedef uint32_t VertexId;
 typedef uint64_t EdgeId;
 typedef float ValueType;
 
-struct CscChunk{
-    VertexId* dstList;
-    VertexId* srcList;
-    VertexId src[2];
-    VertexId dst[2];
-    int numOfEdge;
-    int counter;
-    int featureSize;
-    CscChunk(){
-        numOfEdge=0;
-        featureSize=0;
-        counter=0;
-    }
+struct CscChunk {
+  VertexId *dstList;
+  VertexId *srcList;
+  VertexId src[2];
+  VertexId dst[2];
+  int numOfEdge;
+  int counter;
+  int featureSize;
+  CscChunk() {
+    numOfEdge = 0;
+    featureSize = 0;
+    counter = 0;
+  }
 };
-struct COOChunk{
-    VertexId* dstList;
-    VertexId* srcList;
-    VertexId* dst_delta;
-    VertexId* src_delta;
-    int* partition_offset;
-    int partitions;
-    VertexId src_range[2];
-    VertexId dst_range[2];
-    int numofedges;
-    int counter;
-    int featureSize;
-    COOChunk(){
-        numofedges=0;
-        featureSize=0;
-        counter=0;
-    }
-    VertexId* src(){
-      return srcList;
-    }
-    VertexId* dst(){
-      return dstList;
-    }
-    VertexId* src_p(){
-      return src_delta;
-    }
-    VertexId* dst_p(){
-      return dst_delta;
-    }
-    void init_partition_offset(int partitions_){
-      partitions=partitions_;
-      partition_offset=new int[partitions_];
-      memset(partition_offset,0,sizeof(int)*partitions_);
-    }
-    int get_edge_partition_size(int i){
-        return partition_offset[i+1]-partition_offset[i];
-    }
+struct COOChunk {
+  VertexId *dstList;
+  VertexId *srcList;
+  VertexId *dst_delta;
+  VertexId *src_delta;
+  int *partition_offset;
+  int partitions;
+  VertexId src_range[2];
+  VertexId dst_range[2];
+  int numofedges;
+  int counter;
+  int featureSize;
+  COOChunk() {
+    numofedges = 0;
+    featureSize = 0;
+    counter = 0;
+  }
+  VertexId *src() { return srcList; }
+  VertexId *dst() { return dstList; }
+  VertexId *src_p() { return src_delta; }
+  VertexId *dst_p() { return dst_delta; }
+  void init_partition_offset(int partitions_) {
+    partitions = partitions_;
+    partition_offset = new int[partitions_];
+    memset(partition_offset, 0, sizeof(int) * partitions_);
+  }
+  int get_edge_partition_size(int i) {
+    return partition_offset[i + 1] - partition_offset[i];
+  }
 };
 
-template <typename EdgeData>
-struct EdgeUnit {
+template <typename EdgeData> struct EdgeUnit {
   VertexId src;
   VertexId dst;
   EdgeData edge_data;
 } __attribute__((packed));
 
-template <>
-struct EdgeUnit <Empty> {
+template <> struct EdgeUnit<Empty> {
   VertexId src;
   union {
     VertexId dst;
@@ -104,14 +88,12 @@ struct EdgeUnit <Empty> {
   };
 } __attribute__((packed));
 
-template <typename EdgeData>
-struct AdjUnit {
+template <typename EdgeData> struct AdjUnit {
   VertexId neighbour;
   EdgeData edge_data;
 } __attribute__((packed));
 
-template <>
-struct AdjUnit <Empty> {
+template <> struct AdjUnit<Empty> {
   union {
     VertexId neighbour;
     Empty edge_data;
@@ -123,14 +105,12 @@ struct CompressedAdjIndexUnit {
   VertexId vertex;
 } __attribute__((packed));
 
-template <typename EdgeData>
-struct VertexAdjList {
-  AdjUnit<EdgeData> * begin;
-  AdjUnit<EdgeData> * end;
-  VertexAdjList() : begin(nullptr), end(nullptr) { }
-  VertexAdjList(AdjUnit<EdgeData> * begin, AdjUnit<EdgeData> * end) : begin(begin), end(end) { }
+template <typename EdgeData> struct VertexAdjList {
+  AdjUnit<EdgeData> *begin;
+  AdjUnit<EdgeData> *end;
+  VertexAdjList() : begin(nullptr), end(nullptr) {}
+  VertexAdjList(AdjUnit<EdgeData> *begin, AdjUnit<EdgeData> *end)
+      : begin(begin), end(end) {}
 };
-
-
 
 #endif

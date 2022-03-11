@@ -4,7 +4,7 @@
  * and open the template in the editor.
  */
 
-/* 
+/*
  * File:   cuda_type.h
  * Author: wangqg
  *
@@ -19,12 +19,11 @@ extern "C" {
 #endif
 #define CUDA_ENABLE 1
 typedef uint32_t VertexId_CUDA;
-const int CUDA_NUM_THREADS=512;
-const int CUDA_NUM_BLOCKS=512;
+const int CUDA_NUM_THREADS = 512;
+const int CUDA_NUM_BLOCKS = 512;
 }
 #ifdef __cplusplus
 
 #endif
 
 #endif /* CUDA_TYPE_H */
-

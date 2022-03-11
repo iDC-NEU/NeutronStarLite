@@ -17,13 +17,12 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #ifndef MPI_HPP
 #define MPI_HPP
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <assert.h>
 #include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-template <typename T>
-MPI_Datatype get_mpi_data_type() {
+template <typename T> MPI_Datatype get_mpi_data_type() {
   if (std::is_same<T, char>::value) {
     return MPI_CHAR;
   } else if (std::is_same<T, unsigned char>::value) {
@@ -49,35 +48,38 @@ MPI_Datatype get_mpi_data_type() {
 class MPI_Instance {
   int partition_id;
   int partitions;
+
 public:
-  MPI_Instance(int * argc, char *** argv) {
+  MPI_Instance(int *argc, char ***argv) {
     int provided;
     MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &partition_id);
     MPI_Comm_size(MPI_COMM_WORLD, &partitions);
-    #ifdef PRINT_DEBUG_MESSAGES
-    if (partition_id==0) {
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
       printf("thread support level provided by MPI: ");
       switch (provided) {
-        case MPI_THREAD_MULTIPLE:
-          printf("MPI_THREAD_MULTIPLE\n"); break;
-        case MPI_THREAD_SERIALIZED:
-          printf("MPI_THREAD_SERIALIZED\n"); break;
-        case MPI_THREAD_FUNNELED:
-          printf("MPI_THREAD_FUNNELED\n"); break;
-        case MPI_THREAD_SINGLE:
-          printf("MPI_THREAD_SINGLE\n"); break;
-        default:
-          assert(false);
+      case MPI_THREAD_MULTIPLE:
+        printf("MPI_THREAD_MULTIPLE\n");
+        break;
+      case MPI_THREAD_SERIALIZED:
+        printf("MPI_THREAD_SERIALIZED\n");
+        break;
+      case MPI_THREAD_FUNNELED:
+        printf("MPI_THREAD_FUNNELED\n");
+        break;
+      case MPI_THREAD_SINGLE:
+        printf("MPI_THREAD_SINGLE\n");
+        break;
+      default:
+        assert(false);
       }
     }
-    #endif
+#endif
   }
-  ~MPI_Instance() {
-    MPI_Finalize();
-  }
+  ~MPI_Instance() { MPI_Finalize(); }
   void pause() {
-    if (partition_id==0) {
+    if (partition_id == 0) {
       getchar();
     }
     MPI_Barrier(MPI_COMM_WORLD);
