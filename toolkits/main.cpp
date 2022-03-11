@@ -14,137 +14,118 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
    limitations under the License.
  */
 
-#include "GCN_CPU_EAGER.hpp"
 #include "GCN_CPU.hpp"
+#include "GCN_CPU_EAGER.hpp"
 
 #if CUDA_ENABLE
-#include "GIN_GPU.hpp"
 #include "COMMNET_GPU.hpp"
+#include "GAT_GPU.hpp"
+#include "GAT_GPU_SINGLE.hpp"
 #include "GCN.hpp"
 #include "GCN_EAGER.hpp"
 #include "GCN_EAGER_single.hpp"
-#include "GAT_GPU.hpp"
-#include "GAT_GPU_SINGLE.hpp"
+#include "GIN_GPU.hpp"
 #endif
 
+int main(int argc, char **argv) {
+  MPI_Instance mpi(&argc, &argv);
+  if (argc < 2) {
+    printf("configuration file missed \n");
+    exit(-1);
+  }
 
-int main(int argc, char **argv)
-{
-    MPI_Instance mpi(&argc, &argv);
-        if (argc < 2)
-    {
-        printf("configuration file missed \n");
-        exit(-1);
-    }
-    
-    double exec_time = 0;
-    exec_time -= get_time();
-    
-    Graph<Empty> *graph;
-    graph = new Graph<Empty>();
-    graph->config->readFromCfgFile(argv[1]);
-    if(graph->partition_id==0)
-        graph->config->print();
+  double exec_time = 0;
+  exec_time -= get_time();
 
-    int iterations = graph->config->epochs;
-    graph->replication_threshold = graph->config->repthreshold ;
-   
-    
-    if (graph->config->algorithm == std::string("COMMNETGPU"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        COMMNET_impl *ntsCOMM=new COMMNET_impl(graph,iterations);
-        ntsCOMM->init_graph();
-        ntsCOMM->init_nn();
-        ntsCOMM->run();
-    }else if (graph->config->algorithm == std::string("GINGPU"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GIN_impl *ntsGIN=new GIN_impl(graph,iterations);
-        ntsGIN->init_graph();
-        ntsGIN->init_nn();
-        ntsGIN->run();
-    }else if (graph->config->algorithm == std::string("GCNCPU"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GCN_CPU_impl *ntsGCN=new GCN_CPU_impl(graph,iterations);
-        ntsGCN->init_graph();
-        ntsGCN->init_nn();
-        ntsGCN->run();
-    }else if(graph->config->algorithm == std::string("GCNCPUEAGER"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GCN_CPU_EAGER_impl *ntsGCN=new GCN_CPU_EAGER_impl(graph,iterations);
-        ntsGCN->init_graph();
-        ntsGCN->init_nn();
-        ntsGCN->run();
-    }
+  Graph<Empty> *graph;
+  graph = new Graph<Empty>();
+  graph->config->readFromCfgFile(argv[1]);
+  if (graph->partition_id == 0)
+    graph->config->print();
+
+  int iterations = graph->config->epochs;
+  graph->replication_threshold = graph->config->repthreshold;
+
+  if (graph->config->algorithm == std::string("COMMNETGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    COMMNET_impl *ntsCOMM = new COMMNET_impl(graph, iterations);
+    ntsCOMM->init_graph();
+    ntsCOMM->init_nn();
+    ntsCOMM->run();
+  } else if (graph->config->algorithm == std::string("GINGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GIN_impl *ntsGIN = new GIN_impl(graph, iterations);
+    ntsGIN->init_graph();
+    ntsGIN->init_nn();
+    ntsGIN->run();
+  } else if (graph->config->algorithm == std::string("GCNCPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_CPU_impl *ntsGCN = new GCN_CPU_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+  } else if (graph->config->algorithm == std::string("GCNCPUEAGER")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_CPU_EAGER_impl *ntsGCN = new GCN_CPU_EAGER_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+  }
 
 #if CUDA_ENABLE
-    else if (graph->config->algorithm == std::string("GCN"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GCN_impl *ntsGCN=new GCN_impl(graph,iterations);
-        ntsGCN->init_graph();
-        ntsGCN->init_nn();
-        ntsGCN->run();
-        //GCN(graph, iterations);
-    }
-    else if (graph->config->algorithm == std::string("GCNEAGER"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GCN_EAGER_impl *ntsGCN=new GCN_EAGER_impl(graph,iterations);
-        ntsGCN->init_graph();
-        ntsGCN->init_nn();
-        ntsGCN->run();
-        //GCN(graph, iterations);
-    }
-        else if (graph->config->algorithm == std::string("GCNEAGERSINGLE"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GCN_EAGER_single_impl *ntsGCN=new GCN_EAGER_single_impl(graph,iterations);
-        ntsGCN->init_graph();
-        ntsGCN->init_nn();
-        ntsGCN->run();
-        //GCN(graph, iterations);
-    }
-    else if (graph->config->algorithm == std::string("GAT"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GAT_GPU_impl *ntsGAT=new GAT_GPU_impl(graph,iterations);
-        ntsGAT->init_graph();
-        ntsGAT->init_nn();
-        ntsGAT->run();
-    }
-    else if (graph->config->algorithm == std::string("GATSINGLE"))
-    {
-        graph->load_directed(graph->config->edge_file, graph->config->vertices);
-        graph->generate_backward_structure();
-        GAT_GPU_SINGLE_impl *ntsGAT=new GAT_GPU_SINGLE_impl(graph,iterations);
-        ntsGAT->init_graph();
-        ntsGAT->init_nn();
-        ntsGAT->run();
-    }
+  else if (graph->config->algorithm == std::string("GCN")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_impl *ntsGCN = new GCN_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+    // GCN(graph, iterations);
+  } else if (graph->config->algorithm == std::string("GCNEAGER")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_EAGER_impl *ntsGCN = new GCN_EAGER_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+    // GCN(graph, iterations);
+  } else if (graph->config->algorithm == std::string("GCNEAGERSINGLE")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_EAGER_single_impl *ntsGCN =
+        new GCN_EAGER_single_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+    // GCN(graph, iterations);
+  } else if (graph->config->algorithm == std::string("GAT")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GAT_GPU_impl *ntsGAT = new GAT_GPU_impl(graph, iterations);
+    ntsGAT->init_graph();
+    ntsGAT->init_nn();
+    ntsGAT->run();
+  } else if (graph->config->algorithm == std::string("GATSINGLE")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GAT_GPU_SINGLE_impl *ntsGAT = new GAT_GPU_SINGLE_impl(graph, iterations);
+    ntsGAT->init_graph();
+    ntsGAT->init_nn();
+    ntsGAT->run();
+  }
 #endif
-        exec_time += get_time();
-        if (graph->partition_id == 0)
-        {
-            printf("exec_time=%lf(s)\n", exec_time);
-        }
-    
-        delete graph;
+  exec_time += get_time();
+  if (graph->partition_id == 0) {
+    printf("exec_time=%lf(s)\n", exec_time);
+  }
 
-//    ResetDevice();
+  delete graph;
 
+  //    ResetDevice();
 
-
-    return 0;
+  return 0;
 }

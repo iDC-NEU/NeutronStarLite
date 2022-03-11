@@ -13,7 +13,7 @@
 
 #include <cuda.h>
 //#include "test.hpp"
-#include<iostream>
+#include <iostream>
 static const int WORK_SIZE = 256;
 
 /**
@@ -22,17 +22,17 @@ static const int WORK_SIZE = 256;
  *
  * See cuda.h for error code descriptions.
  */
-#define CHECK_CUDA_RESULT(N) {											\
-	CUresult result = N;												\
-	if (result != 0) {													\
-		printf("CUDA call on line %d returned error %d\n", __LINE__,	\
-			result);													\
-		exit(1);														\
-	} }
+#define CHECK_CUDA_RESULT(N)                                                   \
+  {                                                                            \
+    CUresult result = N;                                                       \
+    if (result != 0) {                                                         \
+      printf("CUDA call on line %d returned error %d\n", __LINE__, result);    \
+      exit(1);                                                                 \
+    }                                                                          \
+  }
 
-int main(int argc, char **argv)
-{
-//	test();
-std::cout<<"load test"<<std::endl;
-	return 0;
+int main(int argc, char **argv) {
+  //	test();
+  std::cout << "load test" << std::endl;
+  return 0;
 }
