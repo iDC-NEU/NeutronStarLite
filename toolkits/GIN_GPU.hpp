@@ -33,7 +33,6 @@ public:
     std::vector<NtsVar>X;
     std::vector<NtsVar>Y;
     std::vector<NtsVar>X_grad;
-    std::vector<NtsVar>X_mirror;
     NtsVar F;
     NtsVar loss;
     NtsVar tt;
@@ -160,7 +159,7 @@ public:
 //        }        
                 
         for(int i=0;i<graph->gnnctx->layer_size.size();i++){
-        NtsVar d;X.push_back(d);X_mirror.push_back(d);
+        NtsVar d;X.push_back(d);
         }
         X[0]=F.cuda().set_requires_grad(true);
     }
@@ -197,14 +196,14 @@ void Test(long s){// 0 train, //1 eval //2 test
 NtsVar vertexForward(NtsVar &a, NtsVar &x){
     NtsVar y;
     int layer=graph->rtminfo->curr_layer;
-    if(graph->rtminfo->epoch==0){
-        X_mirror[layer]=x.detach();
-    }
+//    if(graph->rtminfo->epoch==0){
+//        X_mirror[layer]=x.detach();
+//    }
     if(layer<graph->gnnctx->layer_size.size()-2){
-         y=P[layer*2+1]->forward(torch::relu(P[layer*2+0]->forward(a+X_mirror[layer]))).set_requires_grad(true);
+         y=P[layer*2+1]->forward(torch::relu(P[layer*2+0]->forward(a+x))).set_requires_grad(true);
     }
     else if(layer==graph->gnnctx->layer_size.size()-2){
-        y = P[layer*2+1]->forward(torch::relu(P[layer*2+0]->forward(a+X_mirror[layer])));
+        y = P[layer*2+1]->forward(torch::relu(P[layer*2+0]->forward(a+x)));
         y = y.log_softmax(1); //CUDA 
     }
     return y;
@@ -224,10 +223,10 @@ void vertexBackward(){
     
     int layer=graph->rtminfo->curr_layer;
     if(layer<graph->gnnctx->layer_size.size()-2){
-        X[layer+1].backward(2*X_grad[layer+1]); //new
+        X[layer+1].backward(2*X_grad[layer+1],true); //new
     }
     else if(layer==graph->gnnctx->layer_size.size()-2){
-        loss.backward();
+        loss.backward(torch::ones_like(loss),true);
     }
 }
 
