@@ -19,6 +19,8 @@ The overall architecture of NeutronStar
 
 A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions, multi-threading, etc.) is required.
 
+**cmake** >=3.14.3
+
 **MPI** for inter-process communication 
 
 **cuda** > 9.0 for GPU based graph operation.
@@ -26,6 +28,7 @@ A compiler supporting **OpenMP** and **C++11** features (e.g. lambda expressions
 **libnuma** for NUMA-aware memory allocation.
 
 **cub** for GPU-based graph propagation
+
 
 ```
 sudo apt install libnuma-dev"
@@ -46,7 +49,10 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 export PATH=$MPI_HOME/bin:$CUDA_HOME/bin:$PATH
 ```
 
+**clang-format** is optional for auto-formatting: 
+sudo apt install clang-format
 
+```
 configure "CUDA_ENABLE" flag in ./cuda/cuda_type.h (line 20) to '1' or '0' to enable or disable GPU compilation.
 
 
