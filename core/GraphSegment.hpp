@@ -132,7 +132,11 @@ typedef struct graph_Tensor_Segment_pinned
         
     if(dt==CPU_T){
         column_offset = (VertexId *)malloc((batch_size_forward+1) * sizeof(VertexId));           
-        row_offset = (VertexId *)malloc((batch_size_backward+1) * sizeof(VertexId));/// 
+        row_offset = (VertexId *)malloc((batch_size_backward+1) * sizeof(VertexId));///
+        memset(column_offset,0,(batch_size_forward+1) * sizeof(VertexId));
+        memset(row_offset,0,(batch_size_backward+1) * sizeof(VertexId));
+//        column_offset = new VertexId[batch_size_forward+1];           
+//        row_offset = new VertexId[batch_size_backward+1];///  
     }else{
         assert(NOT_SUPPORT_DEVICE_TYPE);
     } 
@@ -155,14 +159,19 @@ typedef struct graph_Tensor_Segment_pinned
 #endif
     if(dt==CPU_T){
         row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
-    edge_weight_forward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));
-
-    column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));///
-    edge_weight_backward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));///
-
-    destination = (long *)malloc((edge_size + 1) * sizeof(long));
-    source      = (long *)malloc((edge_size + 1) * sizeof(long));
-    source_backward  = (long *)malloc((edge_size + 1) * sizeof(long));
+         memset(row_indices,0,(edge_size+1) * sizeof(VertexId));
+        edge_weight_forward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));
+         memset(edge_weight_forward,0,(edge_size+1) * sizeof(VertexId));
+        column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));///
+         memset(column_indices,0,(edge_size+1) * sizeof(VertexId));
+        edge_weight_backward = (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));///
+         memset(edge_weight_backward,0,(edge_size+1) * sizeof(ValueType));
+        destination = (long *)malloc((edge_size + 1) * sizeof(long));
+         memset(destination,0,(edge_size+1) * sizeof(long));
+        source      = (long *)malloc((edge_size + 1) * sizeof(long));
+         memset(source,0,(edge_size+1) * sizeof(long));
+        source_backward  = (long *)malloc((edge_size + 1) * sizeof(long));
+         memset(source_backward,0,(edge_size+1) * sizeof(long));
     }else{
         assert(NOT_SUPPORT_DEVICE_TYPE);
     }
