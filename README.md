@@ -97,3 +97,29 @@ gcn_reddit.cfg
 
 gcn_reddit_full.cfg
 
+
+# Installation Guide
+
+## Ubuntu 20.04
+
+You can refer to this [guide](https://medium.com/@anarmammadli/how-to-install-cuda-11-4-on-ubuntu-18-04-or-20-04-63f3dee2099) to install CUDA
+
+You can refer to this [guide](https://medium.com/geekculture/installing-cudnn-and-cuda-toolkit-on-ubuntu-20-04-for-machine-learning-tasks-f41985fcf9b2) to install cuDNN
+
+You can find libtorch at this [website](https://pytorch.org/)
+
+Use this command to install `libnuma`
+
+```shell
+sudo apt install libnuma-dev
+```
+
+Use this command to install `mpi`
+
+```shell
+sudo apt install mpich
+```
+
+Remember to set environment variables mentioned above.
+
+if there are any problems, please contact 1173886760@qq.com
