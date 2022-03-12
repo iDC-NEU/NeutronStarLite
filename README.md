@@ -104,6 +104,30 @@ gcn_reddit.cfg
 
 gcn_reddit_full.cfg
 
+# Logger Guide
+
+Instead use `printf` in your code, use `LOG_*` macros for logging infomation like this
+
+```cpp
+LOG_DEBUG("Train Acc %f", acc);
+```
+
+To enable logger in your code, you will need to reconfigure it like this:
+
+```shell
+cmake -D CMAKE_BUILD_TYPE=Debug ..
+```
+
+This will turn on debug mode, and those debug messages will print out.
+
+The different logging levels is defined in `common/logger.h`. After enable logging, the default logging level is `LOG_LEVEL_INFO`. Any logging method with a level that is higher than or equal to `LOG_LEVEL_INFO`(e.g. `LOG_INFO`, `LOG_WARN`, `LOG_ERROR`) will emit logging information.
+
+You can also simply disable logging to improve the runtime performance
+
+## Warning
+
+currently, debug mode in our project is not stable
+
 # Formatting Guide
 
 You can choose your own preference on code formatting
@@ -114,9 +138,9 @@ first dump clang format configuration
 clang-format -style=google -dump-config > .clang-format
 ```
 
-you can pick your favourite style. i.e. llvm, google
+you can pick your favourite style. e.g. llvm, google
 open the `.clang-format` and change the configuration
-i.e. if you want to change indention, find `IndentWidth` and change to what you want
+e.g. if you want to change indention, find `IndentWidth` and change to what you want
 More information can be found at this [website](https://bcain-llvm.readthedocs.io/projects/clang/en/latest/ClangFormatStyleOptions/)
 Then run `make format`, you should be able to see the changes.
 
