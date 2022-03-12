@@ -1,3 +1,4 @@
+#include "comm/logger.h"
 #include "core/gnnmini.hpp"
 #include <c10/cuda/CUDAStream.h>
 
@@ -157,15 +158,13 @@ public:
     if (g_train > 0)
       acc_train = float(g_correct) / g_train;
     if (graph->partition_id == 0) {
-      if (s == 0)
-        std::cout << "Train ACC: " << acc_train << " " << g_train << " "
-                  << g_correct << std::endl;
-      else if (s == 1)
-        std::cout << "Eval  ACC: " << acc_train << " " << g_train << " "
-                  << g_correct << " " << std::endl;
-      else if (s == 2)
-        std::cout << "Test  ACC: " << acc_train << " " << g_train << " "
-                  << g_correct << " " << std::endl;
+      if (s == 0) {
+        LOG_INFO("Train Acc: %f %d %d", acc_train, g_train, g_correct);
+      } else if (s == 1) {
+        LOG_INFO("Eval Acc: %f %d %d", acc_train, g_train, g_correct);
+      } else if (s == 2) {
+        LOG_INFO("Test Acc: %f %d %d", acc_train, g_train, g_correct);
+      }
     }
   }
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
