@@ -98,3 +98,9 @@ message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 #add_subdirectory(core)
 add_executable(nts toolkits/main.cpp)
 target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa) # 加入libTorch的库文件路径
+
+# quick test for debugging purpose
+# mpiexec -np $1 ./build/nts $2
+add_custom_target(test mpiexec -np 1 ./nts ../test/test.cfg
+        DEPENDS nts
+)

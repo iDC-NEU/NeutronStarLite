@@ -180,7 +180,7 @@ public:
         input_msk >> la;
       }
     }
-    free(con_tmp);
+    delete[] con_tmp;
     input_ftr.close();
     input_lbl.close();
   }
