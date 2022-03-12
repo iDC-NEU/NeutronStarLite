@@ -104,6 +104,21 @@ gcn_reddit.cfg
 
 gcn_reddit_full.cfg
 
+# Formatting Guide
+
+You can choose your own preference on code formatting
+Here's an example
+first dump clang format configuration
+
+```shell
+clang-format -style=google -dump-config > .clang-format
+```
+
+you can pick your favourite style. i.e. llvm, google
+open the `.clang-format` and change the configuration
+i.e. if you want to change indention, find `IndentWidth` and change to what you want
+More information can be found at this [website](https://bcain-llvm.readthedocs.io/projects/clang/en/latest/ClangFormatStyleOptions/)
+Then run `make format`, you should be able to see the changes.
 
 # Installation Guide
 
