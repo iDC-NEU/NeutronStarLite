@@ -680,7 +680,9 @@ struct Parameter : torch::nn::Module {
     return x1;
   }
   void learnC2C_with_decay_Adam() {
-    W_g = W_gradient + weight_decay * W;
+    NtsVar S = W.detach();
+    std::cout << S.dim();
+    W_g = W_gradient + weight_decay * S;
     M = beta1 * M + (1 - beta1) * W_g;
     V = beta2 * V + (1 - beta2) * W_g * W_g;
     // NtsVar a = W - alpha*M/(torch::sqrt(V)+epsilon);

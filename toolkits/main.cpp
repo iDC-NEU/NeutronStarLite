@@ -16,6 +16,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 
 #include "GCN_CPU.hpp"
 #include "GCN_CPU_EAGER.hpp"
+#include "GIN_CPU.hpp"
 
 #if CUDA_ENABLE
 #include "COMMNET_GPU.hpp"
@@ -67,6 +68,13 @@ int main(int argc, char **argv) {
     ntsGCN->init_graph();
     ntsGCN->init_nn();
     ntsGCN->run();
+  } else if (graph->config->algorithm == std::string("GINCPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GIN_CPU_impl *ntsGIN = new GIN_CPU_impl(graph, iterations);
+    ntsGIN->init_graph();
+    ntsGIN->init_nn();
+    ntsGIN->run();
   } else if (graph->config->algorithm == std::string("GCNCPUEAGER")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
