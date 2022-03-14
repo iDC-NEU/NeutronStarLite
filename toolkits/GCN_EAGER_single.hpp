@@ -25,7 +25,7 @@ public:
   NtsVar MASK;
   NtsVar MASK_gpu;
   std::map<std::string, NtsVar> I_data;
-  GTensor<ValueType, long> *gt;
+  GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -74,7 +74,7 @@ public:
     graph->generate_COO();
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GTensor<ValueType, long>(graph, active);
+    gt = new GraphOperation(graph, active);
     gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
@@ -261,6 +261,9 @@ public:
 
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
+
+      double per_epoch_time = 0.0;
+      per_epoch_time -= get_time();
       graph->rtminfo->epoch = i_i;
       if (i_i != 0) {
         for (int i = 0; i < P.size(); i++) {
@@ -277,9 +280,11 @@ public:
       Loss();
       Backward();
       Update();
+      per_epoch_time += get_time();
+
       if (graph->partition_id == 0)
-        std::cout << "GNNmini::Running.Epoch[" << i_i << "]:loss\t" << loss
-                  << std::endl;
+        std::cout << "GNNmini::Running.Epoch[" << i_i << "]:Times["
+                  << per_epoch_time << "(s)]:loss\t" << loss << std::endl;
     }
 
     //        graph->rtminfo->forward = true;

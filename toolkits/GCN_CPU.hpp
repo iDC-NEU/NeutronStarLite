@@ -1,4 +1,5 @@
 #include "comm/logger.h"
+#include "core/AutoDiff.hpp"
 #include "core/gnnmini.hpp"
 #include <c10/cuda/CUDAStream.h>
 
@@ -24,12 +25,13 @@ public:
   NtsVar L_GT_G;
   NtsVar MASK;
   std::map<std::string, NtsVar> I_data;
-  GTensor<ValueType, long> *gt;
+  GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
   std::vector<NtsVar> Y;
   std::vector<NtsVar> X_grad;
+  nts::autodiff::ComputionPath *cp;
   NtsVar F;
   NtsVar loss;
   NtsVar tt;
@@ -70,12 +72,13 @@ public:
     graph->generate_COO();
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GTensor<ValueType, long>(graph, active);
+    gt = new GraphOperation(graph, active);
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
     gt->GenerateMessageBitmap(subgraphs);
     graph->init_communicatior();
+    cp = new nts::autodiff::ComputionPath(gt, subgraphs);
   }
   void init_nn() {
 
@@ -94,12 +97,10 @@ public:
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
-      // gnndatum->readFtrFrom1(graph->config->feature_file,graph->config->label_file);
       gnndatum->readFeature_Label_Mask(graph->config->feature_file,
                                        graph->config->label_file,
                                        graph->config->mask_file);
     }
-    // target = torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
@@ -107,12 +108,10 @@ public:
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
-      //        bias.push_back(new Parameter(1,graph->gnnctx->layer_size[i+1]));
     }
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
-      //        bias[i]->init_parameter();
     }
     drpmodel = torch::nn::Dropout(
         torch::nn::DropoutOptions().p(drop_rate).inplace(true));
@@ -124,9 +123,6 @@ public:
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       Y.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-          torch::DeviceType::CPU));
-      X_grad.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
           torch::DeviceType::CPU));
     }
@@ -176,6 +172,7 @@ public:
       y = P[layer]->forward(a);
       y = y.log_softmax(1);
     }
+    cp->op_push(a, y, nts::autodiff::NNOP);
     return y;
   }
   void Loss() {
@@ -186,38 +183,14 @@ public:
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
-  }
-  void vertexBackward() {
-
-    int layer = graph->rtminfo->curr_layer;
-    if (layer == 0) {
-      X[1].backward(X_grad[1]); // new
-    } else if (layer == 1) {
-      loss.backward();
-    }
+    cp->op_push(a, loss, nts::autodiff::NNOP);
   }
 
-  void Backward() {
-    graph->rtminfo->forward = false;
-    for (int i = graph->gnnctx->layer_size.size() - 2; i >= 0; i--) {
-      graph->rtminfo->curr_layer = i;
-      vertexBackward();
-      NtsVar grad_to_Y = Y[i].grad();
-      // gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
-      if (i != 0)
-        // gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
-        gt->PropagateBackwardCPU_Lockfree(grad_to_Y, X_grad[i], subgraphs);
-    }
-  }
   void Update() {
     for (int i = 0; i < P.size() - 1; i++) {
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
-      // P[i]->learnC2C_with_decay_SGD(learn_rate,weight_decay);
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
-      // P[i]->learnC2C_with_decay(learn_rate,weight_decay);
-      //        bias[i]->all_reduce_to_gradient(bias[i]->W.grad().cpu());
-      //        bias[i]->learnC2C_with_decay(learn_rate,weight_decay);
     }
   }
   void Forward() {
@@ -228,16 +201,7 @@ public:
         X[i] = drpmodel(X[i]);
       }
       gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
-      // gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
-      X[i + 1] = vertexForward(Y[i], X[i]);
-    }
-  }
-
-  void Infer_Forward() {
-    graph->rtminfo->forward = true;
-    for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      graph->rtminfo->curr_layer = i;
-      gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
       X[i + 1] = vertexForward(Y[i], X[i]);
     }
   }
@@ -245,9 +209,6 @@ public:
   void run() {
     if (graph->partition_id == 0)
       printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n", iterations);
-    // graph->print_info();
-    // std::cout <<"LOCAL EDGE NUM"<<graph->gnnctx->l_e_num<<std::endl;
-
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
@@ -262,9 +223,10 @@ public:
       Test(1);
       Test(2);
       Loss();
-      Backward();
+      // Backward();
+      cp->self_backward();
       Update();
-
+      // cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
@@ -301,10 +263,7 @@ public:
       printf("#graph repliation time=%lf(s)\n", graph->all_replication_time);
       printf("#Timer Info End\n");
     }
-    //      NtsVar tt_cpu=tt.cpu();
-    //  if(i_i==(iterations-1)&&graph->partition_id==0){
-    //     inference(tt_cpu,graph, embedding, pytool,W1,W2);
-    //  }
+
     double max_time = 0;
     double mean_time = 0;
     double another_time = 0;

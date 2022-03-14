@@ -25,7 +25,7 @@ public:
   NtsVar MASK;
   NtsVar MASK_gpu;
   std::map<std::string, NtsVar> I_data;
-  GTensor<ValueType, long> *gt;
+  GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -72,7 +72,7 @@ public:
     graph->generate_COO();
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GTensor<ValueType, long>(graph, active);
+    gt = new GraphOperation(graph, active);
     gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });

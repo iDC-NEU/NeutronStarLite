@@ -23,7 +23,7 @@ public:
   NtsVar L_GT_G;
   NtsVar MASK;
   std::map<std::string, NtsVar> I_data;
-  GTensor<ValueType, long> *gt;
+  GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -69,7 +69,7 @@ public:
     graph->generate_COO();
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GTensor<ValueType, long>(graph, active);
+    gt = new GraphOperation(graph, active);
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
@@ -247,9 +247,7 @@ public:
           X[i + 1].grad().zero_();
         }
       }
-      printf("hellos\n");
       Forward();
-      printf("hellos\n");
       Test(0);
       Test(1);
       Test(2);

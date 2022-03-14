@@ -1,5 +1,4 @@
 #include "core/gnnmini.hpp"
-#include <c10/cuda/CUDAStream.h>
 
 class GAT_GPU_SINGLE_impl {
 public:
@@ -25,7 +24,7 @@ public:
   NtsVar MASK;
   NtsVar MASK_gpu;
   std::map<std::string, NtsVar> I_data;
-  GTensor<ValueType, long> *gt;
+  GraphOperation *graph_op;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> mirror_in;
@@ -78,10 +77,11 @@ public:
     graph->generate_COO();
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GTensor<ValueType, long>(graph, active);
-    gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
-      return gt->norm_degree(src, dst);
-    });
+    graph_op = new GraphOperation(graph, active);
+    graph_op->GenerateGraphSegment(subgraphs, GPU_T,
+                                   [&](VertexId src, VertexId dst) {
+                                     return graph_op->norm_degree(src, dst);
+                                   });
     double load_rep_time = 0;
     load_rep_time -= get_time();
     // graph->load_replicate3(graph->gnnctx->layer_size);
@@ -243,7 +243,7 @@ public:
       X[i + 1].grad().zero_();
       // grad_to_X=2*torch::ones_like(X[i+1]);
       // if(i==0)std::cout<<M_grad[i]<<std::endl;
-      gt->BackwardScatterMessage(grad_to_X, M_grad[i], subgraphs);
+      graph_op->BackwardScatterMessage(grad_to_X, M_grad[i], subgraphs);
       //  if(i==0)std::cout<<M_grad[i]<<std::endl;
       M[i].backward(M_grad[i]);
     }
@@ -255,7 +255,7 @@ public:
       graph->rtminfo->curr_layer = i;
       M[i] = edge_Forward(X[i]);
       //        torch::Tensor k=torch::ones_like(M[i]);
-      gt->ForwardAggMessage(M[i], X[i + 1], subgraphs);
+      graph_op->ForwardAggMessage(M[i], X[i + 1], subgraphs);
       //        int test=2700;
       //        if(i==0)std::cout<<"DEBUG
       //        "<<subgraphs[0]->column_offset[test+1]-subgraphs[0]->column_offset[test]<<"
@@ -287,7 +287,6 @@ public:
           P[i]->zero_grad();
         }
       }
-
       Forward();
       //       Test(0);
       //       Test(1);

@@ -27,21 +27,7 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 //#include "comm/Network.hpp"
 //#include "cuda/test.hpp"
 #include "core/input.hpp"
-
-long changelable(std::string la) {
-  std::map<std::string, long> label;
-
-  label["Case_Based"] = 0;
-  label["Genetic_Algorithms"] = 1;
-  label["Neural_Networks"] = 2;
-  label["Probabilistic_Methods"] = 3;
-  label["Reinforcement_Learning"] = 4;
-  label["Rule_Learning"] = 5;
-  label["Theory"] = 6;
-  long l = label[la];
-  // test=label.find("Theory");
-  return l;
-}
+#include <stack>
 
 class GNNDatum {
 public:
@@ -186,7 +172,7 @@ public:
   }
 };
 
-template <typename t_v, typename t_l> class GTensor {
+class GraphOperation {
 
 public:
   Graph<Empty> *graph_;
@@ -195,7 +181,7 @@ public:
 
   int *size_at_layer;
 
-  GTensor(Graph<Empty> *graph, VertexSubset *active) {
+  GraphOperation(Graph<Empty> *graph, VertexSubset *active) {
     graph_ = graph;
     active_ = active;
     start_ = graph->gnnctx->p_v_s;
