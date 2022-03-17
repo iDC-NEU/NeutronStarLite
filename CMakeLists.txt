@@ -111,6 +111,8 @@ endif (CUDA_ENABLE)
 
 # quick test for debugging purpose
 # mpiexec -np $1 ./build/nts $2
-add_custom_target(test mpiexec -np 1 ./nts ../test/test.cfg
+# releated issue https://github.com/google/sanitizers/issues/629
+# we have to export those variables to prevent cuda panic while using address sanitizer
+add_custom_target(test ASAN_OPTIONS=protect_shadow_gap=0:replace_intrin=0:detect_leaks=0 mpiexec -np 1 ./nts ../test/test.cfg
         DEPENDS nts
 )
