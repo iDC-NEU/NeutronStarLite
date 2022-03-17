@@ -1,5 +1,4 @@
 #include "core/gnnmini.hpp"
-#include <c10/cuda/CUDAStream.h>
 
 class GAT_impl {
 public:

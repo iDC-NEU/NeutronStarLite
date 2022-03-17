@@ -2,7 +2,6 @@
 #include "comm/logger.h"
 #include "core/AutoDiff.hpp"
 #include "core/gnnmini.hpp"
-#include <c10/cuda/CUDAStream.h>
 
 class GCN_CPU_impl {
 public:

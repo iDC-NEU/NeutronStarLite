@@ -8,11 +8,16 @@ list(APPEND CMAKE_PREFIX_PATH "./GPU_libtorch/libtorch-1-9/libtorch/")
 
 project(GNNmini)
 set(ENV{LANG} "C")
+option (CUDA_ENABLE "DEFAULT ENABLE CUDA" ON)
+message(STATUS "NeutronStar buid with CUDA " ${CUDA_ENABLE})
 
 find_package(PythonInterp REQUIRED)
 find_package(MPI REQUIRED)
 # because torch also depends on cuda, so we find cuda first
-find_package(CUDA REQUIRED)
+if (CUDA_ENABLE)
+        add_definitions(-DCUDA_ENABLE)
+        find_package(CUDA REQUIRED)
+endif (CUDA_ENABLE)
 find_package(Torch REQUIRED)
 #exec_program("mpic++ -showme:compile" OUTPUT_VARIABLE MPI_COMPILE_FLAGS)
 #exec_program("mpic++ -showme:incdirs" OUTPUT_VARIABLE MPI_INCDIRS)
@@ -76,9 +81,10 @@ add_custom_target(format ${NEUTRONSTAR_BUILD_SUPPORT_DIR}/run_clang_format.py
         # --quiet
         )
 
-
-add_subdirectory(cuda)
-set(EXTRA_LIBS ${EXTRA_LIBS} cuda_propagate)
+if (CUDA_ENABLE)
+        add_subdirectory(cuda)
+        set(EXTRA_LIBS ${EXTRA_LIBS} cuda_propagate)
+endif (CUDA_ENABLE)
 
 include_directories(
 ${CMAKE_CURRENT_SOURCE_DIR}
@@ -97,7 +103,11 @@ message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 
 #add_subdirectory(core)
 add_executable(nts toolkits/main.cpp)
-target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa) # 加入libTorch的库文件路径
+if (CUDA_ENABLE)
+        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)
+else()
+        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
+endif (CUDA_ENABLE)
 
 # quick test for debugging purpose
 # mpiexec -np $1 ./build/nts $2

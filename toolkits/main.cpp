@@ -47,21 +47,7 @@ int main(int argc, char **argv) {
   int iterations = graph->config->epochs;
   graph->replication_threshold = graph->config->repthreshold;
 
-  if (graph->config->algorithm == std::string("COMMNETGPU")) {
-    graph->load_directed(graph->config->edge_file, graph->config->vertices);
-    graph->generate_backward_structure();
-    COMMNET_impl *ntsCOMM = new COMMNET_impl(graph, iterations);
-    ntsCOMM->init_graph();
-    ntsCOMM->init_nn();
-    ntsCOMM->run();
-  } else if (graph->config->algorithm == std::string("GINGPU")) {
-    graph->load_directed(graph->config->edge_file, graph->config->vertices);
-    graph->generate_backward_structure();
-    GIN_impl *ntsGIN = new GIN_impl(graph, iterations);
-    ntsGIN->init_graph();
-    ntsGIN->init_nn();
-    ntsGIN->run();
-  } else if (graph->config->algorithm == std::string("GCNCPU")) {
+  if (graph->config->algorithm == std::string("GCNCPU")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
     GCN_CPU_impl *ntsGCN = new GCN_CPU_impl(graph, iterations);
@@ -85,7 +71,21 @@ int main(int argc, char **argv) {
   }
 
 #if CUDA_ENABLE
-  else if (graph->config->algorithm == std::string("GCN")) {
+  else if (graph->config->algorithm == std::string("COMMNETGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    COMMNET_impl *ntsCOMM = new COMMNET_impl(graph, iterations);
+    ntsCOMM->init_graph();
+    ntsCOMM->init_nn();
+    ntsCOMM->run();
+  } else if (graph->config->algorithm == std::string("GINGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GIN_impl *ntsGIN = new GIN_impl(graph, iterations);
+    ntsGIN->init_graph();
+    ntsGIN->init_nn();
+    ntsGIN->run();
+  } else if (graph->config->algorithm == std::string("GCN")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
     GCN_impl *ntsGCN = new GCN_impl(graph, iterations);

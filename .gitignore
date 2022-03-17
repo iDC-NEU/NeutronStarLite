@@ -1,0 +1,5 @@
+# no build files
+build/
+
+# no editor files
+.vscode/

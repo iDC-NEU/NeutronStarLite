@@ -1,6 +1,5 @@
 #include "core/gnnmini.hpp"
 #include "core/AutoDiff.hpp"
-#include <c10/cuda/CUDAStream.h>
 
 class COMMNET_impl {
 public:

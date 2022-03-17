@@ -109,6 +109,7 @@ public:
         case DIST_CPU_EDGE:
           LOG_INFO("DIST_CPU_EDGE not implement");
           break;
+#if CUDA_ENABLE          
         case DIST_GPU:
           gt->GraphPropagateBackward(output_grad[count], input_grad[count],
                                      subgraphs);
@@ -116,6 +117,7 @@ public:
         case DIST_GPU_EDGE:
           LOG_INFO("DIST_GPU_EDGE not implement");
           break;
+#endif          
         case SINGLE_CPU:
           gt->PropagateBackwardCPU_Lockfree(output_grad[count],
                                             input_grad[count], subgraphs);
@@ -124,14 +126,14 @@ public:
           LOG_INFO("SINGLE_CPU_EDGE not implement");
           ;
           break;
+#if CUDA_ENABLE          
         case SINGLE_GPU:
           gt->BackwardSingle(output_grad[count], input_grad[count], subgraphs);
           break;
         case SINGLE_GPU_EDGE:
           LOG_INFO("SINGLE_GPU_EDGE not implement");
           break;
-          ;
-          break;
+#endif          
         default:
           LOG_INFO("error_engine_type");
           assert(true);

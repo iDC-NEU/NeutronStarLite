@@ -1,5 +1,4 @@
 #include "core/gnnmini.hpp"
-#include <c10/cuda/CUDAStream.h>
 
 void compute_dist_GPU(Graph<Empty> *graph, int iterations) {
   ValueType learn_rate = 0.01;
