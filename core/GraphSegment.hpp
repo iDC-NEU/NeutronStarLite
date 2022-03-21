@@ -65,7 +65,9 @@ typedef struct graph_Tensor_Segment_pinned {
 
   VertexId *backward_message_index;
   VertexId *forward_message_index;
-
+  VertexId *forward_multisocket_message_index;
+  BackVertexIndex *backward_multisocket_message_index;
+  
   VertexId *column_offset_gpu; // VertexNumber
   VertexId *row_indices_gpu;
   VertexId *row_offset_gpu;     // VertexNumber

@@ -29,6 +29,23 @@ typedef uint32_t VertexId;
 typedef uint64_t EdgeId;
 typedef float ValueType;
 
+struct VertexIndex{
+  VertexId bufferIndex;
+  VertexId positionIndex;
+};
+
+struct BackVertexIndex{
+  VertexId *vertexSocketPosition;
+  BackVertexIndex(){
+    vertexSocketPosition = nullptr;
+  }
+  void setSocket(int socketNum){
+    vertexSocketPosition = new VertexId[socketNum];
+    memset(vertexSocketPosition, -1, sizeof(VertexId)*socketNum);
+  }
+};
+
+
 struct CscChunk {
   VertexId *dstList;
   VertexId *srcList;

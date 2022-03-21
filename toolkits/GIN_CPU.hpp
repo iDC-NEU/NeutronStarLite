@@ -72,7 +72,8 @@ public:
     gt = new GraphOperation(graph, active);
     gt->GenerateGraphSegment(subgraphs, CPU_T,
                              [&](VertexId src, VertexId dst) { return 1; });
-    gt->GenerateMessageBitmap(subgraphs);
+    // gt->GenerateMessageBitmap(subgraphs);
+    gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
     std::cout << ((VertexId *)(subgraphs[0]->column_offset))[0] << std::endl;
   }
@@ -216,7 +217,8 @@ public:
       // gt->PropagateBackwardCPU(grad_to_Y, X_grad[i]);
       if (i != 0)
         // gt->PropagateBackwardCPU_debug(grad_to_Y, X_grad[i],subgraphs);
-        gt->PropagateBackwardCPU_Lockfree(grad_to_Y, X_grad[i], subgraphs);
+        // gt->PropagateBackwardCPU_Lockfree(grad_to_Y, X_grad[i], subgraphs);
+        gt->PropagateBackwardCPU_Lockfree_multisockets(grad_to_Y, X_grad[i], subgraphs);
     }
   }
   void Update() {
@@ -237,7 +239,8 @@ public:
       //    if(i!=0){
       //        X[i]=drpmodel(X[i]);
       //    }
-      gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      // gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
       // gt->PropagateForwardCPU_debug(X[i], Y[i],subgraphs);
       X[i + 1] = vertexForward(Y[i], X[i]);
     }
