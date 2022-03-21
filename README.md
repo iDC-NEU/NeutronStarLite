@@ -54,11 +54,15 @@ export PATH=$MPI_HOME/bin:$CUDA_HOME/bin:$PATH
 sudo apt install clang-format
 ```
 
-configure "CUDA_ENABLE" flag in ./cuda/cuda_type.h (line 20) to '1' or '0' to enable or disable GPU compilation.
-
+#configure "CUDA_ENABLE" flag in ./cuda/cuda_type.h (line 20) to '1' or '0' to enable or disable GPU compilation.
+If you only need a CPU-base NeutronStar
+please disable **GPU compilation** with the following command at configure time:
+```shell
+cmake -DCUDA_ENABLE=OFF ..
+```
 
 To build:
-```
+```shell
 mkdir build
 
 cd build
