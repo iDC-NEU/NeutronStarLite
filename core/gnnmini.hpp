@@ -429,6 +429,7 @@ public:
           for (long d_idx = subgraphs[recv_id]->row_offset[src_trans];
                d_idx < subgraphs[recv_id]->row_offset[src_trans + 1]; d_idx++) {
             VertexId dst = subgraphs[recv_id]->column_indices[d_idx];
+            if((dst < graph_->local_partition_offset[socketId]) || (dst >=  graph_->local_partition_offset[socketId+1])) continue;
             VertexId dst_trans = dst - start_;
             ValueType *local_input_buffer =
                 X_grad_buffer + (dst_trans)*feature_size;
