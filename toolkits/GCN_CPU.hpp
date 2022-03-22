@@ -76,7 +76,8 @@ public:
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
-    gt->GenerateMessageBitmap(subgraphs);
+    // gt->GenerateMessageBitmap(subgraphs);
+    gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
     cp = new nts::autodiff::ComputionPath(gt, subgraphs);
   }
@@ -200,7 +201,8 @@ public:
       if (i != 0) {
         X[i] = drpmodel(X[i]);
       }
-      gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      //gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
       cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
       X[i + 1] = vertexForward(Y[i], X[i]);
     }

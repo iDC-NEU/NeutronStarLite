@@ -307,6 +307,56 @@ public:
   }
 
   void
+  PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar &Y,
+                               std::vector<CSC_segment_pinned *> &subgraphs) {
+    ValueType *X_buffer =
+        graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
+    ValueType *Y_buffer =
+        graph_->Nts->getWritableBuffer(Y, torch::DeviceType::CPU);
+    memset(Y_buffer, 0, sizeof(ValueType) * X.size(0) * X.size(1));
+    // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+    int feature_size = X.size(1);
+    graph_->process_edges_forward_decoupled_mutisockets<int, ValueType>( // For EACH Vertex
+                                                             // Processing
+        [&](VertexId src, int current_send_partition) {
+          if (graph_->rtminfo->lock_free) {
+            VertexId src_trans = src - graph_->gnnctx->p_v_s;
+            if (subgraphs[current_send_partition]->get_forward_active(
+                    src_trans)) {
+              VertexId write_index = subgraphs[current_send_partition]
+                                         ->forward_multisocket_message_index[src_trans];
+              graph_->NtsComm->emit_buffer_lock_free(
+                  src, X_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
+                  write_index, feature_size);
+            }
+          } else {
+            graph_->NtsComm->emit_buffer(
+                src, X_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
+                feature_size);
+          }
+        },
+        [&](VertexId dst, CSC_segment_pinned *subgraph, MessageBuffer **recv_buffer,
+            std::vector<VertexIndex> &src_index, VertexId recv_id) {
+          VertexId dst_trans =
+              dst - graph_->partition_offset[graph_->partition_id];
+          for (long idx = subgraph->column_offset[dst_trans];
+               idx < subgraph->column_offset[dst_trans + 1]; idx++) {
+            VertexId src = subgraph->row_indices[idx];
+            VertexId src_trans = src - graph_->partition_offset[recv_id];
+            ValueType *local_input =
+                (ValueType *)(recv_buffer[src_index[src_trans].bufferIndex]->data +
+                              graph_->sizeofM<ValueType>(feature_size) *
+                                  src_index[src_trans].positionIndex +
+                              sizeof(VertexId));
+            ValueType *local_output = Y_buffer + dst_trans * feature_size;
+            comp(local_input, local_output, norm_degree(src, dst),
+                 feature_size);
+          }
+        },
+        subgraphs, feature_size, active_);
+  }
+
+  void
   PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,
                                 std::vector<CSC_segment_pinned *> &subgraphs) {
     ValueType *X_grad_buffer =
@@ -339,6 +389,57 @@ public:
             if (subgraphs[recv_id]->source_active->get_bit(src_trans)) {
               VertexId write_index =
                   subgraphs[recv_id]->backward_message_index[src_trans];
+              graph_->NtsComm->emit_buffer_lock_free(src, local_output_buffer,
+                                                     write_index, feature_size);
+            }
+          } else {
+            graph_->NtsComm->emit_buffer(src, local_output_buffer,
+                                         feature_size);
+          }
+        },
+        [&](VertexId src, ValueType *msg) {
+          acc(msg, Y_grad_buffer + (src - start_) * feature_size, feature_size);
+          return 1;
+        },
+        feature_size, active_);
+    delete[] output_buffer;
+  }
+
+
+  void
+  PropagateBackwardCPU_Lockfree_multisockets(NtsVar &X_grad, NtsVar &Y_grad,
+                                std::vector<CSC_segment_pinned *> &subgraphs) {
+    ValueType *X_grad_buffer =
+        graph_->Nts->getWritableBuffer(X_grad, torch::DeviceType::CPU);
+    ValueType *Y_grad_buffer =
+        graph_->Nts->getWritableBuffer(Y_grad, torch::DeviceType::CPU);
+    memset(Y_grad_buffer, 0,
+           sizeof(ValueType) * X_grad.size(0) * X_grad.size(1));
+    // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+    int feature_size = X_grad.size(1);
+    ValueType *output_buffer = new ValueType[feature_size * graph_->threads];
+    graph_->process_edges_backward_decoupled_multisockets<int, ValueType>( // For EACH Vertex
+                                                              // Processing
+        [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+            VertexId recv_id, VertexId socketId) { // pull
+          ValueType *local_output_buffer =
+              output_buffer + feature_size * thread_id;
+          memset(local_output_buffer, 0, sizeof(ValueType) * feature_size);
+          VertexId src_trans = src - graph_->partition_offset[recv_id];
+          for (long d_idx = subgraphs[recv_id]->row_offset[src_trans];
+               d_idx < subgraphs[recv_id]->row_offset[src_trans + 1]; d_idx++) {
+            VertexId dst = subgraphs[recv_id]->column_indices[d_idx];
+            if((dst < graph_->local_partition_offset[socketId]) || (dst >=  graph_->local_partition_offset[socketId+1])) continue;
+            VertexId dst_trans = dst - start_;
+            ValueType *local_input_buffer =
+                X_grad_buffer + (dst_trans)*feature_size;
+            comp(local_input_buffer, local_output_buffer, norm_degree(src, dst),
+                 feature_size);
+          }
+          if (graph_->rtminfo->lock_free) {
+            if (subgraphs[recv_id]->source_active->get_bit(src_trans)) {
+              VertexId write_index =
+                  subgraphs[recv_id]->backward_multisocket_message_index[src_trans].vertexSocketPosition[socketId];
               graph_->NtsComm->emit_buffer_lock_free(src, local_output_buffer,
                                                      write_index, feature_size);
             }
@@ -641,7 +742,86 @@ public:
   }
 
   void
-  GenerateMessageBitmap(std::vector<CSC_segment_pinned *> &graph_partitions) {
+  GenerateMessageBitmap_multisokects(std::vector<CSC_segment_pinned *> &graph_partitions) { //local partition offset
+    int feature_size = 1;
+    graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+        [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+            VertexId recv_id) { // pull
+          VertexId src_trans = src - graph_->partition_offset[recv_id];
+          if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
+            VertexId part = (VertexId)graph_->partition_id;
+            graph_->emit_buffer(src, &part, feature_size);
+          }
+        },
+        [&](VertexId master, VertexId *msg) {
+          VertexId part = *msg;
+          graph_partitions[part]->set_forward_active(
+              master -
+              graph_->gnnctx
+                  ->p_v_s); // destination_mirror_active->set_bit(master-start_);
+          return 0;
+        },
+        feature_size, active_);
+
+    size_t basic_chunk = 64;
+    for (int i = 0; i < graph_partitions.size(); i++) {
+      graph_partitions[i]->forward_multisocket_message_index =
+          new VertexId[graph_partitions[i]->batch_size_forward];
+      memset(graph_partitions[i]->forward_multisocket_message_index, 0,
+             sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
+
+      graph_partitions[i]->backward_multisocket_message_index =
+          new BackVertexIndex[graph_partitions[i]->batch_size_backward];
+      int socketNum = numa_num_configured_nodes();
+      for(int bck = 0; bck < graph_partitions[i]->batch_size_backward; bck++){
+           graph_partitions[i]->backward_multisocket_message_index[bck].setSocket(socketNum);
+      }
+    
+      std::vector<VertexId> socket_backward_write_offset;
+      socket_backward_write_offset.resize(numa_num_configured_nodes());
+      memset(socket_backward_write_offset.data(), 0, sizeof(VertexId) * socket_backward_write_offset.size());
+      #pragma omp parallel
+      {
+        int thread_id = omp_get_thread_num();
+        int s_i = graph_->get_socket_id(thread_id);
+        VertexId begin_p_v_i = graph_->tuned_chunks_dense_backward[i][thread_id].curr;
+        VertexId final_p_v_i = graph_->tuned_chunks_dense_backward[i][thread_id].end;
+        for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
+          VertexId v_i = graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+          VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
+          if (graph_partitions[i]->src_get_active(v_i)){
+            int position = __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
+            graph_partitions[i]->backward_multisocket_message_index[v_trans].vertexSocketPosition[s_i]=position;
+          }
+        }
+      }
+
+      std::vector<VertexId> socket_forward_write_offset;
+      socket_forward_write_offset.resize(numa_num_configured_nodes());
+      memset(socket_forward_write_offset.data(), 0, sizeof(VertexId) * socket_forward_write_offset.size());
+      #pragma omp parallel for schedule(static,basic_chunk)
+      // pragma omp parallel for
+      for (VertexId begin_v_i = graph_partitions[i]->dst_range[0];
+            begin_v_i < graph_partitions[i]->dst_range[1];
+            begin_v_i ++) {
+        int thread_id = omp_get_thread_num();
+        int s_i = graph_->get_socket_id(thread_id);
+        VertexId v_i = begin_v_i;
+        VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
+        if (graph_partitions[i]->get_forward_active(v_trans)) {
+          int position = __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
+          graph_partitions[i]->forward_multisocket_message_index[v_trans] = position;
+        }
+      }
+      // printf("forward_write_offset %d\n",forward_write_offset);
+    }
+    if (graph_->partition_id == 0)
+      printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");  
+  }
+
+
+  void
+  GenerateMessageBitmap(std::vector<CSC_segment_pinned *> &graph_partitions) { //local partition offset
     int feature_size = 1;
     graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
         [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
@@ -673,6 +853,8 @@ public:
       memset(graph_partitions[i]->forward_message_index, 0,
              sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
       int backward_write_offset = 0;
+
+
       for (VertexId begin_v_i = graph_partitions[i]->src_range[0];
            begin_v_i < graph_partitions[i]->src_range[1]; begin_v_i += 1) {
         VertexId v_i = begin_v_i;
@@ -694,7 +876,7 @@ public:
       // printf("forward_write_offset %d\n",forward_write_offset);
     }
     if (graph_->partition_id == 0)
-      printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+      printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");  
   }
 
   void TestGeneratedBitmap(std::vector<CSC_segment_pinned *> &subgraphs) {

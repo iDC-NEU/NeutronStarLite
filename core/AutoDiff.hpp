@@ -103,8 +103,10 @@ public:
         // %d\n",output_grad[count].dim(),input_grad[count].dim());
         switch (op.top()) {
         case DIST_CPU:
-          gt->PropagateBackwardCPU_Lockfree(output_grad[count],
-                                            input_grad[count], subgraphs);
+          // gt->PropagateBackwardCPU_Lockfree(output_grad[count],
+          //                                  input_grad[count], subgraphs);
+          gt->PropagateBackwardCPU_Lockfree_multisockets(output_grad[count],
+                                              input_grad[count], subgraphs);    
           break; // TODO : choose engine
         case DIST_CPU_EDGE:
           LOG_INFO("DIST_CPU_EDGE not implement");

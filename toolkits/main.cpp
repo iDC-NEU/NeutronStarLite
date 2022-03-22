@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     ntsGCN->init_graph();
     ntsGCN->init_nn();
     ntsGCN->run();
-  }
+  } 
 
 #if CUDA_ENABLE
   else if (graph->config->algorithm == std::string("COMMNETGPU")) {
@@ -124,7 +124,21 @@ int main(int argc, char **argv) {
     ntsGAT->init_graph();
     ntsGAT->init_nn();
     ntsGAT->run();
-  }
+  } else if (graph->config->algorithm == std::string("COMMNETGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    COMMNET_impl *ntsCOMM = new COMMNET_impl(graph, iterations);
+    ntsCOMM->init_graph();
+    ntsCOMM->init_nn();
+    ntsCOMM->run();
+  } else if (graph->config->algorithm == std::string("GINGPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GIN_impl *ntsGIN = new GIN_impl(graph, iterations);
+    ntsGIN->init_graph();
+    ntsGIN->init_nn();
+    ntsGIN->run();
+  } 
 #endif
   exec_time += get_time();
   if (graph->partition_id == 0) {
