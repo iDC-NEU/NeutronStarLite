@@ -199,6 +199,12 @@ public:
       write_add(&output[i], input[i]);
     }
   }
+  void copy(ValueType* b_dst, long d_offset,ValueType* b_src,
+         VertexId s_offset,int feat_size){
+      VertexId length=sizeof(ValueType)*feat_size;
+//      LOG_INFO("length %d feat_size %d d_offset %d s_offset %d\n",length,feat_size,d_offset,s_offset);
+      memcpy((char*)b_dst+d_offset*length, (char*)b_src+s_offset*length, length);
+  }
   ValueType norm_degree(VertexId src, VertexId dst) {
     return 1 / ((ValueType)std::sqrt(graph_->out_degree_for_backward[src]) *
                 (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
@@ -255,6 +261,57 @@ public:
         subgraphs, feature_size, active_);
   } // graph propagation engine
 
+  
+    void
+  LocalScatter(NtsVar &X, NtsVar &Ei,
+                               std::vector<CSC_segment_pinned *> &subgraphs) {
+    ValueType *X_buffer =
+        graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
+    ValueType *Ei_buffer =
+        graph_->Nts->getWritableBuffer(Ei, torch::DeviceType::CPU);
+    memset(Ei_buffer, 0, sizeof(ValueType) * Ei.size(0) * Ei.size(1));
+//    LOG_INFO("X size:%d %d, Y size:%d %d|%d",X.size(0),X.size(1),Ei.size(0),Ei.size(1),graph_->edges);
+    // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+    int feature_size = X.size(1);
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          for (long eid = subgraph->column_offset[vtx];
+               eid < subgraph->column_offset[vtx + 1]; eid++) {
+            VertexId src = subgraph->row_indices[eid];
+            assert(0<=src&&src<graph_->vertices);
+            assert(0<=eid&&eid<graph_->edges);
+//            LOG_INFO("src:%d dst%d, e offset %d",src,vtx,eid);  
+            copy(Ei_buffer,eid,X_buffer,src,feature_size);
+          }
+        },
+        subgraphs, feature_size, active_);
+  }
+  
+      void
+  LocalAggregate(NtsVar &Ei, NtsVar &Y,
+                               std::vector<CSC_segment_pinned *> &subgraphs) {
+    ValueType *Y_buffer =
+        graph_->Nts->getWritableBuffer(Y, torch::DeviceType::CPU);
+    ValueType *Ei_buffer =
+        graph_->Nts->getWritableBuffer(Ei, torch::DeviceType::CPU);
+    memset(Y_buffer, 0, sizeof(ValueType) * Y.size(0) * Y.size(1));
+    // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+    int feature_size = Y.size(1);
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          for (long eid = subgraph->column_offset[vtx];
+               eid < subgraph->column_offset[vtx + 1]; eid++) {
+            VertexId src = subgraph->row_indices[eid];
+            assert(0<=vtx&&vtx<graph_->vertices);
+            assert(0<=src&&src<graph_->vertices);
+            assert(0<=eid&&eid<graph_->edges);
+            acc(Ei_buffer+eid*feature_size,Y_buffer+vtx*feature_size,feature_size);
+          }
+        },
+        subgraphs, feature_size, active_);
+  }  
+  
+  
   //
   void
   PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
@@ -405,7 +462,7 @@ public:
     delete[] output_buffer;
   }
 
-
+  
   void
   PropagateBackwardCPU_Lockfree_multisockets(NtsVar &X_grad, NtsVar &Y_grad,
                                 std::vector<CSC_segment_pinned *> &subgraphs) {
@@ -455,6 +512,9 @@ public:
         feature_size, active_);
     delete[] output_buffer;
   }
+  
+
+  
 
   void GetFromDepNeighbor(NtsVar &X, std::vector<NtsVar> &Y_list,
                           std::vector<CSC_segment_pinned *> &subgraphs) {

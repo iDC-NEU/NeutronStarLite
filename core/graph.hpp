@@ -2238,6 +2238,56 @@ public:
     return global_reducer;
   }
 
+  
+    template <typename R, typename M>
+  R local_vertex_operation(
+      std::function<void(VertexId, CSC_segment_pinned *, VertexId)>
+          sparse_slot,
+      std::vector<CSC_segment_pinned *> &graph_partitions, int feature_size,
+      Bitmap *active, Bitmap *dense_selective = nullptr) {
+    omp_set_num_threads(threads);
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    
+    R reducer = 0;
+
+    size_t basic_chunk = 64;
+    {
+
+      for (int step = 0; step < partitions; step++) {
+#pragma omp parallel for
+          for (VertexId begin_v_i = partition_offset[partition_id];
+               begin_v_i < partition_offset[partition_id + 1];
+               begin_v_i += basic_chunk) {
+            VertexId v_i = begin_v_i;
+            unsigned long word = active->data[WORD_OFFSET(v_i)];
+            while (word != 0) {
+              if (word & 1) {
+                sparse_slot(v_i, graph_partitions[step], step);
+              }
+              v_i++;
+              word = word >> 1;
+            }
+          }
+      }
+//      NtsComm->release_communicator();
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+
+
+  
+  
   // process edges
   template <typename R, typename M>
   R process_edges_forward_decoupled(

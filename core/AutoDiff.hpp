@@ -26,16 +26,23 @@ namespace autodiff {
 const VertexId NNOP = 0;
 
 const VertexId DIST_CPU = 1;
-const VertexId DIST_CPU_EDGE = 2;
+const VertexId DIST_GPU = 2;
 
-const VertexId DIST_GPU = 3;
-const VertexId DIST_GPU_EDGE = 4;
+const VertexId SINGLE_CPU = 3;
+const VertexId SINGLE_GPU = 4;
 
-const VertexId SINGLE_CPU = 5;
-const VertexId SINGLE_CPU_EDGE = 6;
+const VertexId SINGLE_CPU_EDGE_SCATTER =5;
+const VertexId SINGLE_CPU_EDGE_GATHER =6;
 
-const VertexId SINGLE_GPU = 7;
-const VertexId SINGLE_GPU_EDGE = 8;
+const VertexId SINGLE_GPU_EDGE_SCATTER = 7;
+const VertexId SINGLE_GPU_EDGE_GATHER = 8;
+
+
+const VertexId DIST_CPU_EDGE = 9;
+const VertexId DIST_GPU_EDGE = 10;
+
+
+
 
 class ComputionPath {
 public:
@@ -97,10 +104,7 @@ public:
     output_grad[count] = grad_to_previous_op;
     while (count > 0 || (count == 0 && NNOP == op.top())) {
       if (NNOP != op.top()) { // test
-        // LOG_INFO("GOP");
         input_grad[count] = torch::zeros_like(input.top());
-        // LOG_INFO("GOP DEBUG %d
-        // %d\n",output_grad[count].dim(),input_grad[count].dim());
         switch (op.top()) {
         case DIST_CPU:
           // gt->PropagateBackwardCPU_Lockfree(output_grad[count],
@@ -124,15 +128,24 @@ public:
           gt->PropagateBackwardCPU_Lockfree(output_grad[count],
                                             input_grad[count], subgraphs);
           break;
-        case SINGLE_CPU_EDGE:
-          LOG_INFO("SINGLE_CPU_EDGE not implement");
-          ;
+        case SINGLE_CPU_EDGE_SCATTER:
+            gt->LocalAggregate(output_grad[count],
+                                            input_grad[count], subgraphs);
+          //LOG_INFO("SINGLE_CPU_EDGE not implement");
+          break;
+        case SINGLE_CPU_EDGE_GATHER:
+            gt->LocalScatter(output_grad[count],
+                                            input_grad[count], subgraphs);
+          //LOG_INFO("SINGLE_CPU_EDGE not implement");
           break;
 #if CUDA_ENABLE          
         case SINGLE_GPU:
           gt->BackwardSingle(output_grad[count], input_grad[count], subgraphs);
           break;
-        case SINGLE_GPU_EDGE:
+        case SINGLE_GPU_EDGE_SCATTER:
+          LOG_INFO("SINGLE_GPU_EDGE not implement");
+          break;
+        case SINGLE_GPU_EDGE_GATHER:
           LOG_INFO("SINGLE_GPU_EDGE not implement");
           break;
 #endif          
@@ -166,8 +179,10 @@ public:
     while (!input.empty()) {
       LOG_INFO("input dim %d", input.top().dim());
       LOG_INFO("output dim %d", output.top().dim());
+      LOG_INFO("OP type %d", op.top());
       input.pop();
       output.pop();
+      op.pop();
     }
   }
 
