@@ -3,7 +3,7 @@
 #include "core/AutoDiff.hpp"
 #include "core/gnnmini.hpp"
 
-class GCN_CPU_impl {
+class GGNN_CPU_impl {
 public:
   int iterations;
   ValueType learn_rate;
@@ -29,6 +29,9 @@ public:
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
+  std::vector<NtsVar> Ei;
+  std::vector<NtsVar> Eo;
+  std::vector<NtsVar> Ei_grad;
   std::vector<NtsVar> Y;
   std::vector<NtsVar> X_grad;
   nts::autodiff::ComputionPath *cp;
@@ -48,7 +51,7 @@ public:
   double graph_time = 0;
   double all_graph_time = 0;
 
-  GCN_CPU_impl(Graph<Empty> *graph_, int iterations_,
+  GGNN_CPU_impl(Graph<Empty> *graph_, int iterations_,
                bool process_local = false, bool process_overlap = false) {
     graph = graph_;
     iterations = iterations_;
@@ -107,6 +110,9 @@ public:
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
+                                graph->gnnctx->layer_size[i], alpha, beta1,
+                                beta2, epsilon, weight_decay));
+      P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
@@ -121,8 +127,18 @@ public:
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
+//      F = graph->Nts->NewOnesTensor(
+//        {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
+//        torch::DeviceType::CPU);
+//        for(int i=0;i<F.size(0);i++){
+//            F[i]=F[i]*i+1;
+//        }
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
+        
+      Ei.push_back(graph->Nts->NewKeyTensor(
+          {graph->gnnctx->l_e_num, graph->gnnctx->layer_size[i]},
+          torch::DeviceType::CPU));
       Y.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
           torch::DeviceType::CPU));
@@ -130,6 +146,7 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
       X.push_back(d);
+      Eo.push_back(d);
     }
     X[0] = F.set_requires_grad(true);
   }
@@ -168,12 +185,20 @@ public:
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
     if (layer == 0) {
-      y = torch::relu(P[layer]->forward(a)).set_requires_grad(true);
+      y = torch::relu(P[2*layer+1]->forward(a)).set_requires_grad(true);
     } else if (layer == 1) {
-      y = P[layer]->forward(a);
+      y = P[2*layer+1]->forward(a);
       y = y.log_softmax(1);
     }
     cp->op_push(a, y, nts::autodiff::NNOP);
+    return y;
+  }
+  NtsVar EdgeForward(NtsVar &ei) {
+    NtsVar y;
+    int layer = graph->rtminfo->curr_layer;
+    y = torch::relu(P[2*layer]->forward(ei).set_requires_grad(true));
+    //y=ei*2;
+    cp->op_push(ei, y, nts::autodiff::NNOP);
     return y;
   }
   void Loss() {
@@ -197,14 +222,14 @@ public:
   void Forward() {
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      graph->rtminfo->curr_layer = i;
-      if (i != 0) {
-        X[i] = drpmodel(X[i]);
-      }
-      //gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
-      gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
-      cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
-      X[i + 1] = vertexForward(Y[i], X[i]);
+      graph->rtminfo->curr_layer = i;     
+        gt->LocalScatter(X[i],Ei[i],subgraphs);
+        cp->op_push(X[i], Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
+        Eo[i]=EdgeForward(Ei[i]);   
+        //Eo[i]=torch::ones_like(Ei[i]);
+        gt->LocalAggregate(Eo[i],Y[i],subgraphs);
+        cp->op_push(Eo[i], Y[i], nts::autodiff::SINGLE_CPU_EDGE_GATHER);
+        X[i + 1] = vertexForward(Y[i], X[i]);
     }
   }
 
@@ -217,7 +242,10 @@ public:
       if (i_i != 0) {
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
+        }
+        for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++){
           Y[i].grad().zero_();
+          Ei[i].grad().zero_();
         }
       }
       Forward();
@@ -225,10 +253,9 @@ public:
       Test(1);
       Test(2);
       Loss();
-      // Backward();
       cp->self_backward();
       Update();
-      // cp->debug();
+//     cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
@@ -282,43 +309,22 @@ public:
              mean_time / graph->partitions);
   }
   void test_debug() {
-
-    //    graph->rtminfo->forward = true;
-    //    graph->rtminfo->curr_layer=0;
-    //   gt->PropagateForwardCPU_debug(X[0], Y[0], subgraphs);
-    //    for(VertexId i=0;i<graph->partitions;i++)
-    //    if(graph->partition_id==i){
-    //        int test=graph->gnnctx->p_v_s+1;
-    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //        test=graph->gnnctx->p_v_e-1;
-    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2+1;
-    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //    }
-
-    //    graph->rtminfo->forward = false;
-    //    graph->rtminfo->curr_layer=0;
-    //    gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
-    //    for(VertexId i=0;i<graph->partitions;i++)
-    //    if(graph->partition_id==i){
-    //        int test=graph->gnnctx->p_v_s;
-    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //        test=graph->gnnctx->p_v_e-1;
-    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
-    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
-    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //    }
+//            Eo[i]=torch::ones_like(Ei[i]);
+//         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
+//      std::cout<<Y[i].t()[0]<<std::endl;  
+//      for(int i=2680;i<2708;i++){
+//          printf("dgr: %d \n",subgraphs[0]->column_offset[i+1]-subgraphs[0]->column_offset[i]);
+//      }
+         
+//      gt->LocalScatter(X[i],Ei[i],subgraphs);
+//      std::cout<<Ei[i].t()[0].slice(0,13540,13566,1).t()<<std::endl;
+//      for(int i=2700;i<2708;i++){
+//          printf("dst: %d \t",i);
+//          for(int j=subgraphs[0]->column_offset[i];j<subgraphs[0]->column_offset[i+1];j++){
+//              printf("src:%d ",subgraphs[0]->row_indices[j]);
+//            }
+//          printf("\n");
+//      }
+      
   }
 };
