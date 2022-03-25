@@ -114,6 +114,9 @@ typedef struct graph_Tensor_Segment_pinned {
       VertexToComm[i]->clear();
     }
   }
+
+  // Allocate bitmap for forward and backward vertex
+  // and row_offset and column_offset, for CSC/CSR format
   void allocVertexAssociateData() {
 
     source_active = new Bitmap(batch_size_backward);
@@ -146,6 +149,8 @@ typedef struct graph_Tensor_Segment_pinned {
     }
   }
 
+  // allocate space for edge associated data.
+  // e.g. destination vertexID, edge data
   void allocEdgeAssociateData() {
 #if CUDA_ENABLE
     if (dt == GPU_T) {

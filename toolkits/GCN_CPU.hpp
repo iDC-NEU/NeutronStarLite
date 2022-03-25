@@ -219,6 +219,7 @@ public:
 
       //gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
       // gather neithbour's vertex feature
+      // the intermediate value is stored in Y
       gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
 
       // push the operation and intermediate result into ComputationPath, for backward propagation

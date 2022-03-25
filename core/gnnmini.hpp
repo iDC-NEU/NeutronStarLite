@@ -379,11 +379,17 @@ public:
     int feature_size = X.size(1);
     graph_->process_edges_forward_decoupled_mutisockets<int, ValueType>( // For EACH Vertex
                                                              // Processing
+        // sparse signal
+        // for every vertex, send it's data to corresponding mirror node at current_send_partition
         [&](VertexId src, int current_send_partition) {
           if (graph_->rtminfo->lock_free) {
             VertexId src_trans = src - graph_->gnnctx->p_v_s;
+            // first check does this node still active.
+            // i.e. does it need to send messages
             if (subgraphs[current_send_partition]->get_forward_active(
                     src_trans)) {
+              // get the index where we shall place the data
+              // and invoke emit_buffer_lock_free to send messages
               VertexId write_index = subgraphs[current_send_partition]
                                          ->forward_multisocket_message_index[src_trans];
               graph_->NtsComm->emit_buffer_lock_free(
@@ -391,25 +397,35 @@ public:
                   write_index, feature_size);
             }
           } else {
+            // send to mirror directly
             graph_->NtsComm->emit_buffer(
                 src, X_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
                 feature_size);
           }
         },
+        // sparse slot.
+        // accumulate incoming feature for dst
         [&](VertexId dst, CSC_segment_pinned *subgraph, MessageBuffer **recv_buffer,
             std::vector<VertexIndex> &src_index, VertexId recv_id) {
           VertexId dst_trans =
               dst - graph_->partition_offset[graph_->partition_id];
+          // for every vertex, accumulate the incoming feature though iterating 
+          // column vertices
           for (long idx = subgraph->column_offset[dst_trans];
                idx < subgraph->column_offset[dst_trans + 1]; idx++) {
+            // Question here, i think recv_id represent the partition ID while the corresponding
+            // partition own the src. But we are subtracting this partition_offset with arbitrary src
+            // Won't this cause segmentation fault?
             VertexId src = subgraph->row_indices[idx];
             VertexId src_trans = src - graph_->partition_offset[recv_id];
+            // fetch input from recv buffer
             ValueType *local_input =
                 (ValueType *)(recv_buffer[src_index[src_trans].bufferIndex]->data +
                               graph_->sizeofM<ValueType>(feature_size) *
                                   src_index[src_trans].positionIndex +
                               sizeof(VertexId));
             ValueType *local_output = Y_buffer + dst_trans * feature_size;
+            // should we use edge_weight instead of norm_degree?
             comp(local_input, local_output, norm_degree(src, dst),
                  feature_size);
           }
@@ -738,15 +754,20 @@ public:
       memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
       memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
       for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
+        // note that the vertex in the same partition has the contiguous vertexID
+        // so we can minus the start index to get the offset
         VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
         VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
         VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
         VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
 
+        // count of edges which has dst to v_dst plus one
         tmp_column_offset[v_dst + 1] += 1;
+        // count of edges which has src from v_src plus one
         tmp_row_offset[v_src + 1] += 1; ///
         // graph_partitions[i]->weight_buffer[j]=(ValueType)std::sqrt(graph->out_degree_for_backward[v_src])*(ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
       }
+      // accumulate those offset, calc the partial sum
       for (int j = 0; j < graph_partitions[i]->batch_size_forward; j++) {
         tmp_column_offset[j + 1] += tmp_column_offset[j];
         graph_partitions[i]->column_offset[j + 1] = tmp_column_offset[j + 1];
@@ -758,6 +779,7 @@ public:
         graph_partitions[i]->row_offset[j + 1] = tmp_row_offset[j + 1];
       }
 
+      // after calc the offset, we should place those edges now
       for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
         // if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
         VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
@@ -765,9 +787,11 @@ public:
         VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
         VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
 
+        // save the src and dst in the column format
         graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)(v_src_m);
         graph_partitions[i]->destination[tmp_column_offset[v_dst]] =
             (long)(v_dst_m);
+        // save the src in the row format
         graph_partitions[i]->source_backward[tmp_row_offset[v_src]] =
             (long)(v_src_m);
 
@@ -776,10 +800,12 @@ public:
         graph_partitions[i]->dst_set_active(
             v_dst_m); // destination_active->set_bit(v_dst);
 
+        // save src in CSC format, used in forward computation
         graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
         graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] =
             weight_compute(v_src_m, v_dst_m);
 
+        // save dst in CSR format, used in backward computation
         graph_partitions[i]->column_indices[tmp_row_offset[v_src]] =
             v_dst_m; ///
         graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] =
