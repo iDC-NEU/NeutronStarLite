@@ -267,6 +267,8 @@ public:
     rtminfo = new runtimeinfo();
     rtminfo->init_rtminfo();
   }
+
+  // initialize gnn context based on layer_string. e.g. 1024-128-10
   void init_gnnctx(std::string layer_string) {
     gnnctx = new gnncontext;
     std::stringstream ss(layer_string);
@@ -3911,18 +3913,25 @@ public:
     }
   }
 
+  // Coordinate list, for more information, please refer to this 
+  // https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_(COO)
   void generate_COO() {
     _graph_cpu_in = new COOChunk();
 
+    // count the edge num, because last element in the array has the total number of edges
+    // so just count the number in every socket
     VertexId edge_size_in = 0;
     for (int i = 0; i < sockets; i++) {
       edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
     }
 
+    // allocate space for saving src and dst for every edges
     _graph_cpu_in->dstList = new VertexId[edge_size_in];
     _graph_cpu_in->srcList = new VertexId[edge_size_in];
     _graph_cpu_in->numofedges = edge_size_in;
 
+    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the index to those edges
+    // calc all of the src and dst with respect to local vertices
     int write_position_in = 0;
     for (int k = 0; k < sockets; k++) {
       for (VertexId vtx = 0; vtx < vertices; vtx++) {
@@ -3938,11 +3947,14 @@ public:
       printf("GNNmini::Preprocessing[Generate Edges]\n");
   }
 
+  // process cross partition edges from partition info
+  // for every partition, we need to know the vertices that related to local partition
   void reorder_COO_W2W() { // replication
     graph_shard_in.clear();
-    VertexId edge_size_out =
-        0; //(VertexId)incoming_adj_index[sockets-1][vertices];
+    VertexId edge_size_out = 0;
+    //(VertexId)incoming_adj_index[sockets-1][vertices];
     VertexId edge_size_in = 0;
+    // count edge num, same as above
     for (int i = 0; i < sockets; i++) {
       edge_size_out += (VertexId)incoming_adj_index[i][vertices];
       edge_size_in += (VertexId)incoming_adj_index_backward[i][vertices];
@@ -3956,6 +3968,8 @@ public:
       graph_shard_in[i]->src_range[0] = partition_offset[i];
       graph_shard_in[i]->src_range[1] = partition_offset[i + 1];
     }
+    // for every partition
+    // calc the number of edges which dst is local partition
     for (int i = 0; i < edge_size_in; i++) {
       int src_bucket = this->get_partition_id(_graph_cpu_in->srcList[i]);
       graph_shard_in[src_bucket]->numofedges += 1;
@@ -3967,6 +3981,9 @@ public:
           new VertexId[graph_shard_in[i]->numofedges];
       graph_shard_in[i]->counter = 0;
     }
+    // then process the vertex id
+    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to p
+    // and dst belongs to local partition
     for (int i = 0; i < edge_size_in; i++) {
       int source = _graph_cpu_in->src()[i];
       int destination = _graph_cpu_in->dst()[i];

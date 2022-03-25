@@ -442,9 +442,9 @@ typedef struct GNNContext {
   std::vector<int> layer_size;
   size_t max_layer;
   size_t label_num;
-  size_t p_id;
-  size_t p_v_s;
-  size_t p_v_e;
+  size_t p_id;    // partition id
+  size_t p_v_s;   // partition vertex start
+  size_t p_v_e;   // partition vertex end
   size_t w_num;   // workernum
   size_t l_v_num; // local |V|
   size_t l_e_num; // local |E|

@@ -36,9 +36,12 @@ public:
   long *local_label;
   int *local_mask;
   Graph<Empty> *graph;
+
   // train:    0
   // eval:     1
   // test:     2
+  // initialize GNN Data using GNNContext and Graph
+  // allocating space to saving data. e.g. local feature, local label
   GNNDatum(gnncontext *_gnnctx, Graph<Empty> *graph_) {
     gnnctx = _gnnctx;
     local_feature = new ValueType[gnnctx->l_v_num * gnnctx->layer_size[0]];
@@ -366,6 +369,7 @@ public:
   void
   PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar &Y,
                                std::vector<CSC_segment_pinned *> &subgraphs) {
+    // get access to the raw data
     ValueType *X_buffer =
         graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
     ValueType *Y_buffer =

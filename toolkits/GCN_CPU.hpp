@@ -17,6 +17,7 @@ public:
   ValueType decay_epoch;
   // graph
   VertexSubset *active;
+  // graph with no edge data
   Graph<Empty> *graph;
   std::vector<CSC_segment_pinned *> subgraphs;
   // NN
@@ -102,14 +103,20 @@ public:
                                        graph->config->label_file,
                                        graph->config->mask_file);
     }
+
+    // creating tensor to save Label and Mask
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
+    // initializeing parameter. Creating tensor with shape [layer_size[i], layer_size[i + 1]]
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
+
+    // synchronize parameter with other processes
+    // because we need to guarantee all of workers are using the same model
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
@@ -122,15 +129,19 @@ public:
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
 
+    // Y[i] is the aggregated value at layer[i]
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       Y.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
           torch::DeviceType::CPU));
     }
+
+    // X[i] is vertex representation at layer i
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
       X.push_back(d);
     }
+    // X[0] is the initial vertex representation. We created it from local_feature
     X[0] = F.set_requires_grad(true);
   }
 
@@ -167,12 +178,14 @@ public:
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
+    // nn operation. Here just a simple matmul. i.e. y = activate(a * w)
     if (layer == 0) {
       y = torch::relu(P[layer]->forward(a)).set_requires_grad(true);
     } else if (layer == 1) {
       y = P[layer]->forward(a);
       y = y.log_softmax(1);
     }
+    // save the intermediate result for backward propagation
     cp->op_push(a, y, nts::autodiff::NNOP);
     return y;
   }
@@ -189,7 +202,9 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size() - 1; i++) {
+      // accumulate the gradient using all_reduce
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
+      // update parameters with Adam optimizer
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
     }
@@ -201,20 +216,30 @@ public:
       if (i != 0) {
         X[i] = drpmodel(X[i]);
       }
+
       //gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      // gather neithbour's vertex feature
       gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
+
+      // push the operation and intermediate result into ComputationPath, for backward propagation
       cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
+
+      // fed aggregation value and vertex feature into nn model
+      // and compute the new vertex feature
       X[i + 1] = vertexForward(Y[i], X[i]);
     }
   }
 
   void run() {
-    if (graph->partition_id == 0)
-      printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n", iterations);
+    if (graph->partition_id == 0) {
+      LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n", iterations);
+    }
+
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
       if (i_i != 0) {
+        // clear the gradient in parameters and values
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
           Y[i].grad().zero_();

@@ -610,6 +610,10 @@ public:
                   MPI_SUM, MPI_COMM_WORLD);
     // printf("%d sd%f\n", weight_row * weight_col, buffer[3]);
   }
+
+  // broadcast the message from root to all processes of group
+  // it's called by all members of group using the same comm, root
+  // our is MPI_COMM_WORLD and root
   void broadcast(t_v *buffer) {
     MPI_Datatype f_vid_t = get_mpi_data_type<t_v>();
     MPI_Bcast(buffer, weight_row * weight_col, f_vid_t, 0, MPI_COMM_WORLD);

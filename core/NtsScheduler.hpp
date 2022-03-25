@@ -653,6 +653,9 @@ struct Parameter : torch::nn::Module {
     curr_epoch = 0;
     decay_epoch = -1;
   }
+
+  // root will broadcast it's parameter to other process
+  // to synchronize the model
   void init_parameter() {
     network_simple->broadcast(W.accessor<ValueType, 2>().data());
   }
