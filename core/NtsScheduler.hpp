@@ -43,8 +43,8 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "core/type.hpp"
 
 #include "ATen/ATen.h"
+#include "comm/network.h"
 #include "GraphSegment.hpp"
-#include "comm/Network.hpp"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/torch.h"
