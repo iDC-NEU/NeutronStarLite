@@ -110,16 +110,30 @@ void MessageBuffer::setMsgData(int i, int msg_unit_size, t_v *buffer) {
           buffer, msg_unit_size);
 }
 
+// NtsGraphCommunicator world
+
+/**
+ * @brief 
+ * initialize the communicator for NTS
+ * 
+ * @param partition_offset_ partition offset array
+ * @param owned_vertices_ number of owned vertices
+ * @param partitions_ number of partitions
+ * @param sockets_ number of sockets
+ * @param threads_ number of threads
+ * @param partition_id_ partition ID
+ * @param lsbl local send buffer limit
+ */
 void NtsGraphCommunicator::init(VertexId *partition_offset_, VertexId owned_vertices_,
           VertexId partitions_, VertexId sockets_, VertexId threads_,
           VertexId partition_id_, size_t lsbl) {
-  partition_offset = partition_offset, owned_vertices = owned_vertices_;
+  partition_offset = partition_offset_;
+  owned_vertices = owned_vertices_;
   partitions = partitions_;
   sockets = sockets_;
   threads = threads_;
   local_send_buffer_limit = lsbl;
   partition_id = partition_id_;
-  partition_offset = partition_offset_;
   threads_per_socket = threads / sockets;
 
   local_send_buffer = new MessageBuffer *[threads];

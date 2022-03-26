@@ -132,6 +132,16 @@ You can also simply disable logging to improve the runtime performance
 
 currently, debug mode in our project is not stable
 
+# Document
+
+Documentation in Neutronstar is still under progress.
+
+For anyone who wants to adding new features or enhance existing documentation, please refer to this [guide](https://developer.lsst.io/cpp/api-docs.html).
+
+Current document should give you a brief about funtions. You can view them directly on your own IDE.
+
+Doxygen is not supported.
+
 # Formatting Guide
 
 You can choose your own preference on code formatting
