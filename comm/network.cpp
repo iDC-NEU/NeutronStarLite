@@ -11,72 +11,100 @@
 #include "core/type.hpp"
 #include "cuda/test.hpp"
 
-MessageBuffer::MessageBuffer() {
-  capacity = 0;
-  count = 0;
-  data = NULL;
+const int DEFAULT_MESSAGEBUFFER_CAPACITY = 4096;
+
+MessageBuffer::MessageBuffer(): 
+  capacity(0),
+  count(0),
+  data(nullptr),
+  pinned(false) {
 }
 
+// initialize message buffer on the specific node
+// default size is 4096
 void MessageBuffer::init(int socket_id) {
-  capacity = 4096;
+  capacity = DEFAULT_MESSAGEBUFFER_CAPACITY;
   count = 0;
   data = (char *)numa_alloc_onnode(capacity, socket_id);
 }
 
+// realloc the buffer with new capacity
+// we shouldn't call it on pinned memory
+// maybe we should add a assertion here in debug mode
 void MessageBuffer::resize(size_t new_capacity) {
   if (new_capacity > capacity) {
     char *new_data = NULL;
     new_data = (char *)numa_realloc(data, capacity, new_capacity);
-    // printf("alloc success%d  %d\n",new_capacity, new_data != NULL);
     assert(new_data != NULL);
     data = new_data;
-    //**********************************************************************8
     capacity = new_capacity; 
     pinned = false;
   }
 }
 
-void MessageBuffer::resize_pinned(long new_capacity) {
+// free the previous buffer and allocate pinned memory
+// if cuda is not enabled, then we will fallback to normal resize
+void MessageBuffer::resize_pinned(size_t new_capacity) {
+  if (new_capacity < capacity) {
+    return;
+  }
 #if CUDA_ENABLE
-  if ((new_capacity > capacity)) {
-    if (!pinned)
-      numa_free(data, capacity);
-    else
-      cudaFreeHost(data);
-    char *new_data = NULL;
-    new_data = (char *)cudaMallocPinned(new_capacity);
-    // Wassert(new_data!=NULL);
-    data = new_data;
-    capacity =
-        new_capacity; //**********************************************************************8
-    pinned = true;
+  if (!pinned) {
+    numa_free(data, capacity);
+  } else {
+    cudaFreeHost(data);
   }
+  char *new_data = (char *)cudaMallocPinned(new_capacity);
+  data = new_data;
+  capacity = new_capacity; 
+  pinned = true;
+#elif
+  char *new_data = NULL;
+  new_data = (char *)numa_realloc(data, capacity, new_capacity);
+  assert(new_data != NULL);
+  data = new_data;
+  capacity = new_capacity; 
+  pinned = false;
 #endif
-  if (new_capacity > capacity) {
-    char *new_data = NULL;
-    new_data = (char *)numa_realloc(data, capacity, new_capacity);
-    // printf("alloc success%d  %d\n",new_capacity, new_data != NULL);
-    assert(new_data != NULL);
-    data = new_data;
-    //**********************************************************************8
-    capacity = new_capacity; 
-    pinned = false;
-  }
 }
 
-  // template <typename MsgData>
+/**
+ * @brief 
+ * the offset of ith MsgUnit is i * (msg_unit_size + sizeof(MsgUnit_buffer))
+ * 
+ * @param i index
+ * @param msg_unit_size size of MsgData
+ * @return int* pointer to MsgUnit
+ */
 int* MessageBuffer::getMsgUnit(int i, int msg_unit_size) {
-  (int *)this->data + i *(msg_unit_size + sizeof(MsgUnit_buffer));
+  (int *)this->data + i * (msg_unit_size + sizeof(MsgUnit_buffer));
 }
 
+/**
+ * @brief 
+ * get corresponding msg data, according to the layout mentioned in Messagebuffer, 
+ * we should add another unit offset while trying to get data
+ * @tparam t_v message data type
+ * @param i index
+ * @param msg_unit_size size of MsgData
+ * @return t_v* pointer to MsgData
+ */
 template <typename t_v>
-t_v* MessageBuffer::getMsg_Data(int i, int msg_unit_size) {
-  (t_v *)this->data + i *(msg_unit_size + sizeof(MsgUnit_buffer)) +
+t_v* MessageBuffer::getMsgData(int i, int msg_unit_size) {
+  (t_v *)this->data + i * (msg_unit_size + sizeof(MsgUnit_buffer)) +
     sizeof(MsgUnit_buffer);
 }
 
+/**
+ * @brief 
+ * copy msg_unit_size bytes from buffer to MessageBuffer
+ * @tparam t_v message data type
+ * @param i index
+ * @param msg_unit_size size of MsgData
+ * @param buffer buffer which holds new data
+ */
 template <typename t_v>
-void MessageBuffer::set_Msg_Data(int i, int msg_unit_size, t_v *buffer) {
+void MessageBuffer::setMsgData(int i, int msg_unit_size, t_v *buffer) {
   memcpy(this->data + i * (msg_unit_size + sizeof(MsgUnit_buffer)) +
             sizeof(MsgUnit_buffer),
           buffer, msg_unit_size);

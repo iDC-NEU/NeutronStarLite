@@ -35,21 +35,31 @@ struct MsgUnit_buffer {
 
 struct MessageBuffer {
   size_t capacity;
-  int count; // the actual size (i.e. bytes) should be sizeof(element) * count
+
+  // the actual size (i.e. bytes) should be sizeof(element) * count
+  int count;
+
+  // deprecated
+  // Messagebuffer is orgainized like this
+  // unit_1 data_1 unit_2 data_2 unit_3 data_3 ... 
   char *data;
+
+  // CUDA pinned memory is faster than the normal one
+  // for study purpose, you can refer to this answer 
+  // https://stackoverflow.com/questions/5736968/why-is-cuda-pinned-memory-so-fast
   bool pinned;
 
   MessageBuffer();
   void init(int socket_id);
   void resize(size_t new_capacity);
-  void resize_pinned(long new_capacity);
+  void resize_pinned(size_t new_capacity);
   int *getMsgUnit(int i, int msg_unit_size);
 
   template <typename t_v>
-  t_v *getMsg_Data(int i, int msg_unit_size);
+  t_v *getMsgData(int i, int msg_unit_size);
 
   template <typename t_v>
-  void set_Msg_Data(int i, int msg_unit_size, t_v *buffer);
+  void setMsgData(int i, int msg_unit_size, t_v *buffer);
 };
 
 class NtsGraphCommunicator {
