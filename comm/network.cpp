@@ -28,6 +28,21 @@ void MessageBuffer::init(int socket_id) {
   data = (char *)numa_alloc_onnode(capacity, socket_id);
 }
 
+MessageBuffer::~MessageBuffer() {
+  if (!data) {
+    return;
+  }
+#if CUDA_ENABLE
+  if (!pinned) {
+    numa_free(data, capacity);
+  } else {
+    cudaFreeHost(data);
+  }
+#else
+  numa_free(data);
+#endif
+}
+
 // realloc the buffer with new capacity
 // we shouldn't call it on pinned memory
 // maybe we should add a assertion here in debug mode
@@ -122,7 +137,7 @@ void MessageBuffer::setMsgData(int i, int msg_unit_size, t_v *buffer) {
  * @param sockets_ number of sockets
  * @param threads_ number of threads
  * @param partition_id_ partition ID
- * @param lsbl local send buffer limit
+ * @param lsbl local send buffer limit. count for local_send_buffer should less than lsbl
  */
 void NtsGraphCommunicator::init(VertexId *partition_offset_, VertexId owned_vertices_,
           VertexId partitions_, VertexId sockets_, VertexId threads_,
@@ -136,12 +151,20 @@ void NtsGraphCommunicator::init(VertexId *partition_offset_, VertexId owned_vert
   partition_id = partition_id_;
   threads_per_socket = threads / sockets;
 
+  // for every threads, allocate message buffer and initialize it.
   local_send_buffer = new MessageBuffer *[threads];
   for (int t_i = 0; t_i < threads; t_i++) {
     local_send_buffer[t_i] = (MessageBuffer *)numa_alloc_onnode(
         sizeof(MessageBuffer), get_socket_id(t_i));
     local_send_buffer[t_i]->init(get_socket_id(t_i));
   }
+
+  // buffer[partition_num][sockets], for sending and receiving
+  // for every socket, it has message buffer for all partitions
+  // I wonder the reason why we use [partition_num][socket_num] instead of
+  // [socket_num][partition_num]. is it for better locality use when we 
+  // are receiving the message for other partition?
+  // I think answer is no, since they are allocated in numa-aware form.
   send_buffer = new MessageBuffer **[partitions];
   recv_buffer = new MessageBuffer **[partitions];
   for (int i = 0; i < partitions; i++) {
@@ -158,6 +181,10 @@ void NtsGraphCommunicator::init(VertexId *partition_offset_, VertexId owned_vert
   }
 }
 
+/**
+ * @brief 
+ * join all the threads and free the queue
+ */
 void NtsGraphCommunicator::release_communicator() {
   Send->join();
   Recv->join();
@@ -169,9 +196,18 @@ void NtsGraphCommunicator::release_communicator() {
   recv_threads.clear();
 }
 
+/**
+ * @brief 
+ * init communicator for this layer
+ * @param feature_size_ feature size for this layer
+ * @param et communication type, could be Master2Mirror or Mirror2Master
+ * @param dl device location. e.g. CPU_T
+ */
 void NtsGraphCommunicator::init_layer_all(VertexId feature_size_, CommType et, DeviceLocation dl) {
+  // allocating queue and resizing message buffer
   init_communicator(feature_size_);
   init_local_message_buffer();
+  // initialize message buffer according to et and dl
   if (et == Master2Mirror) {
     if (CPU_T == dl) {
       init_message_buffer_master_to_mirror();
@@ -201,6 +237,11 @@ void NtsGraphCommunicator::init_layer_all(VertexId feature_size_, CommType et, D
   }
 }
 
+/**
+ * @brief 
+ * initialize send_queue and recv_queue
+ * @param feature_size_ feature size for this layer
+ */
 void NtsGraphCommunicator::init_communicator(VertexId feature_size_) {
   send_queue = new int[partitions];
   recv_queue = new int[partitions];
@@ -209,6 +250,11 @@ void NtsGraphCommunicator::init_communicator(VertexId feature_size_) {
   feature_size = feature_size_;
 }
 
+/**
+ * @brief 
+ * initialize local send buffer, resize the message buffer
+ * to the feature_size of this layer
+ */
 void NtsGraphCommunicator::init_local_message_buffer() {
 
   for (int t_i = 0; t_i < threads; t_i++) {
@@ -218,12 +264,21 @@ void NtsGraphCommunicator::init_local_message_buffer() {
   }
 }
 
+/**
+ * @brief 
+ * initialize message buffer for master2mirror direction.
+ * buffer will be placed on CPU.
+ */
 void NtsGraphCommunicator::init_message_buffer_master_to_mirror() {
   for (int i = 0; i < partitions; i++) {
     for (int s_i = 0; s_i < sockets; s_i++) {
+      // since we will also send and recv message locally, so we don't use find-grained buffer 
+      // which might introduce more code and increase complexity
+      // for every recv buffer, resize to feature_size * (vertex_num for this parittion) * sockets
       recv_buffer[i][s_i]->resize(
           size_of_msg(feature_size) *
           (partition_offset[i + 1] - partition_offset[i]) * sockets);
+      // for every send buffer, resize to feature_size * owned_vertex_num * sockets
       send_buffer[i][s_i]->resize(size_of_msg(feature_size) * owned_vertices *
                                   sockets);
       send_buffer[i][s_i]->count = 0;
@@ -232,13 +287,20 @@ void NtsGraphCommunicator::init_message_buffer_master_to_mirror() {
   }
 }
 
+/**
+ * @brief 
+ * initialize message buffer for mirror2master direction.
+ * buffer will be placed on CPU.
+ */
 void NtsGraphCommunicator::init_message_buffer_mirror_to_master() {
   // printf("%d %d %d %d %d %d
   // %d\n",owned_vertices,sockets,feature_size,local_send_buffer_limit,partitions,partition_offset[0],partition_offset[1]);
   for (int i = 0; i < partitions; i++) {
     for (int s_i = 0; s_i < sockets; s_i++) {
+      // for every recv buffer, we are the master, and thus, using owned_vertex_num
       recv_buffer[i][s_i]->resize(size_of_msg(feature_size) * owned_vertices *
                                   sockets);
+      // for sending, buffer size should be the owned_vertex_num for that partition
       send_buffer[i][s_i]->resize(
           size_of_msg(feature_size) *
           (partition_offset[i + 1] - partition_offset[i]) * sockets);
@@ -248,7 +310,13 @@ void NtsGraphCommunicator::init_message_buffer_mirror_to_master() {
   }
 }
 
+/**
+ * @brief 
+ * initialize message buffer for master2mirror direction.
+ * buffer will be pinned on GPU.
+ */
 void NtsGraphCommunicator::init_message_buffer_master_to_mirror_pipe() {
+  // logic here will be the same at CPU version.
   for (int i = 0; i < partitions; i++) {
     for (int s_i = 0; s_i < sockets; s_i++) {
       recv_buffer[i][s_i]->resize_pinned(
@@ -262,9 +330,15 @@ void NtsGraphCommunicator::init_message_buffer_master_to_mirror_pipe() {
   }
 }
 
+/**
+ * @brief 
+ * initialize message buffer for mirror2master direction.
+ * buffer will be pinned on GPU.
+ */
 void NtsGraphCommunicator::init_message_buffer_mirror_to_master_pipe() {
   // printf("%d %d %d %d %d %d
   // %d\n",owned_vertices,sockets,feature_size,local_send_buffer_limit,partitions,partition_offset[0],partition_offset[1]);
+  // logic here will be the same at CPU version.
   for (int i = 0; i < partitions; i++) {
     for (int s_i = 0; s_i < sockets; s_i++) {
       recv_buffer[i][s_i]->resize_pinned(size_of_msg(feature_size) *
@@ -278,6 +352,12 @@ void NtsGraphCommunicator::init_message_buffer_mirror_to_master_pipe() {
   }
 }
 
+/**
+ * @brief 
+ * 
+ * @param partition_id_ 
+ * @param flush_local_buffer whether we need to flush local buffer to send buffer
+ */
 void NtsGraphCommunicator::trigger_one_partition(VertexId partition_id_,
                             bool flush_local_buffer) {
   if (flush_local_buffer == true) {
@@ -286,16 +366,18 @@ void NtsGraphCommunicator::trigger_one_partition(VertexId partition_id_,
   if (partition_id_ == partition_id) {
     //  printf("local triggered %d\n",partition_id_);
     partition_is_ready_for_recv(partition_id_);
-  } else if (partition_id_ != partition_id) {
+  } else {
     // printf("remote triggered %d\n",partition_id_);
     partition_is_ready_for_send(partition_id_);
-
-  } else {
-    printf("illegal partition_id(%d)\n", partition_id_);
-    exit(0);
   }
 }
 
+/**
+ * @brief 
+ * ready to recv specific parititon.
+ * Used for recv local message
+ * @param partition_id_ partition id
+ */
 void NtsGraphCommunicator::partition_is_ready_for_recv(VertexId partition_id_) {
   recv_queue[recv_queue_size] = partition_id_;
   recv_queue_mutex.lock();
@@ -303,6 +385,11 @@ void NtsGraphCommunicator::partition_is_ready_for_recv(VertexId partition_id_) {
   recv_queue_mutex.unlock();
 }
 
+/**
+ * @brief 
+ * flush local send buffer to send buffer for current_send_partition
+ * @param current_send_partition_id_ send partition id
+ */
 void NtsGraphCommunicator::achieve_local_message(VertexId current_send_partition_id_) {
   current_send_part_id = current_send_partition_id_;
 #pragma omp parallel for
@@ -311,6 +398,12 @@ void NtsGraphCommunicator::achieve_local_message(VertexId current_send_partition
   }
 }
 
+/**
+ * @brief 
+ * ready to send specific partition.
+ * We will push this partition to send_queue
+ * @param partition_id_ partition id
+ */
 void NtsGraphCommunicator::partition_is_ready_for_send(VertexId partition_id_) {
   if (partition_id_ != partition_id) {
     send_queue[send_queue_size] = partition_id_;
@@ -320,7 +413,19 @@ void NtsGraphCommunicator::partition_is_ready_for_send(VertexId partition_id_) {
   }
 }
 
+/**
+ * @brief 
+ * recv the message from one partition in the specific step.
+ * @param workerId partitionID where we received message in this particular step
+ * @param step the step which specifies the partitionID. think about the steps in ring scheduling 
+ * @return MessageBuffer** message buffer for all sockets from one partition
+ */
 MessageBuffer **NtsGraphCommunicator::recv_one_partition(int &workerId, int step) {
+  // for this type looping, please refer to this answer
+  // https://stackoverflow.com/questions/50428450/what-does-asm-volatile-pause-memory-do
+  // the equivalent of c++ style loop is the combination of atmoic load and _mm_pause
+  // wait till this partiiton is avaliable
+  // the reason we use spinlock is because the cv is heavy-weight
   while (true) {
     recv_queue_mutex.lock();
     bool condition = (recv_queue_size <= step);
@@ -329,6 +434,7 @@ MessageBuffer **NtsGraphCommunicator::recv_one_partition(int &workerId, int step
       break;
     __asm volatile("pause" ::: "memory");
   }
+  // assign the partition id
   int i = recv_queue[step];
   workerId = i;
   //        printf("DEBUG NTSCOMM%d\n",i);
@@ -560,8 +666,15 @@ void NtsGraphCommunicator::run_all_master_to_mirror_lock_free_no_wait() {
   Recv = new std::thread([&]() { recv_master_to_mirror_no_wait(); });
 }
 
+/**
+ * @brief 
+ * flush local send buffer to the send buffer
+ * @param t_i thread id
+ * @param f_size feature size for this layer
+ */
 void NtsGraphCommunicator::flush_local_send_buffer_buffer(int t_i, int f_size) {
   int s_i = get_socket_id(t_i);
+  // get the previous send_buffer count and add local_send_buffer count to it
   int pos =
       __sync_fetch_and_add(&send_buffer[current_send_part_id][s_i]->count,
                             local_send_buffer[t_i]->count);
@@ -569,10 +682,12 @@ void NtsGraphCommunicator::flush_local_send_buffer_buffer(int t_i, int f_size) {
   // printf("sizeofM<float>(f_size)%d %d %d
   // %d\n",size_of_msg(f_size),local_send_buffer_limit,local_send_buffer[t_i]->count,send_buffer[current_send_part_id][s_i]->count);
 
+  // copy data from local_send_buffer to send_buffer
   if (local_send_buffer[t_i]->count != 0)
     memcpy(send_buffer[current_send_part_id][s_i]->data +
                 (size_of_msg(f_size)) * pos,
             local_send_buffer[t_i]->data,
             (size_of_msg(f_size)) * local_send_buffer[t_i]->count);
+  // clear local_send_buffer
   local_send_buffer[t_i]->count = 0;
 }

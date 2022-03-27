@@ -60,6 +60,8 @@ struct MessageBuffer {
 
   template <typename t_v>
   void setMsgData(int i, int msg_unit_size, t_v *buffer);
+
+  ~MessageBuffer();
 };
 
 class NtsGraphCommunicator {
