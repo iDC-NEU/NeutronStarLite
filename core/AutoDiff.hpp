@@ -17,7 +17,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 #ifndef AUTODIFF_HPP
 #define AUTODIFF_HPP
-#include "gnnmini.hpp"
+#include "gnnmini.h"
 
 namespace nts {
 

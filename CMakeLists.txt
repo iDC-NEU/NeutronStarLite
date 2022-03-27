@@ -104,9 +104,10 @@ message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 set(NEUTRONSTAR_SRC_FILES
         "toolkits/main.cpp"
         "comm/network.cpp"
+        "core/gnnmini.cpp"
+        "core/input.cpp"
 )
 
-#add_subdirectory(core)
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
 if (CUDA_ENABLE)
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)

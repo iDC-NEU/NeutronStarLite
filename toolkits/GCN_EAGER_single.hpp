@@ -1,4 +1,4 @@
-#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
 
 class GCN_EAGER_single_impl {
 public:

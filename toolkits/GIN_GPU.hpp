@@ -1,4 +1,4 @@
-#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
 #include "core/AutoDiff.hpp"
 
 class GIN_impl {

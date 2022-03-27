@@ -1,4 +1,4 @@
-#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
 
 class GAT_GPU_impl {
 public:

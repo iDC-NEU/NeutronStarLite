@@ -1,11 +1,6 @@
-#ifndef INPUT_HPP
-#define INPUT_HPP
-#include <vector>
-struct origin_feature {
-  int id;
-  std::vector<int> att;
-  long label;
-}; // con[2708];
+#include <map>
+#include <string>
+#include "input.h"
 
 long changelable1(std::string la) {
   std::map<std::string, long> label;
@@ -21,5 +16,3 @@ long changelable1(std::string la) {
   // test=label.find("Theory");
   return l;
 }
-
-#endif

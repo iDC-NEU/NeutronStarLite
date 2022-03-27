@@ -1,4 +1,4 @@
-#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
 
 /*GPU single*/ void compute_single_GPU(Graph<Empty> *graph, int iterations) {
   ValueType learn_rate = 0.01;

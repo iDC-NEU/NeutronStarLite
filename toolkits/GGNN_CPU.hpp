@@ -1,7 +1,7 @@
 
 #include "comm/logger.h"
 #include "core/AutoDiff.hpp"
-#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
 
 class GGNN_CPU_impl {
 public:
