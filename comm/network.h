@@ -138,16 +138,22 @@ private:
   VertexId threads_per_socket;
   VertexId threads;
   VertexId sockets;
+  // number of partitions
   VertexId partitions;
   VertexId feature_size;
+  // local partition id
   VertexId partition_id;
+  // partition array
   VertexId *partition_offset;
+  // number of owned vertices
   VertexId owned_vertices;
-  MessageBuffer **
-      *send_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
-  MessageBuffer **
-      *recv_buffer; // MessageBuffer* [partitions] [sockets]; numa-aware
+  // MessageBuffer* [partitions] [sockets]; numa-aware
+  MessageBuffer ***send_buffer; 
+  // MessageBuffer* [partitions] [sockets]; numa-aware
+  MessageBuffer ***recv_buffer; 
+  // maxium number of messages that local send buffer could cache
   size_t local_send_buffer_limit;
+  // MessageBuffer *local_send_buffer[sockets]
   MessageBuffer **local_send_buffer;
 
   int *send_queue;

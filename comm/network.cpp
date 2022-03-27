@@ -183,7 +183,8 @@ void NtsGraphCommunicator::init(VertexId *partition_offset_, VertexId owned_vert
 
 /**
  * @brief 
- * join all the threads and free the queue
+ * join all the threads and free the queue.
+ * corresponding to init_communicator
  */
 void NtsGraphCommunicator::release_communicator() {
   Send->join();
@@ -354,8 +355,9 @@ void NtsGraphCommunicator::init_message_buffer_mirror_to_master_pipe() {
 
 /**
  * @brief 
- * 
- * @param partition_id_ 
+ * notify that the partition is ready to send. we should call it 
+ * after we place data to send_buffer
+ * @param partition_id_ partition id
  * @param flush_local_buffer whether we need to flush local buffer to send buffer
  */
 void NtsGraphCommunicator::trigger_one_partition(VertexId partition_id_,
@@ -437,7 +439,8 @@ MessageBuffer **NtsGraphCommunicator::recv_one_partition(int &workerId, int step
   // assign the partition id
   int i = recv_queue[step];
   workerId = i;
-  //        printf("DEBUG NTSCOMM%d\n",i);
+
+  // if partition is local partition. we return the send_buffer directly
   if (i == partition_id) {
     return send_buffer[i];
   } else {
@@ -445,16 +448,27 @@ MessageBuffer **NtsGraphCommunicator::recv_one_partition(int &workerId, int step
   }
 }
 
+/**
+ * @brief 
+ * place message(vertex and data) to local send buffer
+ * @param vtx source vertex
+ * @param buffer vertex feature data buffer
+ * @param f_size feature size
+ */
 void NtsGraphCommunicator::emit_buffer(VertexId vtx, ValueType *buffer, int f_size) {
+  // get current thread id
   int t_i = omp_get_thread_num();
   char *s_buffer = NULL;
   s_buffer = (char *)local_send_buffer[t_i]->data;
 
+  // copy the vertex to send buffer
   memcpy(s_buffer + local_send_buffer[t_i]->count * size_of_msg(f_size), &vtx,
           sizeof(VertexId));
+  // copy the feature data to send buffer
   memcpy(s_buffer + local_send_buffer[t_i]->count * size_of_msg(f_size) +
               sizeof(VertexId),
           buffer, sizeof(float) * f_size);
+  // question, is this operation safe? shall we use atomic operation?
   local_send_buffer[t_i]->count += 1;
 
   if (local_send_buffer[t_i]->count == local_send_buffer_limit) {
@@ -462,6 +476,14 @@ void NtsGraphCommunicator::emit_buffer(VertexId vtx, ValueType *buffer, int f_si
   }
 }
 
+/**
+ * @brief 
+ * place the data directly on send buffer based on vertexID instead of local send buffer
+ * @param vtx source vertex
+ * @param buffer vertex feature data buffer 
+ * @param write_index index where we want to place data to
+ * @param f_size feature size
+ */
 void NtsGraphCommunicator::emit_buffer_lock_free(VertexId vtx, ValueType *buffer,
                             VertexId write_index, int f_size) {
   int t_i = omp_get_thread_num();
@@ -479,11 +501,16 @@ void NtsGraphCommunicator::emit_buffer_lock_free(VertexId vtx, ValueType *buffer
           buffer, sizeof(float) * f_size);
 }
 
+/**
+ * @brief 
+ * send data from mirror to master in all steps
+ */
 void NtsGraphCommunicator::send_mirror_to_master() {
   for (int step = 0; step < partitions; step++) {
     if (step == partitions - 1) {
       break;
     }
+    // waiting for the data of current step to be prepared
     while (true) {
       send_queue_mutex.lock();
       bool condition = (send_queue_size <= step);
@@ -492,6 +519,7 @@ void NtsGraphCommunicator::send_mirror_to_master() {
         break;
       __asm volatile("pause" ::: "memory");
     }
+    // send to partition i
     int i = send_queue[step];
     for (int s_i = 0; s_i < sockets; s_i++) {
       MPI_Send(send_buffer[i][s_i]->data,
@@ -501,6 +529,10 @@ void NtsGraphCommunicator::send_mirror_to_master() {
   }
 }
 
+/**
+ * @brief 
+ * send data from master to mirror in all steps.
+ */
 void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
   for (int step = 0; step < partitions; step++) {
     if (step == partitions - 1) {
@@ -520,8 +552,11 @@ void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
     //              printf("continue\n");
     //              continue;
     //          }
-    for (int s_i = 0; s_i < sockets;
-          s_i++) { // printf("send_success part_id %d\n",partition_id);
+
+    // local vertex data will be placed on send_buffer[partition_id]
+    // so we just send it to all peers
+    for (int s_i = 0; s_i < sockets; s_i++) { 
+      // printf("send_success part_id %d\n",partition_id);
       MPI_Send(send_buffer[partition_id][s_i]->data,
                 size_of_msg(feature_size) *
                     send_buffer[partition_id][s_i]->count,
@@ -530,6 +565,12 @@ void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
   }
 }
 
+/**
+ * @brief 
+ * send data from master to mirror.
+ * we will not retrive target partition ID from send_queue, instead we send it
+ * in a ring style.
+ */
 void NtsGraphCommunicator::send_master_to_mirror() {
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id - step + partitions) % partitions;
@@ -542,6 +583,11 @@ void NtsGraphCommunicator::send_master_to_mirror() {
   }
 }
 
+/**
+ * @brief 
+ * spawn threads waiting to recv message from master.
+ * push the partitionID after we've received the message
+ */
 void NtsGraphCommunicator::recv_master_to_mirror_no_wait() {
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id + step) % partitions;
@@ -561,6 +607,9 @@ void NtsGraphCommunicator::recv_master_to_mirror_no_wait() {
         },
         i);
   }
+  // join the recv threads according to the step.
+  // push the new partition ID to recv_queue to indicate 
+  // that the message from this partition has prepared.
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id + step) % partitions;
     recv_threads[step - 1].join();
@@ -571,6 +620,12 @@ void NtsGraphCommunicator::recv_master_to_mirror_no_wait() {
   }
 }
 
+/**
+ * @brief 
+ * recv the message from master to mirror. 
+ * instead of spawning thread waiting for the message, we do it in
+ * a blocked manner.
+ */
 void NtsGraphCommunicator::recv_master_to_mirror() {
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id + step) % partitions;
@@ -590,6 +645,11 @@ void NtsGraphCommunicator::recv_master_to_mirror() {
   }
 }
 
+/**
+ * @brief 
+ * spawn threads waiting to recv the message from mirror.
+ * And push partition ID into recv_queue to indicate the corresponding partition is ready
+ */
 void NtsGraphCommunicator::recv_mirror_to_master() {
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id - step + partitions) % partitions;
@@ -616,6 +676,7 @@ void NtsGraphCommunicator::recv_mirror_to_master() {
     recv_queue_size += 1;
     recv_queue_mutex.unlock();
   }
+  // last partition is local partition. we will retrive messages from send buffer directly
   recv_queue[recv_queue_size] = partition_id;
   recv_queue_mutex.lock();
   recv_queue_size += 1;
@@ -637,6 +698,11 @@ void NtsGraphCommunicator::run_all_mirror_to_master() {
   Recv = new std::thread([&]() { recv_mirror_to_master(); });
 }
 
+/**
+ * @brief 
+ * send message from master to mirror.
+ * same as send_master_to_mirror
+ */
 void NtsGraphCommunicator::send_master_to_mirror_lock_free_no_wait() {
   for (int step = 0; step < partitions; step++) {
     if (step == partitions - 1) {
