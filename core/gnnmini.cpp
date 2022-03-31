@@ -316,6 +316,7 @@ void GraphOperation::ProcessForwardCPU(
 
   // graph_->process_edges_forward_debug<int,float>( // For EACH Vertex
   // Processing
+  // do the ring style task scheduling
   graph_->process_edges_forward_decoupled_dynamic_length<
       int, ValueType>( // For EACH Vertex Processing
       // send every vertex data to the corresponding mirror node
@@ -352,9 +353,16 @@ void GraphOperation::ProcessForwardCPU(
       subgraphs, feature_size, active_);
 } // graph propagation engine
 
-  
+/**
+ * @brief 
+ * gather the vertex representation to edge. Only used in single node scenario
+ * @param X vertex tensor
+ * @param Ei edge tensor
+ * @param subgraphs vector contains subgraph representation
+ */
 void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
+  // get raw buffer
   ValueType *X_buffer =
       graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
   ValueType *Ei_buffer =
@@ -363,20 +371,30 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
 //    LOG_INFO("X size:%d %d, Y size:%d %d|%d",X.size(0),X.size(1),Ei.size(0),Ei.size(1),graph_->edges);
   // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
   int feature_size = X.size(1);
+
   graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
       [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
         for (long eid = subgraph->column_offset[vtx];
               eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          assert(0<=src&&src<graph_->vertices);
-          assert(0<=eid&&eid<graph_->edges);
+          assert(0 <= src && src < graph_->vertices);
+          assert(0 <= eid && eid < graph_->edges);
 //            LOG_INFO("src:%d dst%d, e offset %d",src,vtx,eid);  
+          // copy vertex feature to it's out_edge
           copy(Ei_buffer,eid,X_buffer,src,feature_size);
         }
       },
       subgraphs, feature_size, active_);
 }
-  
+
+/**
+ * @brief 
+ * perform local aggregation. i.e. gather Edge feature to the vertex
+ * @param Ei edge tensor
+ * @param Y result tensor. i.e. tensor where we should place aggregation value
+ * @param subgraphs vector contains subgraph representation
+ */
 void GraphOperation::LocalAggregate(NtsVar &Ei, NtsVar &Y,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
   ValueType *Y_buffer =
@@ -391,10 +409,13 @@ void GraphOperation::LocalAggregate(NtsVar &Ei, NtsVar &Y,
         for (long eid = subgraph->column_offset[vtx];
               eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          assert(0<=vtx&&vtx<graph_->vertices);
-          assert(0<=src&&src<graph_->vertices);
-          assert(0<=eid&&eid<graph_->edges);
-          acc(Ei_buffer+eid*feature_size,Y_buffer+vtx*feature_size,feature_size);
+          assert(0 <= vtx && vtx < graph_->vertices);
+          assert(0 <= src && src < graph_->vertices);
+          assert(0 <= eid && eid < graph_->edges);
+          // gather edge data to vertex
+          acc(Ei_buffer + eid * feature_size,
+              Y_buffer + vtx * feature_size,
+              feature_size);
         }
       },
       subgraphs, feature_size, active_);
@@ -816,6 +837,13 @@ void GraphOperation::PropagateBackwardEdgeGPU(
 }
 #endif
 
+/**
+ * @brief 
+ * generate subgraph representation with respect to local partition.
+ * @param graph_partitions vector where we want to place the result
+ * @param dt device type
+ * @param weight_compute function which used to compute edge weight
+ */
 void GraphOperation::GenerateGraphSegment(
     std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt,
     std::function<ValueType(VertexId, VertexId)> weight_compute) {
@@ -824,6 +852,7 @@ void GraphOperation::GenerateGraphSegment(
   int *tmp_row_offset = new int[graph_->vertices + 1];
   memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1)); //
   memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));    //
+  // for every partition
   for (int i = 0; i < graph_->graph_shard_in.size(); i++) {
     graph_partitions.push_back(new CSC_segment_pinned);
     graph_partitions[i]->init(graph_->graph_shard_in[i]->src_range[0],
@@ -835,9 +864,12 @@ void GraphOperation::GenerateGraphSegment(
     graph_partitions[i]->allocEdgeAssociateData();
     memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
     memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
+
     for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
       // note that the vertex in the same partition has the contiguous vertexID
       // so we can minus the start index to get the offset
+      // v_src_m and v_dst_m is the real vertex id
+      // v_dst and v_src is local vertex id
       VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
       VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
       VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
@@ -864,6 +896,8 @@ void GraphOperation::GenerateGraphSegment(
     // after calc the offset, we should place those edges now
     for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
       // if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
+      // v_src is from partition i
+      // v_dst is from local partition
       VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
       VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
       VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];

@@ -70,7 +70,10 @@ public:
   inputinfo *config;
 
   // graph reorganization
+  // contains the all of the in_edges for local partition
   COOChunk *_graph_cpu_in;
+  // contains the informaction of every partition with respect to local partition
+  // e.g. number of edges that from partition i to local partition
   std::vector<COOChunk *> graph_shard_in;
 
   std::string filename;
@@ -2191,9 +2194,12 @@ public:
         memset(cpu_recv_message_index.data(), 0,
                sizeof(VertexId) * cpu_recv_message_index.size());
         
-        // shouldn't we parallel at socket level?
         for (int s_i = 0; s_i < sockets; s_i++) {
-          // for every sockets, do it's local working first. i.e. process it's own vertex
+          // we will have sockets data. i.e. user_buffer[sockets]
+          // for every buffer, we will process it with all local sockets
+          // for socket_out in remote_sockets
+          //    for socket_in in local_sockets in parallel
+          //        process_data(socket_in, socket_out)
           char *buffer = used_buffer[s_i]->data;
           size_t buffer_size = used_buffer[s_i]->count;
           // divied the each thread's work to 64 vertex grained
@@ -2233,27 +2239,39 @@ public:
                 end_b_i = thread_state[thread_id]->end;
               }
 
-              
               for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
                 long index = (long)b_i * sizeofM<M>(feature_size);
+                // get the vertex placed on b_i
                 VertexId v_i = *((VertexId *)(buffer + index));
                 M *msg_data = (M *)(buffer + index + sizeof(VertexId));
+
+                // if vi has edge to the vertex set of socket s_i
+                // then we add it to the list
                 if (outgoing_adj_bitmap[s_i]->get_bit(v_i)) {
                   VertexId v_trans = v_i - partition_offset[i];
+                  // map the v_i to the location where it's data has been placed in recv_buffer
+                  // thus we can locate data directly from the buffer
                   cpu_recv_message_index[v_trans] = b_i;
                 }
               }
             }
             reducer += local_reducer;
           }
+          // TODO: could we optimize here to only iterate the vertex that has 
+          // corresponding incoming edges.
+          // do the sparse_slot. 
+          // i.e. for every local vertex, gather the incoming feature
 #pragma omp parallel for
           for (VertexId begin_v_i = partition_offset[partition_id];
                begin_v_i < partition_offset[partition_id + 1];
                begin_v_i += basic_chunk) {
+            // iterate the local vertices
             VertexId v_i = begin_v_i;
             unsigned long word = active->data[WORD_OFFSET(v_i)];
             while (word != 0) {
               if (word & 1) {
+                // pass the subgraph of the received partition.
+                // for every local vertex, we should find the source vertex in the recevied partition.
                 sparse_slot(v_i, graph_partitions[i], buffer,
                             cpu_recv_message_index, i);
               }
@@ -2263,9 +2281,11 @@ public:
           }
         }
       }
+      // free nts communicator for this layer at forward pass
       NtsComm->release_communicator();
     }
 
+    // let's ignore the reducer for now
     R global_reducer;
     MPI_Datatype dt = get_mpi_data_type<R>();
     MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
@@ -2279,6 +2299,19 @@ public:
   }
 
   
+  /**
+   * @brief 
+   * apply sparse_slot to every local vertex. Only used in single node scenario.
+   * i.e. don't used it for distributed training
+   * @tparam R 
+   * @tparam M data type for message buffer
+   * @param sparse_slot function that we want to applied
+   * @param graph_partitions vector contains the representation of every subgraph
+   * @param feature_size feature size at this layer
+   * @param active active vertex subset
+   * @param dense_selective not used
+   * @return R 
+   */
     template <typename R, typename M>
   R local_vertex_operation(
       std::function<void(VertexId, CSC_segment_pinned *, VertexId)>
@@ -2294,11 +2327,14 @@ public:
     size_t basic_chunk = 64;
     {
 
+      // since we have only one partition. i think this loop should be discarded
       for (int step = 0; step < partitions; step++) {
 #pragma omp parallel for
           for (VertexId begin_v_i = partition_offset[partition_id];
                begin_v_i < partition_offset[partition_id + 1];
                begin_v_i += basic_chunk) {
+            // for every vertex, apply the sparse_slot at the partition
+            // corresponding to the step
             VertexId v_i = begin_v_i;
             unsigned long word = active->data[WORD_OFFSET(v_i)];
             while (word != 0) {

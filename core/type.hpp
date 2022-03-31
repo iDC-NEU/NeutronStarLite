@@ -67,8 +67,11 @@ struct COOChunk {
   VertexId *src_delta;
   int *partition_offset;
   int partitions;
+  // vertex range for this chunk
   VertexId src_range[2];
+  // vertex range for local partition
   VertexId dst_range[2];
+  // number of edges from this chunk to local partition
   int numofedges;
   int counter;
   int featureSize;
