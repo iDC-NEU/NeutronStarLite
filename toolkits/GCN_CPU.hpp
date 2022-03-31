@@ -74,6 +74,8 @@ public:
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
     gt = new GraphOperation(graph, active);
+    // generate the representation for subgraph corresponding to the way we partitioned
+    // e.g. generate CSC/CSR format representation for every subgraph
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });

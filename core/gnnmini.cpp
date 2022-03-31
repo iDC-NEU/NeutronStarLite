@@ -196,6 +196,12 @@ void GNNDatum::readFeature_Label_Mask(std::string inputF, std::string inputL,
 
 // GraphOperation world
 
+/**
+ * @brief Construct a new Graph Operation:: Graph Operation object.
+ * 
+ * @param graph pointer to graph
+ * @param active pointer to the set of active vertex
+ */
 GraphOperation::GraphOperation(Graph<Empty> *graph, VertexSubset *active) {
   graph_ = graph;
   active_ = active;
@@ -204,6 +210,14 @@ GraphOperation::GraphOperation(Graph<Empty> *graph, VertexSubset *active) {
   range_ = end_ - start_;
 }
 
+/**
+ * @brief 
+ * do output += input * weight at feature(array) level
+ * @param input input feature
+ * @param output output feature
+ * @param weight weight
+ * @param feat_size feature size
+ */
 void GraphOperation::comp(ValueType *input, ValueType *output, ValueType weight,
           int feat_size) {
   for (int i = 0; i < feat_size; i++) {
@@ -211,61 +225,116 @@ void GraphOperation::comp(ValueType *input, ValueType *output, ValueType weight,
   }
 }
 
+/**
+ * @brief 
+ * do output += input at feature(array) level
+ * @param input input feature
+ * @param output output feature
+ * @param feat_size feature size
+ */
 void GraphOperation::acc(ValueType *input, ValueType *output, int feat_size) {
   for (int i = 0; i < feat_size; i++) {
+    // atomic add
     write_add(&output[i], input[i]);
   }
 }
 
-void GraphOperation::copy(ValueType* b_dst, long d_offset,ValueType* b_src,
-        VertexId s_offset,int feat_size){
-    VertexId length=sizeof(ValueType)*feat_size;
-//      LOG_INFO("length %d feat_size %d d_offset %d s_offset %d\n",length,feat_size,d_offset,s_offset);
-    memcpy((char*)b_dst+d_offset*length, (char*)b_src+s_offset*length, length);
+/**
+ * @brief 
+ * copy feature_size elements from b_src[d_offset * feature_size] 
+ * to d_dst[s_offset * feature_size]
+ * @param b_dst dst buffer
+ * @param d_offset dst offset, should be a vertex id
+ * @param b_src src buffer
+ * @param s_offset src offset, should be a vertex id
+ * @param feat_size feature size that every vertex have
+ */
+void GraphOperation::copy(ValueType* b_dst, long d_offset, 
+                          ValueType* b_src, VertexId s_offset,
+                          int feat_size) {
+    // length is the byte level space cost for a vertex feature data
+    VertexId length = sizeof(ValueType) * feat_size;
+    // LOG_INFO("length %d feat_size %d d_offset %d s_offset %d\n",length,feat_size,d_offset,s_offset);
+    memcpy((char*)b_dst + d_offset * length, (char*)b_src + s_offset * length, length);
 }
 
+/**
+ * @brief 
+ * return 1 / sqrt(out_degree[src] * in_degree[dst]).
+ * normally used as edge weight
+ * @param src src id
+ * @param dst dst id
+ * @return ValueType 
+ */
 ValueType GraphOperation::norm_degree(VertexId src, VertexId dst) {
   return 1 / ((ValueType)std::sqrt(graph_->out_degree_for_backward[src]) *
               (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
 }
 
+/**
+ * @brief 
+ * get out degree for v
+ * @param v vertex id
+ * @return ValueType 
+ */
 ValueType GraphOperation::out_degree(VertexId v) {
   return (ValueType)(graph_->out_degree_for_backward[v]);
 }
 
+/**
+ * @brief 
+ * get in degree for v
+ * @param v vertex id
+ * @return ValueType 
+ */
 ValueType GraphOperation::in_degree(VertexId v) {
   return (ValueType)(graph_->in_degree_for_backward[v]);
 }
 
+/**
+ * @brief 
+ * Forward process. send feature to all neighbours, 
+ * then gather feature from all incoming messages
+ * @param X vertex feature
+ * @param Y tensor where contains the gathered vertex value
+ * @param subgraphs vector contains all subgraphs
+ * @param weight_fun function used to compute edge weight
+ */
 void GraphOperation::ProcessForwardCPU(
     NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &subgraphs,
     std::function<ValueType(VertexId &, VertexId &)> weight_fun) {
+  // get raw buffer for the tensor X and Y
   ValueType *X_buffer =
       graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
   ValueType *Y_buffer =
       graph_->Nts->getWritableBuffer(Y, torch::DeviceType::CPU);
+  // initialize Y to all zero
   memset(Y_buffer, 0, sizeof(ValueType) * X.size(0) * X.size(1));
+
+  // get current feature size, should be the same as X.size(1)
   int feature_size = graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
 
   // graph_->process_edges_forward_debug<int,float>( // For EACH Vertex
   // Processing
   graph_->process_edges_forward_decoupled_dynamic_length<
       int, ValueType>( // For EACH Vertex Processing
+      // send every vertex data to the corresponding mirror node
       [&](VertexId src) {
-        // graph_->emit_buffer(src,
-        // X_buffer+(src-graph_->gnnctx->p_v_s)*feature_size, feature_size);
         graph_->NtsComm->emit_buffer(
             src, X_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
             feature_size);
       },
       [&](VertexId dst, CSC_segment_pinned *subgraph, char *recv_buffer,
           std::vector<VertexId> &src_index, VertexId recv_id) {
+        // translate dst to local vertex id
         VertexId dst_trans =
             dst - graph_->partition_offset[graph_->partition_id];
+        // iterate all incoming edges
         for (long idx = subgraph->column_offset[dst_trans];
               idx < subgraph->column_offset[dst_trans + 1]; idx++) {
           VertexId src = subgraph->row_indices[idx];
           VertexId src_trans = src - graph_->partition_offset[recv_id];
+          // retrieve the received data from recv_buffer
           ValueType *local_input =
               (ValueType *)(recv_buffer +
                             graph_->sizeofM<ValueType>(feature_size) *
@@ -276,6 +345,7 @@ void GraphOperation::ProcessForwardCPU(
           //                        printf("DEBUGGGG%d :%d
           //                        %f\n",feature_size,subgraph->column_offset[dst_trans+1]-subgraph->column_offset[dst_trans],local_input[7]);
           //                    }
+          // accumulate the input feature
           comp(local_input, local_output, weight_fun(src, dst), feature_size);
         }
       },

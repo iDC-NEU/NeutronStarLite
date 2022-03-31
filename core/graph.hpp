@@ -2117,6 +2117,19 @@ public:
   }
 
   // process edges
+  /**
+   * @brief 
+   * 
+   * @tparam R 
+   * @tparam M message type
+   * @param sparse_signal function which do the mast-mirror communication
+   * @param sparse_slot function which gather all the incoming features
+   * @param graph_partitions vector contains information for every subgraph
+   * @param feature_size feature size at this layer
+   * @param active active vertex subset
+   * @param dense_selective not used
+   * @return R 
+   */
   template <typename R, typename M>
   R process_edges_forward_decoupled_dynamic_length(
       std::function<void(VertexId)> sparse_signal,
@@ -2128,12 +2141,18 @@ public:
     omp_set_num_threads(threads);
     double stream_time = 0;
     stream_time -= MPI_Wtime();
+    // initialize Nts communicator for this layer
     NtsComm->init_layer_all(feature_size, Master2Mirror, CPU_T);
+    // launch background thread to send and recv messages
+    // Send thread will block until we indicate that the partition is ready to send
+    // Recv thread will spawn sub-threads waiting for the corresponding partition message is received
     NtsComm->run_all_master_to_mirror_no_wait();
     R reducer = 0;
 
     size_t basic_chunk = 64;
     {
+      // for every active local vertex, do sparse_signal
+      // which will send master data to mirror
       current_send_part_id = partition_id;
       NtsComm->set_current_send_partition(current_send_part_id);
 #pragma omp parallel for
@@ -2150,24 +2169,36 @@ public:
           word = word >> 1;
         }
       }
+
+      // send data to every partition in ring style
+      // from now on, background Send thread will start sending message to other nodes
       for (int step = 0; step < partitions; step++) {
         int trigger_partition = (partition_id - step + partitions) % partitions;
         NtsComm->trigger_one_partition(
             trigger_partition, trigger_partition == current_send_part_id);
       }
 
+      // start to process received messages
       for (int step = 0; step < partitions; step++) {
         int i = -1;
         MessageBuffer **used_buffer;
+        // i is the partition id corresponding to the recv_buffer at current step
         used_buffer = NtsComm->recv_one_partition(i, step);
 
+        // clear the recv index at this partition
         cpu_recv_message_index.resize(partition_offset[i + 1] -
                                       partition_offset[i]);
         memset(cpu_recv_message_index.data(), 0,
                sizeof(VertexId) * cpu_recv_message_index.size());
+        
+        // shouldn't we parallel at socket level?
         for (int s_i = 0; s_i < sockets; s_i++) {
+          // for every sockets, do it's local working first. i.e. process it's own vertex
           char *buffer = used_buffer[s_i]->data;
           size_t buffer_size = used_buffer[s_i]->count;
+          // divied the each thread's work to 64 vertex grained
+          // i.e. every thread is processing 64 vertex chunk.
+          // inorder to implement fine-grained work stealing
           for (int t_i = 0; t_i < threads; t_i++) {
             // int s_i = get_socket_id(t_i);
             int s_j = get_socket_offset(t_i);
@@ -2187,15 +2218,22 @@ public:
             int thread_id = omp_get_thread_num();
             int s_i = get_socket_id(thread_id);
             while (true) {
+              // fetch curr and add basic_chunk to it.
+              // indicating that we are responsible for this part of work now
               VertexId b_i = __sync_fetch_and_add(
                   &thread_state[thread_id]->curr, basic_chunk);
+              // if work was stolen, then we are done.
               if (b_i >= thread_state[thread_id]->end)
                 break;
+
               VertexId begin_b_i = b_i;
               VertexId end_b_i = b_i + basic_chunk;
+              // fix boundary
               if (end_b_i > thread_state[thread_id]->end) {
                 end_b_i = thread_state[thread_id]->end;
               }
+
+              
               for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
                 long index = (long)b_i * sizeofM<M>(feature_size);
                 VertexId v_i = *((VertexId *)(buffer + index));

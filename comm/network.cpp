@@ -199,7 +199,7 @@ void NtsGraphCommunicator::release_communicator() {
 
 /**
  * @brief 
- * init communicator for this layer
+ * init communicator for this layer. i.e. allocating send_queue, send_buffer etc.
  * @param feature_size_ feature size for this layer
  * @param et communication type, could be Master2Mirror or Mirror2Master
  * @param dl device location. e.g. CPU_T
@@ -450,7 +450,8 @@ MessageBuffer **NtsGraphCommunicator::recv_one_partition(int &workerId, int step
 
 /**
  * @brief 
- * place message(vertex and data) to local send buffer
+ * place message(vertex and data) to local send buffer, and flush the buffer
+ * if we reach the limit
  * @param vtx source vertex
  * @param buffer vertex feature data buffer
  * @param f_size feature size
