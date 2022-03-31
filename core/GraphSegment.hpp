@@ -444,7 +444,7 @@ typedef struct runtimeInfo {
 } runtimeinfo;
 
 typedef struct GNNContext {
-  std::vector<int> layer_size;
+  std::vector<int> layer_size;  // feature size at each layer, 0 is input feature
   size_t max_layer;
   size_t label_num;
   size_t p_id;    // partition id

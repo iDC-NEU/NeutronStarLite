@@ -15,10 +15,10 @@
 class GNNDatum {
 public:
   gnncontext *gnnctx;
-  ValueType *local_feature;
-  long *local_label;
-  int *local_mask;
   Graph<Empty> *graph;
+  ValueType *local_feature; // features of local partition
+  long *local_label;  // labels of local partition
+  int *local_mask;  // mask(indicate whether data is for train, eval or test) of local partition
 
   GNNDatum(gnncontext *_gnnctx, Graph<Empty> *graph_);
   void random_generate();

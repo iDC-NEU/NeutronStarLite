@@ -14,8 +14,13 @@
 // train:    0
 // eval:     1
 // test:     2
-// initialize GNN Data using GNNContext and Graph
-// allocating space to saving data. e.g. local feature, local label
+/**
+ * @brief Construct a new GNNDatum::GNNDatum object.
+ * initialize GNN Data using GNNContext and Graph.
+ * Allocating space to save data. e.g. local feature, local label.
+ * @param _gnnctx pointer to GNN Context
+ * @param graph_ pointer to Graph
+ */
 GNNDatum::GNNDatum(gnncontext *_gnnctx, Graph<Empty> *graph_) {
   gnnctx = _gnnctx;
   local_feature = new ValueType[gnnctx->l_v_num * gnnctx->layer_size[0]];
@@ -25,6 +30,10 @@ GNNDatum::GNNDatum(gnncontext *_gnnctx, Graph<Empty> *graph_) {
   graph = graph_;
 }
 
+/**
+ * @brief 
+ * generate random data for feature, label and mask
+ */
 void GNNDatum::random_generate() {
   for (int i = 0; i < gnnctx->l_v_num; i++) {
     for (int j = 0; j < gnnctx->layer_size[0]; j++) {
@@ -35,16 +44,33 @@ void GNNDatum::random_generate() {
   }
 }
 
+/**
+ * @brief 
+ * Create tensor corresponding to local label
+ * @param target target tensor where we should place local label
+ */
 void GNNDatum::registLabel(NtsVar &target) {
   target = graph->Nts->NewLeafKLongTensor(local_label, {gnnctx->l_v_num});
   // torch::from_blob(local_label, gnnctx->l_v_num, torch::kLong);
 }
 
+/**
+ * @brief 
+ * Create tensor corresponding to local mask
+ * @param mask target tensor where we should place local mask
+ */
 void GNNDatum::registMask(NtsVar &mask) {
   mask = graph->Nts->NewLeafKIntTensor(local_mask, {gnnctx->l_v_num, 1});
   // torch::from_blob(local_mask, {gnnctx->l_v_num,1}, torch::kInt32);
 }
 
+/**
+ * @brief 
+ * read feature and label from file.
+ * file format should be  ID Feature * (feature size) Label
+ * @param inputF path to input feature
+ * @param inputL path to input label
+ */
 void GNNDatum::readFtrFrom1(std::string inputF, std::string inputL) {
 
   std::string str;
@@ -61,20 +87,27 @@ void GNNDatum::readFtrFrom1(std::string inputF, std::string inputL) {
     return;
   }
   ValueType *con_tmp = new ValueType[gnnctx->layer_size[0]];
+  // TODO: figure out what is la
   std::string la;
   // std::cout<<"finish1"<<std::endl;
   VertexId id = 0;
   while (input_ftr >> id) {
+    // feature size
     VertexId size_0 = gnnctx->layer_size[0];
+    // translate vertex id to local vertex id
     VertexId id_trans = id - gnnctx->p_v_s;
     if ((gnnctx->p_v_s <= id) && (gnnctx->p_v_e > id)) {
+      // read feature
       for (int i = 0; i < size_0; i++) {
         input_ftr >> local_feature[size_0 * id_trans + i];
       }
       input_lbl >> la;
+      // read label
       input_lbl >> local_label[id_trans];
+      // partition data set based on id
       local_mask[id_trans] = id % 3;
     } else {
+      // dump the data which doesn't belong to local partition
       for (int i = 0; i < size_0; i++) {
         input_ftr >> con_tmp[i];
       }
@@ -82,14 +115,22 @@ void GNNDatum::readFtrFrom1(std::string inputF, std::string inputL) {
       input_lbl >> la;
     }
   }
-  free(con_tmp);
+  delete[] con_tmp;
   input_ftr.close();
   input_lbl.close();
 }
 
+/**
+ * @brief 
+ * read feature, label and mask from file.
+ * @param inputF path to feature file
+ * @param inputL path to label file
+ * @param inputM path to mask file
+ */
 void GNNDatum::readFeature_Label_Mask(std::string inputF, std::string inputL,
                             std::string inputM) {
 
+  // logic here is exactly the same as read feature and label from file
   std::string str;
   std::ifstream input_ftr(inputF.c_str(), std::ios::in);
   std::ifstream input_lbl(inputL.c_str(), std::ios::in);
