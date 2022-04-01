@@ -420,10 +420,18 @@ void GraphOperation::LocalAggregate(NtsVar &Ei, NtsVar &Y,
       },
       subgraphs, feature_size, active_);
 }
-  
-  
+
+/**
+ * @brief 
+ * Forward process, send data to all neighbours and gather the
+ * incoming feature in Lockfree manner
+ * @param X tensor which contains vertex feature
+ * @param Y tensor where we should place results
+ * @param subgraphs vector that contains the subgraph information with respect to local partition
+ */
 void GraphOperation::PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
+  // get raw buffer
   ValueType *X_buffer =
       graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
   ValueType *Y_buffer =
@@ -435,9 +443,12 @@ void GraphOperation::PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                                                             // Processing
       [&](VertexId src, int current_send_partition) {
         if (graph_->rtminfo->lock_free) {
+          // check whether this vertex is necessary to send to current_send_partition
           VertexId src_trans = src - graph_->gnnctx->p_v_s;
           if (subgraphs[current_send_partition]->get_forward_active(
                   src_trans)) {
+            // if so, get the write index so we can place the data to buffer
+            // directly instead of in a queue manner
             VertexId write_index = subgraphs[current_send_partition]
                                         ->forward_message_index[src_trans];
             graph_->NtsComm->emit_buffer_lock_free(
@@ -464,6 +475,8 @@ void GraphOperation::PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                                 src_index[src_trans] +
                             sizeof(VertexId));
           ValueType *local_output = Y_buffer + dst_trans * feature_size;
+          // a slight different thing here is we are using norm_degree 
+          // instead of using customed weight function
           comp(local_input, local_output, norm_degree(src, dst),
                 feature_size);
         }
@@ -471,6 +484,14 @@ void GraphOperation::PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
       subgraphs, feature_size, active_);
 }
 
+/**
+ * @brief 
+ * Forward process, send data to all neighbours and gather the
+ * incoming feature in Lockfree manner. Support multisockets
+ * @param X vertex feature
+ * @param Y result tensor
+ * @param subgraphs vector contains subgraph information with respect to local partition
+ */
 void GraphOperation::PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar &Y,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
   // get access to the raw data
@@ -488,8 +509,7 @@ void GraphOperation::PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar
       [&](VertexId src, int current_send_partition) {
         if (graph_->rtminfo->lock_free) {
           VertexId src_trans = src - graph_->gnnctx->p_v_s;
-          // first check does this node still active.
-          // i.e. does it need to send messages
+          // check whether this vertex is necessary to send to current_send_partition
           if (subgraphs[current_send_partition]->get_forward_active(
                   src_trans)) {
             // get the index where we shall place the data
@@ -509,6 +529,7 @@ void GraphOperation::PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar
       },
       // sparse slot.
       // accumulate incoming feature for dst
+      // recv_id represent the partition ID corresponding to current subgraph
       [&](VertexId dst, CSC_segment_pinned *subgraph, MessageBuffer **recv_buffer,
           std::vector<VertexIndex> &src_index, VertexId recv_id) {
         VertexId dst_trans =
@@ -517,19 +538,17 @@ void GraphOperation::PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar
         // column vertices
         for (long idx = subgraph->column_offset[dst_trans];
               idx < subgraph->column_offset[dst_trans + 1]; idx++) {
-          // Question here, i think recv_id represent the partition ID while the corresponding
-          // partition own the src. But we are subtracting this partition_offset with arbitrary src
-          // Won't this cause segmentation fault?
           VertexId src = subgraph->row_indices[idx];
           VertexId src_trans = src - graph_->partition_offset[recv_id];
           // fetch input from recv buffer
+          // bufferIndex indicate which socket we've placed the data
+          // positionIndex indicate the index of the buffer of that socket
           ValueType *local_input =
               (ValueType *)(recv_buffer[src_index[src_trans].bufferIndex]->data +
                             graph_->sizeofM<ValueType>(feature_size) *
                                 src_index[src_trans].positionIndex +
                             sizeof(VertexId));
           ValueType *local_output = Y_buffer + dst_trans * feature_size;
-          // should we use edge_weight instead of norm_degree?
           comp(local_input, local_output, norm_degree(src, dst),
                 feature_size);
         }

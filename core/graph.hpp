@@ -2122,7 +2122,7 @@ public:
   // process edges
   /**
    * @brief 
-   * 
+   * do the forard process based on sparse_signal and sparse_slot
    * @tparam R 
    * @tparam M message type
    * @param sparse_signal function which do the mast-mirror communication
@@ -2365,6 +2365,19 @@ public:
   
   
   // process edges
+  /**
+   * @brief 
+   * do the forward process based on sparse_signal and sparse_slot
+   * @tparam R 
+   * @tparam M data type for transfering message
+   * @param sparse_signal function which will send data from master to mirror
+   * @param sparse_slot function which will gather feature from neighbours
+   * @param graph_partitions vector that contains subgraph
+   * @param feature_size feature size at this layer
+   * @param active active tertex subset
+   * @param dense_selective not used
+   * @return R 
+   */
   template <typename R, typename M>
   R process_edges_forward_decoupled(
       std::function<void(VertexId, int)> sparse_signal,
@@ -2378,6 +2391,8 @@ public:
     stream_time -= MPI_Wtime();
     NtsComm->init_layer_all(feature_size, Master2Mirror, CPU_T);
     // printf("call lock_free forward %d\n",rtminfo->lock_free);
+    // launch background thread to send and recv messages
+    // based on whether we specify lock_free flag
     if (rtminfo->lock_free) {
       NtsComm->run_all_master_to_mirror_lock_free_no_wait();
     } else {
@@ -2390,10 +2405,12 @@ public:
 
       if (rtminfo->lock_free) {
         for (int step = 0; step < partitions; step++) {
+          // get the current target partition
           int trigger_partition =
               (partition_id - step + partitions) % partitions;
           current_send_part_id = trigger_partition;
           NtsComm->set_current_send_partition(current_send_part_id);
+          // do the sparse_signal, we should place data directly on send_buffer
 #pragma omp parallel for
           for (VertexId begin_v_i = partition_offset[partition_id];
                begin_v_i < partition_offset[partition_id + 1];
@@ -2408,10 +2425,15 @@ public:
               word = word >> 1;
             }
           }
+          // mark the current partition as ready
+          // i doubt the necessity to flush buffer 
+          // since we are using a lock free manner
           NtsComm->trigger_one_partition(
               trigger_partition, trigger_partition == current_send_part_id);
         }
       } else {
+        // this part is exactly the same as process_edges_forward_decoupled
+        // please refer it above
         current_send_part_id = partition_id;
         NtsComm->set_current_send_partition(current_send_part_id);
 #pragma omp parallel for
@@ -2436,7 +2458,10 @@ public:
         }
       }
 
+      // process received messages
       for (int step = 0; step < partitions; step++) {
+        // this part the exactly the same as above.
+        // so i won't add redundant comments here.
         int i = -1;
         MessageBuffer **used_buffer;
         used_buffer = NtsComm->recv_one_partition(i, step);
@@ -2521,6 +2546,20 @@ public:
   }
 
 
+  /**
+   * @brief 
+   * do the forward process based on sparse_signal and sparse_slot.
+   * support multisocket with much more elegant implementation
+   * @tparam R 
+   * @tparam M data type for transfering message
+   * @param sparse_signal function which will send data from master to mirror
+   * @param sparse_slot function which will gather feature from neighbours
+   * @param graph_partitions vector that contains subgraph
+   * @param feature_size feature size at this layer
+   * @param active active tertex subset
+   * @param dense_selective not used
+   * @return R 
+   */
   template <typename R, typename M>
   R process_edges_forward_decoupled_mutisockets(
       std::function<void(VertexId, int)> sparse_signal,
@@ -2542,6 +2581,7 @@ public:
     R reducer = 0;
     size_t basic_chunk = 64;
     {
+      // same as above, please refer to process_edges_forward_decoupled
       int test = 0;
       if (rtminfo->lock_free) {
         for (int step = 0; step < partitions; step++) {
@@ -2596,7 +2636,7 @@ public:
         // char *buffer = used_buffer[s_i]->data;
         //   size_t buffer_size = used_buffer[s_i]->count;
           for (int t_i = 0; t_i < threads; t_i++) {
-             int s_i = get_socket_id(t_i);
+            int s_i = get_socket_id(t_i);
             int s_j = get_socket_offset(t_i);
             VertexId partition_size =  used_buffer[s_i]->count;
             thread_state[t_i]->curr = partition_size / threads_per_socket /
@@ -2610,6 +2650,8 @@ public:
           }
 #pragma omp parallel reduction(+ : reducer)
           {
+            // for every thread, pre-process the received vertex infor corresponding to it's socket
+            // then we will have all of the vertex info from all sockets
             R local_reducer = 0;
             int thread_id = omp_get_thread_num();
             int s_i = get_socket_id(thread_id);
@@ -2627,7 +2669,10 @@ public:
                 long index = (long)b_i * sizeofM<M>(feature_size);
                 VertexId v_i = *((VertexId *)(used_buffer[s_i]->data + index));
                 M *msg_data = (M *)(used_buffer[s_i]->data + index + sizeof(VertexId));
+
+                // if we have edge from v_i in partition i to local partition
                 if(graph_partitions[i]->get_backward_active(v_i)){
+                  // then we record the buffer index and position of this vertex
                   VertexId v_trans = v_i - partition_offset[i];
                   cpu_message_index[v_trans].bufferIndex =  s_i;
                   cpu_message_index[v_trans].positionIndex = b_i;
@@ -2636,6 +2681,9 @@ public:
             }
             reducer += local_reducer;
           }
+          // for every thread, process the local vertex
+          // and we will fetch data from other socket if neighbour's message is placed on other socket
+          // a question here is that shouldn't we process vertex in numa-aware manner?
 #pragma omp parallel for
           for (VertexId begin_v_i = partition_offset[partition_id];
                begin_v_i < partition_offset[partition_id + 1];

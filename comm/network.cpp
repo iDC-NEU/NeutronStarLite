@@ -533,6 +533,7 @@ void NtsGraphCommunicator::send_mirror_to_master() {
 /**
  * @brief 
  * send data from master to mirror in all steps.
+ * we will retrieve partition id from send_queue
  */
 void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
   for (int step = 0; step < partitions; step++) {
@@ -702,7 +703,9 @@ void NtsGraphCommunicator::run_all_mirror_to_master() {
 /**
  * @brief 
  * send message from master to mirror.
- * same as send_master_to_mirror
+ * the difference between this function and send_master_to_mirror_no_wait
+ * is we will send different data to different partition, instead of 
+ * sending message all from send_buffer[partition_id]
  */
 void NtsGraphCommunicator::send_master_to_mirror_lock_free_no_wait() {
   for (int step = 0; step < partitions; step++) {
