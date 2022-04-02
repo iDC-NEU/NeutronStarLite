@@ -371,7 +371,7 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
   if(!bi_direction)
       assert(X.size(1)==Ei.size(1));
   else if(bi_direction)
-      assert((2*X.size(1))!=Ei.size(1));
+      assert((2*X.size(1))==Ei.size(1));
       
   memset(Ei_buffer, 0, sizeof(ValueType) * Ei.size(0) * Ei.size(1));
   int feature_size = X.size(1);
