@@ -55,7 +55,7 @@ public:
   // graph propagation engine
 
   void LocalScatter(NtsVar &X, NtsVar &Ei,
-                               std::vector<CSC_segment_pinned *> &subgraphs);
+                               std::vector<CSC_segment_pinned *> &subgraphs,bool bi_direction=false);
   
   void LocalAggregate(NtsVar &Ei, NtsVar &Y,
                                std::vector<CSC_segment_pinned *> &subgraphs);

@@ -359,17 +359,21 @@ void GraphOperation::ProcessForwardCPU(
  * @param X vertex tensor
  * @param Ei edge tensor
  * @param subgraphs vector contains subgraph representation
+ * @param bi_direction scatter src or both src and dst
  */
 void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
-                              std::vector<CSC_segment_pinned *> &subgraphs) {
+                              std::vector<CSC_segment_pinned *> &subgraphs,bool bi_direction) {
   // get raw buffer
   ValueType *X_buffer =
       graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
   ValueType *Ei_buffer =
       graph_->Nts->getWritableBuffer(Ei, torch::DeviceType::CPU);
+  if(!bi_direction)
+      assert(X.size(1)==Ei.size(1));
+  else if(bi_direction)
+      assert((2*X.size(1))!=Ei.size(1));
+      
   memset(Ei_buffer, 0, sizeof(ValueType) * Ei.size(0) * Ei.size(1));
-//    LOG_INFO("X size:%d %d, Y size:%d %d|%d",X.size(0),X.size(1),Ei.size(0),Ei.size(1),graph_->edges);
-  // int feature_size=graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
   int feature_size = X.size(1);
 
   graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
@@ -380,9 +384,13 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
           VertexId src = subgraph->row_indices[eid];
           assert(0 <= src && src < graph_->vertices);
           assert(0 <= eid && eid < graph_->edges);
-//            LOG_INFO("src:%d dst%d, e offset %d",src,vtx,eid);  
           // copy vertex feature to it's out_edge
-          copy(Ei_buffer,eid,X_buffer,src,feature_size);
+          if(bi_direction){// copy both dst and src,
+                copy(Ei_buffer,eid*2,X_buffer,src,feature_size);
+                copy(Ei_buffer,eid*2+1,X_buffer,vtx,feature_size);
+          }else{//copy only src
+                copy(Ei_buffer,eid,X_buffer,src,feature_size);
+          }
         }
       },
       subgraphs, feature_size, active_);
