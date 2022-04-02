@@ -2,7 +2,10 @@
 #include "comm/logger.h"
 #include "core/AutoDiff.hpp"
 #include "core/gnnmini.h"
-
+/*
+ * Just a simple example with edge computation
+ * Not the real GGNN algorithm 
+ */
 class GGNN_CPU_impl {
 public:
   int iterations;
