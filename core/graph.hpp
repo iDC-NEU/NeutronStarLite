@@ -2715,6 +2715,20 @@ public:
     return global_reducer;
   }
 
+  /**
+   * @brief 
+   * logic in this function is exactly the same as process_edges_backward_decoupled_multisocket
+   * except dense_signal is different. more precisely, multisocket version has different approach 
+   * while placing the data into send buffer
+   * @tparam R 
+   * @tparam M 
+   * @param dense_signal 
+   * @param dense_slot 
+   * @param feature_size 
+   * @param active 
+   * @param dense_selective 
+   * @return R 
+   */
   template <typename R, typename M>
   R process_edges_backward_decoupled(
       std::function<void(VertexId, VertexAdjList<EdgeData>, VertexId, VertexId)>
@@ -2878,6 +2892,19 @@ public:
   }
 
 
+  /**
+   * @brief 
+   * apply dense_signal and dense_slot on every vertex. 
+   * used in backward propagation
+   * @tparam R 
+   * @tparam M 
+   * @param dense_signal 
+   * @param dense_slot 
+   * @param feature_size 
+   * @param active active vertex set
+   * @param dense_selective 
+   * @return R 
+   */
   template <typename R, typename M>
   R process_edges_backward_decoupled_multisockets(
       std::function<void(VertexId, VertexAdjList<EdgeData>, VertexId, VertexId, VertexId)>
@@ -2900,6 +2927,7 @@ public:
         int i = current_send_part_id;
         NtsComm->set_current_send_partition(i);
 
+        // init thread state for processing vertex corresponding to partition i
         for (int t_i = 0; t_i < threads; t_i++) {
           *thread_state[t_i] = tuned_chunks_dense_backward[i][t_i];
         }
@@ -2918,6 +2946,7 @@ public:
             if (end_p_v_i > final_p_v_i) {
               end_p_v_i = final_p_v_i;
             }
+            // iterate the incoming vertex in partition i to the vertex in socket s_i
             for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++) {
               VertexId v_i =
                   compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
@@ -2934,6 +2963,9 @@ public:
                   thread_id, i, s_i);
             }
           }
+
+          // after task is complete, then we start to steal other tasks
+          // logic is the same as above
           thread_state[thread_id]->status = STEALING;
           for (int t_offset = 1; t_offset < threads_per_socket; t_offset++) {
             int t_i = (thread_id + t_offset) % threads_per_socket + get_socket_id(thread_id) * threads_per_socket;
@@ -2965,16 +2997,19 @@ public:
             }
           }
         }
-        //        NtsComm->achieve_local_message(i);
-        //        NtsComm->partition_is_ready_for_send(i);
+        // notify the partition is ready to send
+        // background worker will start to sending data to other partitions
         NtsComm->trigger_one_partition(i, true);
       }
 
+      // sending phase is over. now every partition has the corresponding gradients
+      // time to do the aggregation
       for (int step = 0; step < partitions; step++) {
         int i = -1;
         MessageBuffer **used_buffer;
         used_buffer = NtsComm->recv_one_partition(i, step);
 
+        // assign the work, every socket should process all of the vertices
         for (int t_i = 0; t_i < threads; t_i++) {
           int s_i = get_socket_id(t_i);
           int s_j = get_socket_offset(t_i);
@@ -3011,12 +3046,17 @@ public:
             if (end_b_i > thread_state[thread_id]->end) {
               end_b_i = thread_state[thread_id]->end;
             }
+
+            // for every thread, we iterate the vertices in received buffer
+            // since this is backward propagation, in another words, we are iterating local vertices
             for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
+              // retrieve the vertex
               long index =
                   (long)b_i * (sizeof(M) * (feature_size) + sizeof(VertexId));
               VertexId v_i = *((VertexId *)(buffer + index));
               M *msg_data = (M *)(buffer + index + sizeof(VertexId));
               local_reducer += 1.0;
+              // accumulate the gradient
               dense_slot(v_i, msg_data);
             }
           }

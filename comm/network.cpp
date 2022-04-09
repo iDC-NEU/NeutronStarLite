@@ -488,8 +488,6 @@ void NtsGraphCommunicator::emit_buffer(VertexId vtx, ValueType *buffer, int f_si
 void NtsGraphCommunicator::emit_buffer_lock_free(VertexId vtx, ValueType *buffer,
                             VertexId write_index, int f_size) {
   int t_i = omp_get_thread_num();
-  char *s_buffer = NULL;
-  s_buffer = (char *)local_send_buffer[t_i]->data;
 
   int s_i = get_socket_id(t_i);
   int pos =

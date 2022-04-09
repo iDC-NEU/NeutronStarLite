@@ -564,6 +564,13 @@ void GraphOperation::PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar
       subgraphs, feature_size, active_);
 }
 
+/**
+ * @brief 
+ * do the backward propagation
+ * @param X_grad gradients of x
+ * @param Y_grad result graidents
+ * @param subgraphs 
+ */
 void GraphOperation::PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
   ValueType *X_grad_buffer =
@@ -583,15 +590,20 @@ void GraphOperation::PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_gra
             output_buffer + feature_size * thread_id;
         memset(local_output_buffer, 0, sizeof(ValueType) * feature_size);
         VertexId src_trans = src - graph_->partition_offset[recv_id];
+        // find all local vertex which has contribution to src
+        // so we iterate the out-going vertices and combine their gradients using comp
         for (long d_idx = subgraphs[recv_id]->row_offset[src_trans];
               d_idx < subgraphs[recv_id]->row_offset[src_trans + 1]; d_idx++) {
+          // convert vertex id to local indices
           VertexId dst = subgraphs[recv_id]->column_indices[d_idx];
           VertexId dst_trans = dst - start_;
           ValueType *local_input_buffer =
               X_grad_buffer + (dst_trans)*feature_size;
+          // combine the local gradient
           comp(local_input_buffer, local_output_buffer, norm_degree(src, dst),
                 feature_size);
         }
+        // place the data into send buffer
         if (graph_->rtminfo->lock_free) {
           if (subgraphs[recv_id]->source_active->get_bit(src_trans)) {
             VertexId write_index =
@@ -605,6 +617,7 @@ void GraphOperation::PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_gra
         }
       },
       [&](VertexId src, ValueType *msg) {
+        // accumulate msg to local buffer
         acc(msg, Y_grad_buffer + (src - start_) * feature_size, feature_size);
         return 1;
       },
@@ -612,9 +625,16 @@ void GraphOperation::PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_gra
   delete[] output_buffer;
 }
 
-  
+/**
+ * @brief 
+ * do the backward propagation. Support multisockets
+ * @param X_grad gradients of x
+ * @param Y_grad result gradients
+ * @param subgraphs 
+ */
 void GraphOperation::PropagateBackwardCPU_Lockfree_multisockets(NtsVar &X_grad, NtsVar &Y_grad,
                               std::vector<CSC_segment_pinned *> &subgraphs) {
+  // get raw buffer
   ValueType *X_grad_buffer =
       graph_->Nts->getWritableBuffer(X_grad, torch::DeviceType::CPU);
   ValueType *Y_grad_buffer =
@@ -632,10 +652,17 @@ void GraphOperation::PropagateBackwardCPU_Lockfree_multisockets(NtsVar &X_grad, 
             output_buffer + feature_size * thread_id;
         memset(local_output_buffer, 0, sizeof(ValueType) * feature_size);
         VertexId src_trans = src - graph_->partition_offset[recv_id];
+
+        // iterate the outgoing vertices and combine the gradients
         for (long d_idx = subgraphs[recv_id]->row_offset[src_trans];
               d_idx < subgraphs[recv_id]->row_offset[src_trans + 1]; d_idx++) {
           VertexId dst = subgraphs[recv_id]->column_indices[d_idx];
-          if((dst < graph_->local_partition_offset[socketId]) || (dst >=  graph_->local_partition_offset[socketId+1])) continue;
+
+          // FIXME: will this work?
+          if ((dst < graph_->local_partition_offset[socketId]) || 
+              (dst >=  graph_->local_partition_offset[socketId + 1])) {
+            continue;
+          }
           VertexId dst_trans = dst - start_;
           ValueType *local_input_buffer =
               X_grad_buffer + (dst_trans)*feature_size;
