@@ -1,6 +1,6 @@
 
 #include "comm/logger.h"
-#include "core/AutoDiff.hpp"
+#include "core/AutoDiff.h"
 #include "core/gnnmini.h"
 
 class GCN_CPU_impl {

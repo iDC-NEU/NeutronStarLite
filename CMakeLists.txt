@@ -106,6 +106,7 @@ set(NEUTRONSTAR_SRC_FILES
         "comm/network.cpp"
         "core/gnnmini.cpp"
         "core/input.cpp"
+        "core/AutoDiff.cpp"
 )
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})

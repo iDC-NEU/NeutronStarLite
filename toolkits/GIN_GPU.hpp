@@ -1,5 +1,5 @@
 #include "core/gnnmini.h"
-#include "core/AutoDiff.hpp"
+#include "core/AutoDiff.h"
 
 class GIN_impl {
 public:
