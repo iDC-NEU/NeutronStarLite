@@ -9,6 +9,11 @@ namespace nts {
 
 namespace autodiff {
 
+/**
+ * @brief Construct a new Compution Path:: Compution Path object.
+ * @param gt_ 
+ * @param subgraphs_ 
+ */
 ComputionPath::ComputionPath(GraphOperation *gt_,
             std::vector<CSC_segment_pinned *> subgraphs_) {
   op.empty();
@@ -28,6 +33,8 @@ void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
 
   assert(op_type < 9);
 
+  // we will chain the NNOP together, because torch lib will handle the backward propagation
+  // when there is no graph operation
   if (count > 0 && NNOP == op_type && op.top() == NNOP) {
     output.pop();
     output.push(output_t);
@@ -37,6 +44,7 @@ void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
     op.push(op_type);
     output.push(output_t);
     input.push(input_t);
+    // pre-alloc space to save graident
     output_grad.push_back(ig);
     input_grad.push_back(og);
   }
@@ -51,6 +59,11 @@ void ComputionPath::reset() {
   input_grad.empty();
 }
 
+/**
+ * @brief 
+ * pop one operation in computation path.
+ * used in backward propagation
+ */
 void ComputionPath::pop_one_op() {
   op.pop();
   output.pop();
@@ -58,11 +71,20 @@ void ComputionPath::pop_one_op() {
   count--;
 }
 
+/**
+ * @brief 
+ * do the backward propagation using the value that we stored while doing forward
+ * computation.
+ * @param retain_graph 
+ */
 void ComputionPath::self_backward(bool retain_graph) {
   count--;
   NtsVar final_output = output.top();
   NtsVar final_input = input.top();
+  // compute the gradient of loss
+  // the gradient of top-most result is 1.
   final_output.backward(torch::ones_like(final_output), retain_graph);
+  // store the grad
   NtsVar grad_to_previous_op = final_input.grad();
 
   input_grad[count] = grad_to_previous_op;
@@ -70,6 +92,8 @@ void ComputionPath::self_backward(bool retain_graph) {
   pop_one_op();
   output_grad[count] = grad_to_previous_op;
   while (count > 0 || (count == 0 && NNOP == op.top())) {
+    // NNOP means we are using torch lib to do the forward computation
+    // thus we can use auto diff framework in libtorch
     if (NNOP != op.top()) { // test
       input_grad[count] = torch::zeros_like(input.top());
       switch (op.top()) {
@@ -128,6 +152,11 @@ void ComputionPath::self_backward(bool retain_graph) {
       // LOG_INFO("NOP %d",output_grad[count].dim());
       NtsVar inter_output = output.top();
       NtsVar inter_input = input.top();
+      // backward will compute the bottom_diff for inter_output
+      // the top_diff is output_grad[count]
+      // and the bottom_diff for inter_output, also is top_diff for inter_input
+      // will store in inter_input.grad()
+      // then we retrieve it for future use
       inter_output.backward(output_grad[count], retain_graph);
       NtsVar grad_to_previous_op = inter_input.grad();
       input_grad[count] = grad_to_previous_op;

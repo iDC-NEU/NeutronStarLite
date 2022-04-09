@@ -180,7 +180,7 @@ public:
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
-    // nn operation. Here just a simple matmul. i.e. y = activate(a * w)
+    // nn operation. Here is just a simple matmul. i.e. y = activate(a * w)
     if (layer == 0) {
       y = torch::relu(P[layer]->forward(a)).set_requires_grad(true);
     } else if (layer == 1) {

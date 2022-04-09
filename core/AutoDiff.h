@@ -26,8 +26,15 @@ const OpType DIST_CPU_EDGE = 9;
 const OpType DIST_GPU_EDGE = 10;
 
 
-
-
+/**
+ * @brief 
+ * since GNN operation is just iteration of graph operation and NN operation.
+ * so we can simply use a chain to represent GNN operation, which can reduce 
+ * system complexity greatly.
+ * you can also regard it as the NN operation splited by graph operation.
+ * And as the extention of auto diff library, we will provide backward computation for
+ * graph operation. And thus, the computation path of GNN is constructed.
+ */
 class ComputionPath {
 public:
   ComputionPath(GraphOperation *gt_,
