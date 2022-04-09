@@ -21,7 +21,7 @@ ComputionPath::ComputionPath(GraphOperation *gt_,
   subgraphs = subgraphs_;
 }
 
-void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, VertexId op_type) {
+void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
   // LOG_INFO("OP PUSH%d",op_type);
   NtsVar ig;
   NtsVar og;
