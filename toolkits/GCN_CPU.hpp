@@ -80,6 +80,8 @@ public:
       return gt->norm_degree(src, dst);
     });
     // gt->GenerateMessageBitmap(subgraphs);
+    // pre-process the data that will be used while doing forward and backward propagation
+    // which has better support on multisockets.
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
     cp = new nts::autodiff::ComputionPath(gt, subgraphs);

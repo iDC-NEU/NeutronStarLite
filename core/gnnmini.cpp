@@ -1001,18 +1001,27 @@ void GraphOperation::GenerateGraphSegment(
     printf("GNNmini::Preprocessing[Graph Segments Prepared]\n");
 }
 
+/**
+ * @brief 
+ * preprocess bitmap, used in forward and backward propagation
+ * @param graph_partitions 
+ */
 void GraphOperation::GenerateMessageBitmap_multisokects(std::vector<CSC_segment_pinned *> &graph_partitions) { //local partition offset
   int feature_size = 1;
   graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
       [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
           VertexId recv_id) { // pull
         VertexId src_trans = src - graph_->partition_offset[recv_id];
+        // send id of local partition to src
+        // indicate that src will have contribution to local partition 
+        // while doing forward propagation
         if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
           VertexId part = (VertexId)graph_->partition_id;
           graph_->emit_buffer(src, &part, feature_size);
         }
       },
       [&](VertexId master, VertexId *msg) {
+        // vertex master in local partition will have contribution to partition part
         VertexId part = *msg;
         graph_partitions[part]->set_forward_active(
             master -
@@ -1023,7 +1032,9 @@ void GraphOperation::GenerateMessageBitmap_multisokects(std::vector<CSC_segment_
       feature_size, active_);
 
   size_t basic_chunk = 64;
+  // for every partition
   for (int i = 0; i < graph_partitions.size(); i++) {
+    // allocate the data structure
     graph_partitions[i]->forward_multisocket_message_index =
         new VertexId[graph_partitions[i]->batch_size_forward];
     memset(graph_partitions[i]->forward_multisocket_message_index, 0,
@@ -1032,6 +1043,7 @@ void GraphOperation::GenerateMessageBitmap_multisokects(std::vector<CSC_segment_
     graph_partitions[i]->backward_multisocket_message_index =
         new BackVertexIndex[graph_partitions[i]->batch_size_backward];
     int socketNum = numa_num_configured_nodes();
+    // for every vertex in partition i, set socket num
     for(int bck = 0; bck < graph_partitions[i]->batch_size_backward; bck++){
           graph_partitions[i]->backward_multisocket_message_index[bck].setSocket(socketNum);
     }
@@ -1045,10 +1057,13 @@ void GraphOperation::GenerateMessageBitmap_multisokects(std::vector<CSC_segment_
       int s_i = graph_->get_socket_id(thread_id);
       VertexId begin_p_v_i = graph_->tuned_chunks_dense_backward[i][thread_id].curr;
       VertexId final_p_v_i = graph_->tuned_chunks_dense_backward[i][thread_id].end;
+      // for every vertex, we calc the message_index. This is used in backward propagation in lockfree style
+      // and every vertex has chance to gain gradient from every socket in local partition
+      // so we need to calculate write index for every socket
       for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
         VertexId v_i = graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
         VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
-        if (graph_partitions[i]->src_get_active(v_i)){
+        if (graph_partitions[i]->src_get_active(v_i)) {
           int position = __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
           graph_partitions[i]->backward_multisocket_message_index[v_trans].vertexSocketPosition[s_i]=position;
         }
@@ -1067,6 +1082,10 @@ void GraphOperation::GenerateMessageBitmap_multisokects(std::vector<CSC_segment_
       int s_i = graph_->get_socket_id(thread_id);
       VertexId v_i = begin_v_i;
       VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
+      // if v_trans has contribution to partition i
+      // then we calculate the write_index for it
+      // Looks like vertex id will bind to the socket id
+      // i.e. the same vertex will always be processed by the same thread
       if (graph_partitions[i]->get_forward_active(v_trans)) {
         int position = __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
         graph_partitions[i]->forward_multisocket_message_index[v_trans] = position;
