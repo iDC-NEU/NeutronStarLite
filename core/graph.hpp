@@ -36,7 +36,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 #include "core/NtsScheduler.hpp"
 #include "core/atomic.hpp"
-#include "core/bitmap.hpp"
+#include "core/bitmap.h"
 #include "core/constants.hpp"
 #include "core/filesystem.hpp"
 #include "core/mpi.hpp"

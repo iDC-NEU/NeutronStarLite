@@ -107,6 +107,7 @@ set(NEUTRONSTAR_SRC_FILES
         "core/gnnmini.cpp"
         "core/input.cpp"
         "core/AutoDiff.cpp"
+        "core/bitmap.cpp"
 )
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
