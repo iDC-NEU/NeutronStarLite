@@ -3406,6 +3406,20 @@ public:
   }
 
   // process edges
+  /**
+   * @brief 
+   * send feature from master to mirror node, used in forward propagation.
+   * we have a similar version above for CPU. this version is for GPU.
+   * @tparam R 
+   * @tparam M 
+   * @param input_gpu_or_cpu input features
+   * @param graph_partitions 
+   * @param sparse_signal operation that we want to apply on every vertex. 
+   * Most likely we need to emit the send buffer
+   * @param Y result tensor
+   * @param feature_size 
+   * @return R 
+   */
   template <typename R, typename M>
   R sync_compute_decoupled(NtsVar &input_gpu_or_cpu,
                            std::vector<CSC_segment_pinned *> &graph_partitions,
@@ -3425,6 +3439,7 @@ public:
     double stream_time = 0;
     stream_time -= MPI_Wtime();
 
+    // initialize the communicator
     NtsComm->init_layer_all(feature_size, Master2Mirror, GPU_T);
     NtsComm->run_all_master_to_mirror_no_wait();
 
@@ -3433,16 +3448,19 @@ public:
     Nts->ZeroVarMem(Y);
 
     { // 1-stage
+      // putting data into send buffer. And background thread will start to send messages
       current_send_part_id = partition_id;
       NtsComm->set_current_send_partition(current_send_part_id);
 #pragma omp parallel for
       for (VertexId begin_v_i = partition_offset[partition_id];
            begin_v_i < partition_offset[partition_id + 1]; begin_v_i += 1) {
         VertexId v_i = begin_v_i;
+        // emit the buffer
         sparse_signal(v_i);
       }
       for (int step = 0; step < partitions; step++) {
         int trigger_partition = (partition_id - step + partitions) % partitions;
+        // send to message to "trigger_partition"
         NtsComm->trigger_one_partition(
             trigger_partition, trigger_partition == current_send_part_id);
       }
@@ -3451,18 +3469,24 @@ public:
       for (int step = 0; step < partitions; step++) {
         int i = -1;
         MessageBuffer **used_buffer;
+        // receive mirror node data from one partition
         used_buffer = NtsComm->recv_one_partition(i, step);
         Nts->InitBlockSimple(graph_partitions[i], rtminfo, feature_size,
                              feature_size, i, layer_);
         //         printf("SyncComputeDecoupled\n");
+        // gather those data locally
         for (int s_i = 0; s_i < sockets; s_i++) {
           int current_recv_part_id = i;
+          // deserialize the received message to mirror node data
           Nts->DeserializeMsgToMirror(mirror_input, used_buffer[s_i]->data,
                                       used_buffer[s_i]->count);
+          // gather them to generate aggregated representation for fulture use.
+          // i.e. generate the intermediate result in GPU
           Nts->GatherByDstFromSrc(Y, mirror_input, mirror_input);
         }
       }
 
+      // synchronize the computation
       rtminfo->device_sync();
       NtsComm->release_communicator();
     }
