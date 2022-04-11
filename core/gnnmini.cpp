@@ -21,7 +21,7 @@
  * @param _gnnctx pointer to GNN Context
  * @param graph_ pointer to Graph
  */
-GNNDatum::GNNDatum(gnncontext *_gnnctx, Graph<Empty> *graph_) {
+GNNDatum::GNNDatum(GNNContext *_gnnctx, Graph<Empty> *graph_) {
   gnnctx = _gnnctx;
   local_feature = new ValueType[gnnctx->l_v_num * gnnctx->layer_size[0]];
   local_label = new long[gnnctx->l_v_num];

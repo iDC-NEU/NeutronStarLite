@@ -108,6 +108,7 @@ set(NEUTRONSTAR_SRC_FILES
         "core/input.cpp"
         "core/AutoDiff.cpp"
         "core/bitmap.cpp"
+        "core/GraphSegment.cpp"
 )
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})

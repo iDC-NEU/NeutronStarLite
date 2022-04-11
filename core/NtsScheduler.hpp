@@ -44,7 +44,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
 #include "ATen/ATen.h"
 #include "comm/network.h"
-#include "GraphSegment.hpp"
+#include "GraphSegment.h"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/torch.h"
@@ -74,7 +74,7 @@ enum AGGTYPE {
 class NtsScheduler {
 public:
   NtsScheduler() { ; }
-  void InitBlock(CSC_segment_pinned *graph_partition, runtimeinfo *rtminfo_,
+  void InitBlock(CSC_segment_pinned *graph_partition, RuntimeInfo *rtminfo_,
                  VertexId feature_size_, VertexId output_size_,
                  VertexId current_process_partition_id_,
                  VertexId current_process_layer_) { // for DEBUG
@@ -103,7 +103,7 @@ public:
   }
 
   void InitBlockSimple(CSC_segment_pinned *graph_partition,
-                       runtimeinfo *rtminfo_, VertexId feature_size_,
+                       RuntimeInfo *rtminfo_, VertexId feature_size_,
                        VertexId output_size_,
                        VertexId current_process_partition_id_,
                        VertexId current_process_layer_) { // for DEBUG
@@ -545,7 +545,7 @@ public:
   std::map<std::string, torch::Tensor>
       InterVar; // key roles in the compute graph
   std::map<std::string, torch::Tensor> CacheVar; // used for caching data;
-  runtimeinfo *rtminfo;
+  RuntimeInfo *rtminfo;
   AGGTYPE aggtype;
   // src_input.cpu() dst_input.cpu()
 };

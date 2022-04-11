@@ -65,9 +65,9 @@ struct ThreadState {
 template <typename EdgeData = Empty> class Graph {
 public:
   /*partitions for streaming GPU processing*/
-  gnncontext *gnnctx;
-  runtimeinfo *rtminfo;
-  inputinfo *config;
+  GNNContext *gnnctx;
+  RuntimeInfo *rtminfo;
+  InputInfo *config;
 
   // graph reorganization
   // contains the all of the in_edges for local partition
@@ -154,7 +154,7 @@ public:
   // comm tool
   NtsGraphCommunicator *NtsComm;
   // Nts GRAPH STORE
-  Graph_Storage *NtsGraphStore;
+  GraphStorage *NtsGraphStore;
 
   CachedData *cachedData;
   // replication
@@ -223,7 +223,7 @@ public:
     local_replication_time = 0.0;
     replication_threshold = 0;
     init();
-    config = new inputinfo;
+    config = new InputInfo();
     Nts = new NtsScheduler();
     NtsComm = new NtsGraphCommunicator();
     cpp = -1;
@@ -267,13 +267,13 @@ public:
                   threads, partition_id, local_send_buffer_limit);
   }
   void init_rtminfo() {
-    rtminfo = new runtimeinfo();
+    rtminfo = new RuntimeInfo();
     rtminfo->init_rtminfo();
   }
 
   // initialize gnn context based on layer_string. e.g. 1024-128-10
   void init_gnnctx(std::string layer_string) {
-    gnnctx = new gnncontext;
+    gnnctx = new GNNContext();
     std::stringstream ss(layer_string);
     std::string number;
     gnnctx->layer_size.clear();
