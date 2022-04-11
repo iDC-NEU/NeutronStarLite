@@ -368,14 +368,17 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
       graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
   ValueType *Ei_buffer =
       graph_->Nts->getWritableBuffer(Ei, torch::DeviceType::CPU);
-  if(!bi_direction)
-      assert(X.size(1)==Ei.size(1));
-  else if(bi_direction)
-      assert((2*X.size(1))==Ei.size(1));
+  if (!bi_direction) {
+    assert(X.size(1)==Ei.size(1));
+  } else {
+    // in bi_direction scenario, edge tensor is the concatenation of src feature and dst feature
+    assert((2*X.size(1))==Ei.size(1));
+  }
       
   memset(Ei_buffer, 0, sizeof(ValueType) * Ei.size(0) * Ei.size(1));
   int feature_size = X.size(1);
 
+  // for every vertex, scatter it's feature to edges
   graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
       [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
         // iterate the incoming edge for vtx
@@ -385,11 +388,15 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
           assert(0 <= src && src < graph_->vertices);
           assert(0 <= eid && eid < graph_->edges);
           // copy vertex feature to it's out_edge
-          if(bi_direction){// copy both dst and src,
-                copy(Ei_buffer,eid*2,X_buffer,src,feature_size);
-                copy(Ei_buffer,eid*2+1,X_buffer,vtx,feature_size);
-          }else{//copy only src
-                copy(Ei_buffer,eid,X_buffer,src,feature_size);
+          if (bi_direction) {
+            // copy both dst and src,
+            // from src to eid * 2
+            // from vtx to eid * 2 + 1
+            copy(Ei_buffer,eid*2,X_buffer,src,feature_size);
+            copy(Ei_buffer,eid*2+1,X_buffer,vtx,feature_size);
+          } else { 
+            //copy only src
+            copy(Ei_buffer,eid,X_buffer,src,feature_size);
           }
         }
       },
@@ -414,6 +421,7 @@ void GraphOperation::LocalAggregate(NtsVar &Ei, NtsVar &Y,
   int feature_size = Y.size(1);
   graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
       [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edges
         for (long eid = subgraph->column_offset[vtx];
               eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];

@@ -225,10 +225,13 @@ public:
       graph->rtminfo->curr_layer = i;     
         gt->LocalScatter(X[i],Ei[i],subgraphs);
         cp->op_push(X[i], Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
+        // apply NN operation on Ei
         Eo[i]=EdgeForward(Ei[i]);   
         //Eo[i]=torch::ones_like(Ei[i]);
+        // gather edge data to it's dst vertex
         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
         cp->op_push(Eo[i], Y[i], nts::autodiff::SINGLE_CPU_EDGE_GATHER);
+        // apply NN operation on vertex
         X[i + 1] = vertexForward(Y[i], X[i]);
     }
   }

@@ -570,6 +570,7 @@ public:
     }
   }
   // handling small dataset
+  // NtsVar [layer][partitions]
   std::vector<std::vector<NtsVar>> mirror_input;
   std::vector<std::vector<NtsVar>> message;
 
