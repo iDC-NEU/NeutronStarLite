@@ -51,7 +51,6 @@ private:
   std::stack<NtsVar> output;
   std::stack<NtsVar> input;
   std::vector<NtsVar> output_grad;
-  std::vector<NtsVar> input_grad;
   int count;
   GraphOperation *gt;
   std::vector<CSC_segment_pinned *> subgraphs;

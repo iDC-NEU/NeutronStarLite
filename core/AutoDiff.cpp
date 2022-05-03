@@ -20,7 +20,6 @@ ComputionPath::ComputionPath(GraphOperation *gt_,
   output.empty();
   input.empty();
   output_grad.clear();
-  input_grad.clear();
   count = 0;
   gt = gt_;
   subgraphs = subgraphs_;
@@ -48,7 +47,6 @@ void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
     input.push(input_t);
     // pre-alloc space to save graident
     output_grad.push_back(ig);
-    input_grad.push_back(og);
   }
 }
 
@@ -58,7 +56,6 @@ void ComputionPath::reset() {
   output.empty();
   input.empty();
   output_grad.empty();
-  input_grad.empty();
 }
 int ComputionPath::top_idx(){
 return count-1;
