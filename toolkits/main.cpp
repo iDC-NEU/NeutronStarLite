@@ -18,10 +18,11 @@ Copyright (c) 2014-2015 Xiaowei Zhu, Tsinghua University
 #include "GCN_CPU_EAGER.hpp"
 #include "GIN_CPU.hpp"
 #include "GGNN_CPU.hpp"
+#include "GAT_CPU.hpp"
 #if CUDA_ENABLE
 #include "COMMNET_GPU.hpp"
-#include "GAT_GPU.hpp"
-#include "GAT_GPU_SINGLE.hpp"
+//#include "GAT_GPU.hpp"
+//#include "GAT_GPU_SINGLE.hpp"
 #include "GCN.hpp"
 #include "GCN_EAGER.hpp"
 #include "GCN_EAGER_single.hpp"
@@ -75,6 +76,13 @@ int main(int argc, char **argv) {
     ntsGGNN->init_graph();
     ntsGGNN->init_nn();
     ntsGGNN->run();
+  } else if (graph->config->algorithm == std::string("GATCPU")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GAT_CPU_impl *ntsGAT = new GAT_CPU_impl(graph, iterations);
+    ntsGAT->init_graph();
+    ntsGAT->init_nn();
+    ntsGAT->run();
   } 
  
 
@@ -118,20 +126,20 @@ int main(int argc, char **argv) {
     ntsGCN->init_nn();
     ntsGCN->run();
     // GCN(graph, iterations);
-  } else if (graph->config->algorithm == std::string("GAT")) {
-    graph->load_directed(graph->config->edge_file, graph->config->vertices);
-    graph->generate_backward_structure();
-    GAT_GPU_impl *ntsGAT = new GAT_GPU_impl(graph, iterations);
-    ntsGAT->init_graph();
-    ntsGAT->init_nn();
-    ntsGAT->run();
-  } else if (graph->config->algorithm == std::string("GATSINGLE")) {
-    graph->load_directed(graph->config->edge_file, graph->config->vertices);
-    graph->generate_backward_structure();
-    GAT_GPU_SINGLE_impl *ntsGAT = new GAT_GPU_SINGLE_impl(graph, iterations);
-    ntsGAT->init_graph();
-    ntsGAT->init_nn();
-    ntsGAT->run();
+//  } else if (graph->config->algorithm == std::string("GAT")) {
+//    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+//    graph->generate_backward_structure();
+//    GAT_GPU_impl *ntsGAT = new GAT_GPU_impl(graph, iterations);
+//    ntsGAT->init_graph();
+//    ntsGAT->init_nn();
+//    ntsGAT->run();
+//  } else if (graph->config->algorithm == std::string("GATSINGLE")) {
+//    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+//    graph->generate_backward_structure();
+//    GAT_GPU_SINGLE_impl *ntsGAT = new GAT_GPU_SINGLE_impl(graph, iterations);
+//    ntsGAT->init_graph();
+//    ntsGAT->init_nn();
+//    ntsGAT->run();
   } else if (graph->config->algorithm == std::string("COMMNETGPU")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
