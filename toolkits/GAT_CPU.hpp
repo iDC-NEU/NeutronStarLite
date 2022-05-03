@@ -1,9 +1,11 @@
 
-#include "comm/logger.h"
-#include "core/AutoDiff.h"
-#include "core/gnnmini.hpp"
+//#include "comm/logger.h"
+//#include "core/AutoDiff.hpp"
+//#include "core/gnnmini.hpp"
+#include "core/gnnmini.h"
+#include "core/NtsEdgeTensor.hpp"
 
-class GGNN_CPU_impl {
+class GAT_CPU_impl {
 public:
   int iterations;
   ValueType learn_rate;
@@ -34,6 +36,7 @@ public:
   std::vector<NtsVar> Ei_grad;
   std::vector<NtsVar> Y;
   std::vector<NtsVar> X_grad;
+  std::vector<NtsVar> E_tmp;
   nts::autodiff::ComputionPath *cp;
   NtsVar F;
   NtsVar loss;
@@ -51,7 +54,7 @@ public:
   double graph_time = 0;
   double all_graph_time = 0;
 
-  GGNN_CPU_impl(Graph<Empty> *graph_, int iterations_,
+  GAT_CPU_impl(Graph<Empty> *graph_, int iterations_,
                bool process_local = false, bool process_overlap = false) {
     graph = graph_;
     iterations = iterations_;
@@ -82,7 +85,7 @@ public:
     // gt->GenerateMessageBitmap(subgraphs);
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
-    cp = new nts::autodiff::ComputionPath(gt, subgraphs);
+    cp = new nts::autodiff::ComputionPath(gt, subgraphs,true);
   }
   void init_nn() {
 
@@ -110,10 +113,10 @@ public:
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
-                                graph->gnnctx->layer_size[i], alpha, beta1,
+                                graph->gnnctx->layer_size[i+1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
-      P.push_back(new Parameter(graph->gnnctx->layer_size[i],
-                                graph->gnnctx->layer_size[i + 1], alpha, beta1,
+      P.push_back(new Parameter(graph->gnnctx->layer_size[i+1]*2,
+                                1, alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
     for (int i = 0; i < P.size(); i++) {
@@ -137,17 +140,18 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
         
       Ei.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_e_num, graph->gnnctx->layer_size[i]},
+          {graph->gnnctx->l_e_num, 2*graph->gnnctx->layer_size[i+1]},
           torch::DeviceType::CPU));
       Y.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
           torch::DeviceType::CPU));
     }
+    NtsVar d;
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
-      NtsVar d;
       X.push_back(d);
       Eo.push_back(d);
     }
+    E_tmp.resize(graph->gnnctx->l_v_num,d);
     X[0] = F.set_requires_grad(true);
   }
 
@@ -181,26 +185,6 @@ public:
       }
     }
   }
-  NtsVar vertexForward(NtsVar &a, NtsVar &x) {
-    NtsVar y;
-    int layer = graph->rtminfo->curr_layer;
-    if (layer == 0) {
-      y = torch::relu(P[2*layer+1]->forward(a)).set_requires_grad(true);
-    } else if (layer == 1) {
-      y = P[2*layer+1]->forward(a);
-      y = y.log_softmax(1);
-    }
-    cp->op_push(a, y, nts::autodiff::NNOP);
-    return y;
-  }
-  NtsVar EdgeForward(NtsVar &ei) {
-    NtsVar y;
-    int layer = graph->rtminfo->curr_layer;
-    y = torch::relu(P[2*layer]->forward(ei).set_requires_grad(true));
-    //y=ei*2;
-    cp->op_push(ei, y, nts::autodiff::NNOP);
-    return y;
-  }
   void Loss() {
     //  return torch::nll_loss(a,L_GT_C);
     torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1];
@@ -219,21 +203,56 @@ public:
       P[i]->next();
     }
   }
+  NtsVar preForward(NtsVar &x) {
+    NtsVar y;
+    int layer = graph->rtminfo->curr_layer;
+      y =P[2*layer]->forward(x).set_requires_grad(true);
+    cp->op_push(x, y, nts::autodiff::NNOP);
+    return y;
+  }
+  NtsVar vertexForward(NtsVar &a, NtsVar &x) {
+    NtsVar y;
+    y=a;
+    return y;
+  }
+  NtsVar EdgeForward(NtsVar &ei) {
+    NtsVar y=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,ei.size(1)/2},torch::DeviceType::CPU);
+    nts::ntsVertexTensor y_vtx(ei.size(1)/2,subgraphs[0],graph->Nts);
+    int layer = graph->rtminfo->curr_layer;
+    NtsVar m = torch::exp(P[2*layer+1]->forward(ei));
+    NtsVar e_src=ei.slice(1,0,ei.size(1)/2,1);
+//    NtsVar dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
+//    LOG_INFO("%d",m.dim());
+    graph->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {     
+        long eid_start=subgraph->column_offset[vtx];
+        long eid_end=subgraph->column_offset[vtx+1];
+        assert(eid_end<=graph->edges);
+        assert(eid_start>=0); 
+        NtsVar d=m.slice(0,eid_start,eid_end,1).softmax(0);
+        y_vtx.getVtxTensor(vtx)=(e_src.slice(0,eid_start,eid_end,1)*d).sum(0);
+      },
+      subgraphs, m.size(1), active);
+      for(VertexId vtx=0;vtx<graph->gnnctx->l_v_num;vtx++){
+        y[vtx]=y_vtx.getVtxTensor(vtx);
+      }
+    //y.backward(torch::ones_like(y));
+    cp->op_push(ei, y, nts::autodiff::NNOP);
+//      printf("finish\n");
+    return y;
+  }
+  
   void Forward() {
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      graph->rtminfo->curr_layer = i;     
-        gt->LocalScatter(X[i],Ei[i],subgraphs);
-        cp->op_push(X[i], Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
-        // apply NN operation on Ei
-        Eo[i]=EdgeForward(Ei[i]);   
-        //Eo[i]=torch::ones_like(Ei[i]);
-        // gather edge data to it's dst vertex
-        gt->LocalAggregate(Eo[i],Y[i],subgraphs);
-        cp->op_push(Eo[i], Y[i], nts::autodiff::SINGLE_CPU_EDGE_GATHER);
-        // apply NN operation on vertex
-        X[i + 1] = vertexForward(Y[i], X[i]);
+      graph->rtminfo->curr_layer = i;
+        torch::Tensor X_trans= preForward(X[i]);
+        gt->LocalScatter(X_trans,Ei[i],subgraphs,true);
+        cp->op_push(X_trans, Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
+        X[i+1]=EdgeForward(Ei[i]);
+
     }
+//        printf("hellow\n");
   }
 
   void run() {
@@ -247,7 +266,7 @@ public:
           P[i]->zero_grad();
         }
         for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++){
-          Y[i].grad().zero_();
+//          Y[i].grad().zero_();
           Ei[i].grad().zero_();
         }
       }
@@ -263,54 +282,19 @@ public:
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
+//    NtsVar s=4*graph->Nts->NewOnesTensor({3,1},torch::DeviceType::CPU);
+//    NtsVar s1=graph->Nts->NewOnesTensor({10,1},torch::DeviceType::CPU).set_requires_grad(true);
+////    NtsVar indice=torch::range(1,3,1,torch::kLong);
+////    std::cout<<indice<<std::endl;
+//    s[0]=s1[2]*3;
+//    s[2]=s1[5]*4;
+//    s.backward(torch::ones_like(s));
+//        std::cout<<s1.grad()<<std::endl;
     exec_time += get_time();
 
     delete active;
   }
 
-  void DEBUGINFO() {
-
-    if (graph->partition_id == 0) {
-      printf("\n#Timer Info Start:\n");
-      printf("#all_time=%lf(s)\n", exec_time);
-      printf("#sync_time=%lf(s)\n", all_sync_time);
-      printf("#all_graph_sync_time=%lf(s)\n", all_graph_sync_time);
-      printf("#copy_time=%lf(s)\n", all_copy_time);
-      printf("#nn_time=%lf(s)\n", all_compute_time);
-      printf("#graph_time=%lf(s)\n", all_graph_time);
-      printf("#communicate_extract+send=%lf(s)\n", graph->all_compute_time);
-      printf("#communicate_processing_received=%lf(s)\n",
-             graph->all_overlap_time);
-      printf("#communicate_processing_received.copy=%lf(s)\n",
-             graph->all_recv_copy_time);
-      printf("#communicate_processing_received.kernel=%lf(s)\n",
-             graph->all_recv_kernel_time);
-      printf("#communicate_processing_received.wait=%lf(s)\n",
-             graph->all_recv_wait_time);
-      printf("#communicate_wait=%lf(s)\n", graph->all_wait_time);
-      printf("#streamed kernel_time=%lf(s)\n", graph->all_kernel_time);
-      printf("#streamed movein_time=%lf(s)\n", graph->all_movein_time);
-      printf("#streamed moveout_time=%lf(s)\n", graph->all_moveout_time);
-      printf("#cuda wait time=%lf(s)\n", graph->all_cuda_sync_time);
-      printf("#graph repliation time=%lf(s)\n", graph->all_replication_time);
-      printf("#Timer Info End\n");
-    }
-
-    double max_time = 0;
-    double mean_time = 0;
-    double another_time = 0;
-    MPI_Datatype l_vid_t = get_mpi_data_type<double>();
-    MPI_Allreduce(&all_graph_time, &max_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    MPI_Allreduce(&exec_time, &another_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    MPI_Allreduce(&graph->all_replication_time, &mean_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    if (graph->partition_id == 0)
-      printf("ALL TIME = %lf(s) GRAPH TIME = %lf(s) MEAN TIME = %lf(s)\n",
-             another_time, max_time / graph->partitions,
-             mean_time / graph->partitions);
-  }
   void test_debug() {
 //            Eo[i]=torch::ones_like(Ei[i]);
 //         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
@@ -330,4 +314,43 @@ public:
 //      }
       
   }
+  
+//    NtsVar EdgeForward(NtsVar &ei) {
+//    NtsVar y;
+//    
+//    int layer = graph->rtminfo->curr_layer;
+//    NtsVar m = torch::exp(P[2*layer+1]->forward(ei));
+//    NtsVar a = torch::zeros_like(m);
+//    NtsVar e_dst=ei.slice(1,0,ei.size(1)/2,1);
+//    NtsVar v_sum=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1},torch::DeviceType::CPU);
+//    
+//    NtsVar dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
+////    LOG_INFO("%d %d %d %d",m.size(0),m.size(1),e_dst.size(0),e_dst.size(1));
+////    NtsVar sum =graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1},
+////                    torch::DeviceType::CPU);
+//    LOG_INFO("%d",m.sum(0).dim());
+//    for(VertexId vtx=0;vtx<graph->gnnctx->l_v_num;vtx++){
+//            long eid_start=subgraphs[0]->column_offset[vtx];
+//            long eid_end=subgraphs[0]->column_offset[vtx+1];
+//            NtsVar d;
+//            assert(eid_end<=graph->edges);
+//            assert(eid_start>=0); 
+//            if(vtx==0){
+//                LOG_INFO("%d %d",eid_end-eid_start,m.slice(0,eid_start,eid_end,1).size(0));
+//            }
+//            if(eid_end>eid_start){
+//               d=m.slice(0,eid_start,eid_end,1).softmax(0);
+//               for(int eid_i=eid_start;eid_i=eid_end;eid_i++){
+//                  a[eid_i]=d[eid_i-eid_start];
+//               }
+//            }        
+//            
+//    }
+//       //  LOG_INFO("%d",a.dim());
+//         LOG_INFO("%d %d",e_dst.size(0),e_dst.size(1));
+//       //  LOG_INFO("%d",a.dim());
+//        y=e_dst*a;
+//    cp->op_push(ei, y, nts::autodiff::NNOP);
+//    return y;
+//  }
 };
