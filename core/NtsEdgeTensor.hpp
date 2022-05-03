@@ -17,7 +17,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #ifndef NTSTENSOR_HPP
 #define NTSTENSOR_HPP
 #include"NtsScheduler.hpp"
-#include"GraphSegment.hpp"
+#include"GraphSegment.h"
 
 namespace nts {
     struct ntsEdgeTensor{
@@ -28,13 +28,13 @@ namespace nts {
             size_1=-1;
             dim=0;
         }
-        ntsEdgeTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
+        ntsEdgeTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
             initEdgeTensor(feature_size, subgraph_,ntsscheduler_);
         }
         
         
         
-        void initEdgeTensorFromTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_,NtsVar &e_tensor){
+        void initEdgeTensorFromTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_,NtsVar &e_tensor){
             size_1=feature_size;
             subgraph=subgraph_;
             ntsscheduler=ntsscheduler_;
@@ -55,7 +55,7 @@ namespace nts {
             
         }
         
-        void initEdgeTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
+        void initEdgeTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
             size_1=feature_size;
             subgraph=subgraph_;
             ntsscheduler=ntsscheduler_;
@@ -92,7 +92,7 @@ namespace nts {
         long size_1;
         std::vector<NtsVar>edgeTensorIndexedbyDst;
         NtsVar edgeTensor;
-        graph_Tensor_Segment_pinned* subgraph;
+        CSC_segment_pinned* subgraph;
         NtsScheduler* ntsscheduler;
     };
     
@@ -104,13 +104,13 @@ namespace nts {
             size_1=-1;
             dim=0;
         }
-        ntsVertexTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
+        ntsVertexTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
             initVertexTensor(feature_size, subgraph_,ntsscheduler_);
         }
         
         
         
-        void initVertexTensorFromTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_,NtsVar &e_tensor){
+        void initVertexTensorFromTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_,NtsVar &e_tensor){
             size_1=feature_size;
             subgraph=subgraph_;
             ntsscheduler=ntsscheduler_;
@@ -129,7 +129,7 @@ namespace nts {
             
         }
         
-        void initVertexTensor(int feature_size,graph_Tensor_Segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
+        void initVertexTensor(int feature_size,CSC_segment_pinned* subgraph_,NtsScheduler* ntsscheduler_){
             size_1=feature_size;
             subgraph=subgraph_;
             ntsscheduler=ntsscheduler_;
@@ -164,7 +164,7 @@ namespace nts {
         long size_1;
         std::vector<NtsVar>vertexTensorIndexedbyDst;
         NtsVar vertexTensor;
-        graph_Tensor_Segment_pinned* subgraph;
+        CSC_segment_pinned* subgraph;
         NtsScheduler* ntsscheduler;
     };
     

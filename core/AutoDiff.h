@@ -38,12 +38,13 @@ const OpType DIST_GPU_EDGE = 10;
 class ComputionPath {
 public:
   ComputionPath(GraphOperation *gt_,
-                std::vector<CSC_segment_pinned *> subgraphs_);
+                std::vector<CSC_segment_pinned *> subgraphs_,bool bi_direction=false);
   void op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type);
   void reset();
   void pop_one_op();
   void self_backward(bool retain_graph = true);
   void debug();
+  int top_idx();
 
 private:
   std::stack<OpType> op;
@@ -54,6 +55,7 @@ private:
   int count;
   GraphOperation *gt;
   std::vector<CSC_segment_pinned *> subgraphs;
+  bool bi_direction;
 };
 
 } // namespace autodiff

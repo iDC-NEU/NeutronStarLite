@@ -405,6 +405,58 @@ void GraphOperation::LocalScatter(NtsVar &X, NtsVar &Ei,
 
 /**
  * @brief 
+ * gather the vertex representation from edge. Only used in single node scenario
+ * @param X vertex tensor
+ * @param Ei edge tensor
+ * @param subgraphs vector contains subgraph representation
+ * @param bi_direction scatter src or both src and dst
+ */
+void GraphOperation::LocalScatterBackward(NtsVar &Ei, NtsVar &X,
+                              std::vector<CSC_segment_pinned *> &subgraphs,bool bi_direction) {
+  // get raw buffer
+  ValueType *X_buffer =
+      graph_->Nts->getWritableBuffer(X, torch::DeviceType::CPU);
+  ValueType *Ei_buffer =
+      graph_->Nts->getWritableBuffer(Ei, torch::DeviceType::CPU);
+  if (!bi_direction) {
+    assert(X.size(1)==Ei.size(1));
+  } else {
+    // in bi_direction scenario, edge tensor is the concatenation of src feature and dst feature
+    assert((2*X.size(1))==Ei.size(1));
+  }
+      
+  memset(Ei_buffer, 0, sizeof(ValueType) * Ei.size(0) * Ei.size(1));
+  int feature_size = X.size(1);
+
+  // for every vertex, scatter it's feature to edges
+  graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+              eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+          assert(0 <= src && src < graph_->vertices);
+          assert(0 <= eid && eid < graph_->edges);
+          // copy vertex feature to it's out_edge
+          if (bi_direction) {
+            // copy both dst and src,
+            // from eid * 2 to src
+            // from eid * 2 + 1 to vtx;
+            acc(X_buffer+src*feature_size,Ei_buffer+(feature_size*eid*2),feature_size);
+            acc(X_buffer+vtx*feature_size,Ei_buffer+(feature_size*eid*2+1),feature_size);
+//            copy(Ei_buffer,eid*2,X_buffer,src,feature_size);
+//            copy(Ei_buffer,eid*2+1,X_buffer,vtx,feature_size);
+          } else { 
+            //copy only src
+            acc(X_buffer+src*feature_size,Ei_buffer+(feature_size*eid*2),feature_size);
+          }
+        }
+      },
+      subgraphs, feature_size, active_);
+}
+
+/**
+ * @brief 
  * perform local aggregation. i.e. gather Edge feature to the vertex
  * @param Ei edge tensor
  * @param Y result tensor. i.e. tensor where we should place aggregation value

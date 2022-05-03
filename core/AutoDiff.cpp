@@ -15,7 +15,7 @@ namespace autodiff {
  * @param subgraphs_ 
  */
 ComputionPath::ComputionPath(GraphOperation *gt_,
-            std::vector<CSC_segment_pinned *> subgraphs_) {
+            std::vector<CSC_segment_pinned *> subgraphs_,bool bi_direction_) {
   op.empty();
   output.empty();
   input.empty();
@@ -24,10 +24,12 @@ ComputionPath::ComputionPath(GraphOperation *gt_,
   count = 0;
   gt = gt_;
   subgraphs = subgraphs_;
+  bi_direction=bi_direction_;
 }
 
 void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
-  // LOG_INFO("OP PUSH%d",op_type);
+//    if(output_t.dim()>1&&input_t.dim()>1)
+//  LOG_INFO("input dim %d \t output dim %d \t OP type %d", input_t.size(1),output_t.size(1),op_type);
   NtsVar ig;
   NtsVar og;
 
@@ -51,12 +53,15 @@ void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
 }
 
 void ComputionPath::reset() {
-  assert(0 == count);
+  assert(count<=1);
   op.empty();
   output.empty();
   input.empty();
   output_grad.empty();
   input_grad.empty();
+}
+int ComputionPath::top_idx(){
+return count-1;
 }
 
 /**
@@ -78,7 +83,6 @@ void ComputionPath::pop_one_op() {
  * @param retain_graph 
  */
 void ComputionPath::self_backward(bool retain_graph) {
-  count--;
   NtsVar final_output = output.top();
   NtsVar final_input = input.top();
   // compute the gradient of loss
@@ -87,28 +91,32 @@ void ComputionPath::self_backward(bool retain_graph) {
   // store the grad
   NtsVar grad_to_previous_op = final_input.grad();
 
-  input_grad[count] = grad_to_previous_op;
+  //input_grad[count] = grad_to_previous_op;
   // LOG_INFO("grad_to_previous_op %d",grad_to_previous_op.dim());
+  
+  output_grad[top_idx()-1] = grad_to_previous_op;
   pop_one_op();
-  output_grad[count] = grad_to_previous_op;
-  while (count > 0 || (count == 0 && NNOP == op.top())) {
+//  LOG_INFO("finish loss op\n");
+  while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
     if (NNOP != op.top()) { // test
-      input_grad[count] = torch::zeros_like(input.top());
+      output_grad[top_idx()-1] = torch::zeros_like(input.top());
+   //   LOG_INFO("output_grad[count] %d \t input_grad[count] %d \t OP type %d", output_grad[count-1].size(1),input_grad[count-1].size(1),op.top());
       switch (op.top()) {
       case DIST_CPU:
-        // gt->PropagateBackwardCPU_Lockfree(output_grad[count],
-        //                                  input_grad[count], subgraphs);
-        gt->PropagateBackwardCPU_Lockfree_multisockets(output_grad[count],
-                                            input_grad[count], subgraphs);    
+//          LOG_INFO("start graph op");
+//        LOG_INFO("start graph op%d %d \n",output_grad[top_idx()].size(1),output_grad[top_idx()-1].size(1));
+        gt->PropagateBackwardCPU_Lockfree_multisockets(output_grad[top_idx()],
+                                            output_grad[top_idx()-1], subgraphs); 
+//        LOG_INFO("finish graph op\n");
         break; // TODO : choose engine
       case DIST_CPU_EDGE:
         LOG_INFO("DIST_CPU_EDGE not implement");
         break;
 #if CUDA_ENABLE          
       case DIST_GPU:
-        gt->GraphPropagateBackward(output_grad[count], input_grad[count],
+        gt->GraphPropagateBackward(output_grad[top_idx()], output_grad[top_idx()-1],
                                     subgraphs);
         break;
       case DIST_GPU_EDGE:
@@ -116,22 +124,22 @@ void ComputionPath::self_backward(bool retain_graph) {
         break;
 #endif          
       case SINGLE_CPU:
-        gt->PropagateBackwardCPU_Lockfree(output_grad[count],
-                                          input_grad[count], subgraphs);
+        gt->PropagateBackwardCPU_Lockfree(output_grad[top_idx()],
+                                          output_grad[top_idx()-1], subgraphs);
         break;
       case SINGLE_CPU_EDGE_SCATTER:
-          gt->LocalAggregate(output_grad[count],
-                                          input_grad[count], subgraphs);
+          gt->LocalScatterBackward(output_grad[top_idx()],
+                                          output_grad[top_idx()-1], subgraphs,bi_direction);
         //LOG_INFO("SINGLE_CPU_EDGE not implement");
         break;
       case SINGLE_CPU_EDGE_GATHER:
-          gt->LocalScatter(output_grad[count],
-                                          input_grad[count], subgraphs);
+          gt->LocalScatter(output_grad[top_idx()],
+                                          output_grad[top_idx()-1], subgraphs);
         //LOG_INFO("SINGLE_CPU_EDGE not implement");
         break;
 #if CUDA_ENABLE          
       case SINGLE_GPU:
-        gt->BackwardSingle(output_grad[count], input_grad[count], subgraphs);
+        gt->BackwardSingle(output_grad[top_idx()], output_grad[top_idx()-1], subgraphs);
         break;
       case SINGLE_GPU_EDGE_SCATTER:
         LOG_INFO("SINGLE_GPU_EDGE not implement");
@@ -146,7 +154,6 @@ void ComputionPath::self_backward(bool retain_graph) {
         break;
       }
       pop_one_op();
-      output_grad[count] = input_grad[count + 1];
 
     } else if (NNOP == op.top()) {
       // LOG_INFO("NOP %d",output_grad[count].dim());
@@ -157,11 +164,13 @@ void ComputionPath::self_backward(bool retain_graph) {
       // and the bottom_diff for inter_output, also is top_diff for inter_input
       // will store in inter_input.grad()
       // then we retrieve it for future use
-      inter_output.backward(output_grad[count], retain_graph);
+      inter_output.backward(output_grad[top_idx()], retain_graph);
       NtsVar grad_to_previous_op = inter_input.grad();
-      input_grad[count] = grad_to_previous_op;
+      if(count>1)
+      output_grad[top_idx()-1] = grad_to_previous_op;
       pop_one_op();
-      output_grad[count] = grad_to_previous_op;
+//       LOG_INFO("finish nn op\n");
+  //    LOG_INFO("output_grad[count] %d \t input_grad[count] %d \t OP type %d", output_grad[count-1].size(1),input_grad[count-1].size(1),op.top());
     } else {
       LOG_INFO("NOT SUPPORT OP");
       assert(true);
@@ -174,9 +183,7 @@ void ComputionPath::debug() {
   printf("ADDEBUG input.size()%d\n", input.size());
   // for(int i=0;i<count;i++){
   while (!input.empty()) {
-    LOG_INFO("input dim %d", input.top().dim());
-    LOG_INFO("output dim %d", output.top().dim());
-    LOG_INFO("OP type %d", op.top());
+    LOG_INFO("input dim %d \t output dim %d \t OP type %d", input.top().dim(),output.top().dim(),op.top());
     input.pop();
     output.pop();
     op.pop();
