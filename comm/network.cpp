@@ -521,9 +521,19 @@ void NtsGraphCommunicator::send_mirror_to_master() {
     // send to partition i
     int i = send_queue[step];
     for (int s_i = 0; s_i < sockets; s_i++) {
+#if BIG_MESSAGE       
+/*Message less than 8GB*/
+      float* send_msg=(float*)send_buffer[i][s_i]->data;
+      MPI_Send(send_msg,
+                elements_of_msg(feature_size) * send_buffer[i][s_i]->count,
+                MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD);
+      printf("MI-MA SEND 8GB\n");
+#else
+/*Message less than 2GB*/        
       MPI_Send(send_buffer[i][s_i]->data,
                 size_of_msg(feature_size) * send_buffer[i][s_i]->count,
-                MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+                MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);  
+#endif  
     }
   }
 }
@@ -556,11 +566,22 @@ void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
     // local vertex data will be placed on send_buffer[partition_id]
     // so we just send it to all peers
     for (int s_i = 0; s_i < sockets; s_i++) { 
-      // printf("send_success part_id %d\n",partition_id);
+#if BIG_MESSAGE         
+/*Message less than 8GB*/
+      float* send_msg=(float*)send_buffer[partition_id][s_i]->data;
+      MPI_Send(send_msg, elements_of_msg(feature_size) *
+                    send_buffer[partition_id][s_i]->count,
+                MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD);
+      printf("MA-MI SEND 8GB\n");
+#else
+/*Message less than 2GB*/   
       MPI_Send(send_buffer[partition_id][s_i]->data,
                 size_of_msg(feature_size) *
                     send_buffer[partition_id][s_i]->count,
                 MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
+#endif      
+      
+/*End*/           
     }
   }
 }
@@ -572,6 +593,7 @@ void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
  * in a ring style.
  */
 void NtsGraphCommunicator::send_master_to_mirror() {
+// for message less than 2GB    
   for (int step = 1; step < partitions; step++) {
     int i = (partition_id - step + partitions) % partitions;
     for (int s_i = 0; s_i < sockets; s_i++) { // printf("send_success\n");
@@ -581,6 +603,16 @@ void NtsGraphCommunicator::send_master_to_mirror() {
                 MPI_CHAR, i, PassMessage, MPI_COMM_WORLD);
     }
   }
+// for message less than 8GB    
+//  for (int step = 1; step < partitions; step++) {
+//    int i = (partition_id - step + partitions) % partitions;
+//    for (int s_i = 0; s_i < sockets; s_i++) { // printf("send_success\n");
+//        float* send_msg=(float*)send_buffer[partition_id][s_i]->data;
+//      MPI_Send(send_msg, elements_of_msg(feature_size) *
+//                    send_buffer[partition_id][s_i]->count,
+//                MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD);
+//    }
+//  }
 }
 
 /**
@@ -596,13 +628,25 @@ void NtsGraphCommunicator::recv_master_to_mirror_no_wait() {
           for (int s_i = 0; s_i < sockets; s_i++) {
             MPI_Status recv_status;
             MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+#if BIG_MESSAGE            
+/*Message less than 8GB*/
+            float* recv_msg=(float*)recv_buffer[i][s_i]->data;
+            MPI_Get_count(&recv_status, MPI_FLOAT,
+                          &recv_buffer[i][s_i]->count);
+            MPI_Recv(recv_msg, recv_buffer[i][s_i]->count,
+                      MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD,
+                      MPI_STATUS_IGNORE);
+            recv_buffer[i][s_i]->count /= elements_of_msg(feature_size);
+            printf("MA-MI RECV 8GB\n");
+#else
+/*Message less than 2GB*/            
             MPI_Get_count(&recv_status, MPI_CHAR,
                           &recv_buffer[i][s_i]->count);
             MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count,
                       MPI_CHAR, i, PassMessage, MPI_COMM_WORLD,
                       MPI_STATUS_IGNORE);
-            recv_buffer[i][s_i]->count /= size_of_msg(feature_size);
-            // printf("recv_success\n");
+            recv_buffer[i][s_i]->count /= size_of_msg(feature_size);            
+#endif            
           }
         },
         i);
@@ -632,11 +676,19 @@ void NtsGraphCommunicator::recv_master_to_mirror() {
     for (int s_i = 0; s_i < sockets; s_i++) {
       MPI_Status recv_status;
       MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+//    for messages less than 2GB      
       MPI_Get_count(&recv_status, MPI_CHAR, &recv_buffer[i][s_i]->count);
       MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count,
                 MPI_CHAR, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       recv_buffer[i][s_i]->count /= size_of_msg(feature_size);
-      // printf("recv_success\n");
+      
+//    for messages less than 8GB 
+//      float* recv_msg=(float*)recv_buffer[i][s_i]->data;
+//      MPI_Get_count(&recv_status, MPI_FLOAT, &recv_buffer[i][s_i]->count);
+//      MPI_Recv(recv_msg, recv_buffer[i][s_i]->count,
+//                MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+//      recv_buffer[i][s_i]->count /= elements_of_msg(feature_size);      
+      
     }
     recv_queue[recv_queue_size] = i;
     recv_queue_mutex.lock();
@@ -658,12 +710,26 @@ void NtsGraphCommunicator::recv_mirror_to_master() {
           for (int s_i = 0; s_i < sockets; s_i++) {
             MPI_Status recv_status;
             MPI_Probe(i, PassMessage, MPI_COMM_WORLD, &recv_status);
+#if BIG_MESSAGE            
+/*Message less than 8GB*/
+            float* recv_msg=(float*)recv_buffer[i][s_i]->data;
+            MPI_Get_count(&recv_status, MPI_FLOAT,
+                          &recv_buffer[i][s_i]->count);
+            MPI_Recv(recv_msg, recv_buffer[i][s_i]->count,
+                      MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD,
+                      MPI_STATUS_IGNORE);
+            recv_buffer[i][s_i]->count /= elements_of_msg(feature_size);
+            printf("MI-MA RECV 8GB\n");
+#else
+/*Message less than 2GB*/            
             MPI_Get_count(&recv_status, MPI_CHAR,
                           &recv_buffer[i][s_i]->count);
             MPI_Recv(recv_buffer[i][s_i]->data, recv_buffer[i][s_i]->count,
                       MPI_CHAR, i, PassMessage, MPI_COMM_WORLD,
                       MPI_STATUS_IGNORE);
-            recv_buffer[i][s_i]->count /= size_of_msg(feature_size);
+            recv_buffer[i][s_i]->count /= size_of_msg(feature_size);            
+#endif            
+/*End*/
           }
         },
         i);

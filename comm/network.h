@@ -8,6 +8,8 @@
 #ifndef NETWORK_H
 #define NETWORK_H
 
+#define BIG_MESSAGE 1 //untested
+
 #include "core/mpi.hpp"
 #include "core/type.hpp"
 
@@ -132,6 +134,10 @@ private:
 
   inline size_t size_of_msg(int f_size) {
     return sizeof(VertexId) + sizeof(ValueType) * f_size;
+  }
+  
+  inline size_t elements_of_msg(int f_size) {
+    return  sizeof(VertexId)/sizeof(ValueType)+ f_size;
   }
 
   VertexId current_send_part_id;
