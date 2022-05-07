@@ -16,9 +16,9 @@ namespace autodiff {
  */
 ComputionPath::ComputionPath(GraphOperation *gt_,
             std::vector<CSC_segment_pinned *> subgraphs_,bool bi_direction_) {
-  op.empty();
-  output.empty();
-  input.empty();
+  std::stack<OpType>().swap(op);
+  std::stack<NtsVar>().swap(output);
+  std::stack<NtsVar>().swap(input);
   output_grad.clear();
   count = 0;
   gt = gt_;
@@ -52,13 +52,15 @@ void ComputionPath::op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type) {
 
 void ComputionPath::reset() {
   assert(count<=1);
-  op.empty();
-  output.empty();
-  input.empty();
-  output_grad.empty();
+  count = 0;
+  std::stack<OpType>().swap(op);
+  std::stack<NtsVar>().swap(output);
+  std::stack<NtsVar>().swap(input);
+  output_grad.clear();
 }
+
 int ComputionPath::top_idx(){
-return count-1;
+  return count - 1;
 }
 
 /**
