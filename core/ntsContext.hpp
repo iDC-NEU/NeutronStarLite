@@ -139,7 +139,6 @@ public:
   void reset(){
     assert(count<=1);
     if(count==1&&ntsOp.top().op_t==GRAPHOP){
-        printf("call delete");
         delete ntsOp.top().op;
     }
     count = 0;
@@ -151,7 +150,6 @@ public:
 }
   void pop_one_op(){
     if(ntsOp.top().op_t==GRAPHOP){
-        printf("call delete");
         delete ntsOp.top().op;
     }
     op.pop();
@@ -161,10 +159,8 @@ public:
     count--;
   }
   void self_backward(bool retain_graph = true){
-    NtsVar final_output = output.top();
-    NtsVar final_input = input.top();
-    final_output.backward(torch::ones_like(final_output), retain_graph);
-    output_grad[top_idx()-1]= final_input.grad();// grad of loss
+    output.top().backward(torch::ones_like(output.top()), retain_graph);
+    output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
       while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation

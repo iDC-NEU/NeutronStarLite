@@ -114,7 +114,6 @@ public:
   NtsVar forward(NtsVar &f_input) {
     //f_input = input;
     NtsVar f_output = graph_->Nts->NewKeyTensor(f_input, torch::DeviceType::CPU);
-    //LOG_INFO("SUCCESS %d %d",input.dim(),f_output.dim());
     ValueType *f_input_buffer =
         graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
     ValueType *f_output_buffer =
@@ -286,6 +285,31 @@ public:
   }
 };
 
+class ForwardSingleGPUfuseOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  ForwardSingleGPUfuseOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor(f_input,torch::DeviceType::CUDA);
+    graph_->forward_single<int, ValueType>(f_input, subgraphs, f_output, feature_size);
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){
+    int feature_size = f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewKeyTensor(f_output_grad,torch::DeviceType::CUDA);
+    graph_->backward_single<int, ValueType>(f_output_grad, subgraphs, 
+            f_input_grad, feature_size);
+      return f_input_grad;
+  }    
+
+};
 
 } // namespace graphop
 } // namespace nts
