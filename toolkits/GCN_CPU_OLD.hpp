@@ -1,6 +1,8 @@
 
 #include "comm/logger.h"
+#include "core/AutoDiff.h"
 #include "core/gnnmini.h"
+#include "core/ntsGraphOp.hpp"
 #include "core/ntsContext.hpp"
 
 class GCN_CPU_impl {
@@ -25,12 +27,14 @@ public:
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
+  std::map<std::string, NtsVar> I_data;
   GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
-  nts::ctx::NtsContext* ctx;
-  
+  std::vector<NtsVar> Y;
+  std::vector<NtsVar> X_grad;
+  nts::autodiff::ComputionPath *cp;
   NtsVar F;
   NtsVar loss;
   NtsVar tt;
@@ -83,8 +87,7 @@ public:
     // propagation which has better support on multisockets.
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
-    //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
-    ctx=new nts::ctx::NtsContext();
+    cp = new nts::autodiff::ComputionPath(gt, subgraphs);
   }
   void init_nn() {
 
@@ -134,6 +137,11 @@ public:
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
 
+    for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
+      Y.push_back(graph->Nts->NewKeyTensor(
+          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
+          torch::DeviceType::CPU));
+    }
     // X[i] is vertex representation at layer i
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
@@ -185,7 +193,7 @@ public:
       y = y.log_softmax(1);
     }
     // save the intermediate result for backward propagation
- //   ctx->op_push(a, y, nts::ctx::NNOP);
+    cp->op_push(a, y, nts::autodiff::NNOP);
     return y;
   }
   void Loss() {
@@ -196,7 +204,7 @@ public:
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
-    ctx->appendNNOp(a, loss);
+    cp->op_push(a, loss, nts::autodiff::NNOP);
   }
 
   void Update() {
@@ -216,14 +224,20 @@ public:
         X[i] = drpmodel(X[i]);
       }
 
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,subgraphs,X[i]);      
-        X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
-            return vertexForward(n_i, v_i);
-        },
-        Y_i,
-        X[i]);
-      
-     // X[i + 1] = vertexForward(Y_i, X[i]);
+      // gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      // gather neithbour's vertex feature
+      // the intermediate value is stored in Y
+//       gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
+       NtsVar Y_i;
+       Y_i=nts::op::ForwardCPUfuseOp(graph,active,subgraphs).forward(X[i]);
+//      LOG_INFO("dim debug %d %d",X[i].dim(),y_i.dim());
+      // push the operation and intermediate result into ComputationPath, for
+      // backward propagation
+      cp->op_push(X[i], Y_i, nts::autodiff::DIST_CPU);
+
+      // fed aggregation value and vertex feature into nn model
+      // and compute the new vertex feature
+      X[i + 1] = vertexForward(Y_i, X[i]);
     }
   }
 
@@ -240,6 +254,7 @@ public:
         // clear the gradient in parameters and values
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
+          //Y[i].grad().zero_();
         }
       }
       
@@ -248,9 +263,10 @@ public:
       Test(1);
       Test(2);
       Loss();
-      ctx->self_backward();
+      // Backward();
+      cp->self_backward();
       Update();
-//       ctx->debug();
+      // cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
@@ -259,5 +275,6 @@ public:
 
     delete active;
   }
+
 
 };
