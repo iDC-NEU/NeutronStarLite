@@ -222,8 +222,6 @@ public:
         },
         Y_i,
         X[i]);
-      
-     // X[i + 1] = vertexForward(Y_i, X[i]);
     }
   }
 
@@ -237,7 +235,6 @@ public:
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
       if (i_i != 0) {
-        // clear the gradient in parameters and values
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
         }

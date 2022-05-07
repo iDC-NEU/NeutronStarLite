@@ -1,7 +1,7 @@
 #ifndef NTSOPS_HPP
 #define NTSOPS_HPP
 #include <stack>
-#include "ntsBaseOp.hpp"
+#include "core/ntsGraphOp.hpp"
 #include<type_traits>
 namespace nts {
 
@@ -70,7 +70,7 @@ public:
 } 
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &, NtsVar &)> vertexforward,
             NtsVar &nbr_input,NtsVar &vtx_input){//NNOP
-     LOG_INFO("call run vertex forward");
+//     LOG_INFO("call run vertex forward");
     NtsVar f_output=vertexforward(nbr_input,vtx_input); 
     NtsVar ig;
     if (count > 0 && op.top() == NNOP) {
@@ -117,7 +117,6 @@ public:
 //}
   void appendNNOp(NtsVar &input_t, NtsVar &output_t){
     NtsVar ig;
-    NtsVar og;
 
     // we will chain the NNOP together, because torch lib will handle the backward propagation
     // when there is no graph operation
@@ -173,22 +172,12 @@ public:
       output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
 
-    } else if (NNOP == op.top()) {
-      // LOG_INFO("NOP %d",output_grad[count].dim());
-      NtsVar inter_output = output.top();
-      NtsVar inter_input = input.top();
-      // backward will compute the bottom_diff for inter_output
-      // the top_diff is output_grad[count]
-      // and the bottom_diff for inter_output, also is top_diff for inter_input
-      // will store in inter_input.grad()
-      // then we retrieve it for future use
-      inter_output.backward(output_grad[top_idx()], retain_graph);
-      NtsVar grad_to_previous_op = inter_input.grad();
+    } else if (NNOP == op.top()) {// directly use pytorch
+      output.top().backward(output_grad[top_idx()], retain_graph);
       if(count>1)
-      output_grad[top_idx()-1] = grad_to_previous_op;
+          output_grad[top_idx()-1] = input.top().grad();
       pop_one_op();
-//       LOG_INFO("finish nn op\n");
-  //    LOG_INFO("output_grad[count] %d \t input_grad[count] %d \t OP type %d", output_grad[count-1].size(1),input_grad[count-1].size(1),op.top());
+
     } else {
       LOG_INFO("NOT SUPPORT OP");
       assert(true);
