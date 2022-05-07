@@ -111,14 +111,9 @@ public:
       : ntsGraphOp(graph, active) {
     subgraphs = subgraphs_;
   }
-  NtsVar newBuffer(NtsVar &f_input){
-      NtsVar val;
-      val= graph_->Nts->NewKeyTensor(f_input, torch::DeviceType::CPU);
-      return val;
-  }
   NtsVar forward(NtsVar &f_input) {
     //f_input = input;
-    NtsVar f_output = newBuffer(f_input);
+    NtsVar f_output = graph_->Nts->NewKeyTensor(f_input, torch::DeviceType::CPU);
     //LOG_INFO("SUCCESS %d %d",input.dim(),f_output.dim());
     ValueType *f_input_buffer =
         graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
@@ -244,6 +239,53 @@ public:
   
   }
 };
+
+class ForwardGPUfuseOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+
+  ForwardGPUfuseOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){
+        int feature_size = f_input.size(1);
+  NtsVar f_input_cpu = f_input.cpu();
+  NtsVar f_output=graph_->Nts->NewKeyTensor(f_input,torch::DeviceType::CUDA);
+  ValueType *f_input_cpu_buffered = f_input_cpu.accessor<ValueType, 2>().data();
+
+  { // original communication
+    graph_->sync_compute_decoupled<int, ValueType>(
+        f_input, subgraphs,
+        [&](VertexId src) {
+          graph_->NtsComm->emit_buffer(
+              src, f_input_cpu_buffered + (src - graph_->gnnctx->p_v_s) * feature_size,
+              feature_size);
+        },
+        f_output, feature_size);
+  }
+  return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){
+      int feature_size = f_output_grad.size(1);
+      NtsVar f_input_grad=graph_->Nts->NewKeyTensor(f_output_grad,torch::DeviceType::CUDA);
+  // if (!selective)
+  {
+    graph_->compute_sync_decoupled<int, ValueType>(
+        f_output_grad, subgraphs,
+        [&](VertexId src, VertexAdjList<Empty> outgoing_adj) { // pull
+          graph_->NtsComm->emit_buffer(
+              src, graph_->output_cpu_buffer + (src)*feature_size,
+              feature_size);
+        },
+        f_input_grad, feature_size);
+  }
+      return f_input_grad;
+  }
+};
+
 
 } // namespace graphop
 } // namespace nts

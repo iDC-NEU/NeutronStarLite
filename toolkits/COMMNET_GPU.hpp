@@ -1,5 +1,5 @@
+#include "core/ntsContext.hpp"
 #include "core/gnnmini.h"
-#include "core/AutoDiff.h"
 
 class COMMNET_impl {
 public:
@@ -24,14 +24,11 @@ public:
   NtsVar L_GT_G;
   NtsVar MASK;
   NtsVar MASK_gpu;
-  std::map<std::string, NtsVar> I_data;
   GraphOperation *gt;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
-  std::vector<NtsVar> Y;
-  std::vector<NtsVar> X_grad;
-  nts::autodiff::ComputionPath *cp;
+  nts::ctx::NtsContext* ctx;
   NtsVar F;
   NtsVar loss;
   NtsVar tt;
@@ -85,9 +82,7 @@ public:
       printf("#load_rep_time=%lf(s)\n", load_rep_time);
     graph->init_message_buffer();
     graph->init_communicatior();
-    cp = new nts::autodiff::ComputionPath(gt,subgraphs);
-    std::cout << subgraphs[0]->column_offset[0] << std::endl;
-    
+    ctx=new nts::ctx::NtsContext();
   }
   void init_nn() {
 
@@ -132,35 +127,11 @@ public:
       P[i]->to(GPU);
       P[i]->Adam_to_GPU();
     }
-    drpmodel = torch::nn::Dropout(
-        torch::nn::DropoutOptions().p(drop_rate).inplace(true));
-
-    //        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num,
-    //        graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
 
     F = graph->Nts->NewLeafTensor(
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
-
-    for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      Y.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-          torch::DeviceType::CUDA));
-     // X_grad.push_back(graph->Nts->NewKeyTensor(
-     //   {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-     //   torch::DeviceType::CUDA));
-    }
-    //        for(int i=0;i<graph->gnnctx->layer_size.size()-1;i++){
-    //            Y_debug.push_back(graph->Nts->NewLeafTensor(
-    //                                {graph->gnnctx->l_v_num,
-    //                                   graph->gnnctx->layer_size[i]},
-    //                                       torch::DeviceType::CPU));
-    //            X_grad_debug.push_back(graph->Nts->NewLeafTensor(
-    //                                {graph->gnnctx->l_v_num,
-    //                                   graph->gnnctx->layer_size[i]},
-    //                                       torch::DeviceType::CPU));
-    //        }
 
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
@@ -217,7 +188,6 @@ public:
                       P[layer * 2 + 1]->forward(x));
       y = y.log_softmax(1); // CUDA
     }
-    cp->op_push(a,y,nts::autodiff::NNOP);
     return y;
   }
 
@@ -229,9 +199,8 @@ public:
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_G.masked_select(mask_train.view({mask_train.size(0)})));
-     cp->op_push(a,loss,nts::autodiff::NNOP);
+    ctx->appendNNOp(a, loss);
   }
-  
 
   void Update() {
     for (int i = 0; i < P.size() - 1; i++) {
@@ -245,24 +214,19 @@ public:
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-      //    if(i!=0){
-      //        X[i]=drpmodel(X[i]);
-      //    }
-      gt->GraphPropagateForward(X[i], Y[i], subgraphs);
-      //    NtsVar x_cpu= X[i].cpu();
-      //    gt->PropagateForwardCPU_debug(x_cpu, Y_debug[i],subgraphs);
-      //    Y[i].set_(Y_debug[i].cuda());
-      cp->op_push(X[i],Y[i],nts::autodiff::DIST_GPU);
-      X[i + 1] = vertexForward(Y[i], X[i]);
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,subgraphs,X[i]);      
+       X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
+            return vertexForward(n_i, v_i);
+        },
+        Y_i,
+        X[i]);
     }
-    // loss=X[graph->gnnctx->layer_size.size()-1];
   }
 
-  /*GPU dist*/ void run() {
+   void run() {
     if (graph->partition_id == 0)
       printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",
              iterations);
-    // graph->print_info();
 
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
@@ -271,8 +235,6 @@ public:
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
         }
-        for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++)
-          Y[i].grad().zero_();
       }
 
       Forward();
@@ -280,101 +242,16 @@ public:
       Test(1);
       Test(2);
       Loss();
-      cp->self_backward();
+      ctx->self_backward();
       Update();
-      //cp->debug();
+      // cp->debug();
       if (graph->partition_id == 0)
         std::cout << "GNNmini::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
-
-    //        graph->rtminfo->forward = true;
-    //            graph->rtminfo->curr_layer=0;
-    //            gt->GraphPropagateForward(X[0], Y[0], subgraphs);
-    //            for(VertexId i=0;i<graph->partitions;i++)
-    //            if(graph->partition_id==i){
-    //                int test=graph->gnnctx->p_v_s;
-    //                std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //                test=graph->gnnctx->p_v_e-1;
-    //                std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //                test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
-    //                std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //            }
-    //
-    //            graph->rtminfo->forward = false;
-    //            graph->rtminfo->curr_layer=0;
-    //            gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
-    //            for(VertexId i=0;i<graph->partitions;i++)
-    //            if(graph->partition_id==i){
-    //                int test=graph->gnnctx->p_v_s;
-    //                std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //                test=graph->gnnctx->p_v_e-1;
-    //                std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //                test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
-    //                std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<"
-    //                X: "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
-    //                "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
-    //            }
-
     exec_time += get_time();
 
     delete active;
   }
 
-  void DEBUGINFO() {
-
-    if (graph->partition_id == 0) {
-      printf("\n#Timer Info Start:\n");
-      printf("#all_time=%lf(s)\n", exec_time);
-      printf("#sync_time=%lf(s)\n", all_sync_time);
-      printf("#all_graph_sync_time=%lf(s)\n", all_graph_sync_time);
-      printf("#copy_time=%lf(s)\n", all_copy_time);
-      printf("#nn_time=%lf(s)\n", all_compute_time);
-      printf("#graph_time=%lf(s)\n", all_graph_time);
-      printf("#communicate_extract+send=%lf(s)\n", graph->all_compute_time);
-      printf("#communicate_processing_received=%lf(s)\n",
-             graph->all_overlap_time);
-      printf("#communicate_processing_received.copy=%lf(s)\n",
-             graph->all_recv_copy_time);
-      printf("#communicate_processing_received.kernel=%lf(s)\n",
-             graph->all_recv_kernel_time);
-      printf("#communicate_processing_received.wait=%lf(s)\n",
-             graph->all_recv_wait_time);
-      printf("#communicate_wait=%lf(s)\n", graph->all_wait_time);
-      printf("#streamed kernel_time=%lf(s)\n", graph->all_kernel_time);
-      printf("#streamed movein_time=%lf(s)\n", graph->all_movein_time);
-      printf("#streamed moveout_time=%lf(s)\n", graph->all_moveout_time);
-      printf("#cuda wait time=%lf(s)\n", graph->all_cuda_sync_time);
-      printf("#graph repliation time=%lf(s)\n", graph->all_replication_time);
-      printf("#Timer Info End\n");
-    }
-    //      NtsVar tt_cpu=tt.cpu();
-    //  if(i_i==(iterations-1)&&graph->partition_id==0){
-    //     inference(tt_cpu,graph, embedding, pytool,W1,W2);
-    //  }
-    double max_time = 0;
-    double mean_time = 0;
-    double another_time = 0;
-    MPI_Datatype l_vid_t = get_mpi_data_type<double>();
-    MPI_Allreduce(&all_graph_time, &max_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    MPI_Allreduce(&exec_time, &another_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    MPI_Allreduce(&graph->all_replication_time, &mean_time, 1, l_vid_t, MPI_SUM,
-                  MPI_COMM_WORLD);
-    if (graph->partition_id == 0)
-      printf("ALL TIME = %lf(s) GRAPH TIME = %lf(s) MEAN TIME = %lf(s)\n",
-             another_time, max_time / graph->partitions,
-             mean_time / graph->partitions);
-  }
 };

@@ -1,4 +1,5 @@
 #include "core/gnnmini.h"
+#include "core/ntsContext.hpp"
 
 class GCN_impl {
 public:
@@ -25,12 +26,10 @@ public:
   NtsVar MASK_gpu;
   std::map<std::string, NtsVar> I_data;
   GraphOperation *gt;
-  nts::autodiff::ComputionPath *cp;
+  nts::ctx::NtsContext* ctx;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
-  std::vector<NtsVar> Y;
-  std::vector<NtsVar> X_grad;
   NtsVar F;
   NtsVar loss;
   NtsVar tt;
@@ -84,7 +83,7 @@ public:
       printf("#load_rep_time=%lf(s)\n", load_rep_time);
     graph->init_message_buffer();
     graph->init_communicatior();
-    cp = new nts::autodiff::ComputionPath(gt, subgraphs);
+    ctx = new nts::ctx::NtsContext();
   }
   void init_nn() {
 
@@ -137,14 +136,6 @@ public:
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
 
-    for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      Y.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-          torch::DeviceType::CUDA));
-      //      X_grad.push_back(graph->Nts->NewKeyTensor(
-      //          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-      //          torch::DeviceType::CUDA));
-    }
 
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
@@ -197,7 +188,7 @@ public:
       y = y.log_softmax(1); // CUDA
     }
 
-    cp->op_push(a, y, nts::autodiff::NNOP);
+    //cp->op_push(a, y, nts::autodiff::NNOP);
     return y;
   }
 
@@ -209,28 +200,8 @@ public:
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_G.masked_select(mask_train.view({mask_train.size(0)})));
-    cp->op_push(a, loss, nts::autodiff::NNOP);
+    ctx->appendNNOp(a, loss);
   }
-  //  void vertexBackward() {
-  //
-  //    int layer = graph->rtminfo->curr_layer;
-  //    if (layer == 0) {
-  //      X[1].backward(X_grad[1]); // new
-  //    } else if (layer == 1) {
-  //      loss.backward();
-  //    }
-  //  }
-  //
-  //  void Backward() {
-  //    graph->rtminfo->forward = false;
-  //    for (int i = graph->gnnctx->layer_size.size() - 2; i >= 0; i--) {
-  //      graph->rtminfo->curr_layer = i;
-  //      vertexBackward();
-  //      NtsVar grad_to_Y = Y[i].grad();
-  //      if (i != 0)
-  //        gt->GraphPropagateBackward(grad_to_Y, X_grad[i], subgraphs);
-  //    }
-  //  }
 
   void Update() {
     for (int i = 0; i < P.size() - 1; i++) {
@@ -247,9 +218,16 @@ public:
       if (i != 0) {
         X[i] = drpmodel(X[i]);
       }
-      gt->GraphPropagateForward(X[i], Y[i], subgraphs);
-      cp->op_push(X[i], Y[i], nts::autodiff::DIST_GPU);
-      X[i + 1] = vertexForward(Y[i], X[i]);
+//      gt->GraphPropagateForward(X[i], Y[i], subgraphs);
+//      cp->op_push(X[i], Y[i], nts::autodiff::DIST_GPU);
+//      X[i + 1] = vertexForward(Y[i], X[i]);
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,subgraphs,X[i]);      
+        X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
+            return vertexForward(n_i, v_i);
+        },
+        Y_i,
+        X[i]);
+  //      printf("stateless\n");
     }
   }
 
@@ -265,7 +243,6 @@ public:
       if (i_i != 0) {
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
-          Y[i].grad().zero_();
         }
       }
 
@@ -275,7 +252,7 @@ public:
       Test(2);
       Loss();
       // Backward();
-      cp->self_backward(true);
+      ctx->self_backward(true);
       Update();
       if (graph->partition_id == 0)
         std::cout << "GNNmini::Running.Epoch[" << i_i << "]:loss\t" << loss

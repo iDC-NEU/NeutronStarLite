@@ -56,6 +56,7 @@ public:
       
     static_assert(std::is_base_of<nts::op::ntsGraphOp,GOPT>::value,
                 "template must be a type of graph op!");
+    
     nts::op::ntsGraphOp * curr=new GOPT(graph,active,subgraphs_);
     NtsVar f_output=curr->forward(f_input); 
     NtsVar ig;
