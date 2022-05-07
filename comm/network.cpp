@@ -9,7 +9,9 @@
 #include "network.h"
 #include "core/mpi.hpp"
 #include "core/type.hpp"
+#if CUDA_ENABLE
 #include "cuda/test.hpp"
+#endif
 
 const int DEFAULT_MESSAGEBUFFER_CAPACITY = 4096;
 
@@ -39,7 +41,7 @@ MessageBuffer::~MessageBuffer() {
     cudaFreeHost(data);
   }
 #else
-  numa_free(data);
+  numa_free(data, capacity);
 #endif
 }
 
@@ -73,7 +75,7 @@ void MessageBuffer::resize_pinned(size_t new_capacity) {
   data = new_data;
   capacity = new_capacity; 
   pinned = true;
-#elif
+#else
   char *new_data = NULL;
   new_data = (char *)numa_realloc(data, capacity, new_capacity);
   assert(new_data != NULL);
