@@ -2,11 +2,9 @@
 #include "comm/logger.h"
 #include "core/AutoDiff.h"
 #include "core/gnnmini.h"
-/*
- * Just a simple example with edge computation
- * Not the real GGNN algorithm
- */
-class GGNN_CPU_impl {
+#include "core/ntsGraphOp.hpp"
+
+class GCN_CPU_TEST_impl {
 public:
   int iterations;
   ValueType learn_rate;
@@ -20,6 +18,7 @@ public:
   ValueType decay_epoch;
   // graph
   VertexSubset *active;
+  // graph with no edge data
   Graph<Empty> *graph;
   std::vector<CSC_segment_pinned *> subgraphs;
   // NN
@@ -32,9 +31,6 @@ public:
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
-  std::vector<NtsVar> Ei;
-  std::vector<NtsVar> Eo;
-  std::vector<NtsVar> Ei_grad;
   std::vector<NtsVar> Y;
   std::vector<NtsVar> X_grad;
   nts::autodiff::ComputionPath *cp;
@@ -54,8 +50,8 @@ public:
   double graph_time = 0;
   double all_graph_time = 0;
 
-  GGNN_CPU_impl(Graph<Empty> *graph_, int iterations_,
-                bool process_local = false, bool process_overlap = false) {
+  GCN_CPU_TEST_impl(Graph<Empty> *graph_, int iterations_,
+               bool process_local = false, bool process_overlap = false) {
     graph = graph_;
     iterations = iterations_;
 
@@ -79,10 +75,15 @@ public:
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
     gt = new GraphOperation(graph, active);
+    // generate the representation for subgraph corresponding to the way we
+    // partitioned e.g. generate CSC/CSR format representation for every
+    // subgraph
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
     // gt->GenerateMessageBitmap(subgraphs);
+    // pre-process the data that will be used while doing forward and backward
+    // propagation which has better support on multisockets.
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
     cp = new nts::autodiff::ComputionPath(gt, subgraphs);
@@ -108,17 +109,21 @@ public:
                                        graph->config->label_file,
                                        graph->config->mask_file);
     }
+
+    // creating tensor to save Label and Mask
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
+    // initializeing parameter. Creating tensor with shape [layer_size[i],
+    // layer_size[i + 1]]
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-      P.push_back(new Parameter(graph->gnnctx->layer_size[i],
-                                graph->gnnctx->layer_size[i], alpha, beta1,
-                                beta2, epsilon, weight_decay));
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
+
+    // synchronize parameter with other processes
+    // because we need to guarantee all of workers are using the same model
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
@@ -130,27 +135,21 @@ public:
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
-    //      F = graph->Nts->NewOnesTensor(
-    //        {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
-    //        torch::DeviceType::CPU);
-    //        for(int i=0;i<F.size(0);i++){
-    //            F[i]=F[i]*i+1;
-    //        }
 
+    // Y[i] is the aggregated value at layer[i]
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-
-      Ei.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_e_num, graph->gnnctx->layer_size[i]},
-          torch::DeviceType::CPU));
       Y.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
           torch::DeviceType::CPU));
     }
+
+    // X[i] is vertex representation at layer i
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
       X.push_back(d);
-      Eo.push_back(d);
     }
+    // X[0] is the initial vertex representation. We created it from
+    // local_feature
     X[0] = F.set_requires_grad(true);
   }
 
@@ -187,21 +186,15 @@ public:
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
+    // nn operation. Here is just a simple matmul. i.e. y = activate(a * w)
     if (layer == 0) {
-      y = torch::relu(P[2 * layer + 1]->forward(a)).set_requires_grad(true);
+      y = torch::relu(P[layer]->forward(a)).set_requires_grad(true);
     } else if (layer == 1) {
-      y = P[2 * layer + 1]->forward(a);
+      y = P[layer]->forward(a);
       y = y.log_softmax(1);
     }
+    // save the intermediate result for backward propagation
     cp->op_push(a, y, nts::autodiff::NNOP);
-    return y;
-  }
-  NtsVar EdgeForward(NtsVar &ei) {
-    NtsVar y;
-    int layer = graph->rtminfo->curr_layer;
-    y = torch::relu(P[2 * layer]->forward(ei).set_requires_grad(true));
-    // y=ei*2;
-    cp->op_push(ei, y, nts::autodiff::NNOP);
     return y;
   }
   void Loss() {
@@ -217,7 +210,9 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size() - 1; i++) {
+      // accumulate the gradient using all_reduce
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
+      // update parameters with Adam optimizer
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
     }
@@ -226,29 +221,39 @@ public:
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-      gt->LocalScatter(X[i], Ei[i], subgraphs);
-      cp->op_push(X[i], Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
-      Eo[i] = EdgeForward(Ei[i]);
-      // Eo[i]=torch::ones_like(Ei[i]);
-      gt->LocalAggregate(Eo[i], Y[i], subgraphs);
-      cp->op_push(Eo[i], Y[i], nts::autodiff::SINGLE_CPU_EDGE_GATHER);
+      if (i != 0) {
+        X[i] = drpmodel(X[i]);
+      }
+
+      // gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      // gather neithbour's vertex feature
+      // the intermediate value is stored in Y
+      gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
+
+      // push the operation and intermediate result into ComputationPath, for
+      // backward propagation
+      cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
+
+      // fed aggregation value and vertex feature into nn model
+      // and compute the new vertex feature
       X[i + 1] = vertexForward(Y[i], X[i]);
     }
   }
 
   void run() {
-    if (graph->partition_id == 0)
-      printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n", iterations);
+    if (graph->partition_id == 0) {
+      LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
+               iterations);
+    }
+
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
       if (i_i != 0) {
+        // clear the gradient in parameters and values
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
-        }
-        for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
           Y[i].grad().zero_();
-          Ei[i].grad().zero_();
         }
       }
       Forward();
@@ -256,9 +261,10 @@ public:
       Test(1);
       Test(2);
       Loss();
+      // Backward();
       cp->self_backward();
       Update();
-      //     cp->debug();
+      // cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
@@ -312,23 +318,43 @@ public:
              mean_time / graph->partitions);
   }
   void test_debug() {
-    //            Eo[i]=torch::ones_like(Ei[i]);
-    //         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
-    //      std::cout<<Y[i].t()[0]<<std::endl;
-    //      for(int i=2680;i<2708;i++){
-    //          printf("dgr: %d
-    //          \n",subgraphs[0]->column_offset[i+1]-subgraphs[0]->column_offset[i]);
-    //      }
 
-    //      gt->LocalScatter(X[i],Ei[i],subgraphs);
-    //      std::cout<<Ei[i].t()[0].slice(0,13540,13566,1).t()<<std::endl;
-    //      for(int i=2700;i<2708;i++){
-    //          printf("dst: %d \t",i);
-    //          for(int
-    //          j=subgraphs[0]->column_offset[i];j<subgraphs[0]->column_offset[i+1];j++){
-    //              printf("src:%d ",subgraphs[0]->row_indices[j]);
-    //            }
-    //          printf("\n");
-    //      }
+    //    graph->rtminfo->forward = true;
+    //    graph->rtminfo->curr_layer=0;
+    //   gt->PropagateForwardCPU_debug(X[0], Y[0], subgraphs);
+    //    for(VertexId i=0;i<graph->partitions;i++)
+    //    if(graph->partition_id==i){
+    //        int test=graph->gnnctx->p_v_s+1;
+    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //        test=graph->gnnctx->p_v_e-1;
+    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2+1;
+    //        std::cout<<"DEBUG"<<graph->in_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //    }
+
+    //    graph->rtminfo->forward = false;
+    //    graph->rtminfo->curr_layer=0;
+    //    gt->GraphPropagateBackward(X[0], Y[0], subgraphs);
+    //    for(VertexId i=0;i<graph->partitions;i++)
+    //    if(graph->partition_id==i){
+    //        int test=graph->gnnctx->p_v_s;
+    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //        test=graph->gnnctx->p_v_e-1;
+    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //        test=(graph->gnnctx->p_v_e+graph->gnnctx->p_v_s)/2;
+    //        std::cout<<"DEBUG"<<graph->out_degree_for_backward[test]<<" X:
+    //        "<<X[0][test-graph->gnnctx->p_v_s][15]<<" Y:
+    //        "<<Y[0][test-graph->gnnctx->p_v_s][15]<<std::endl;
+    //    }
   }
 };

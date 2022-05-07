@@ -1,6 +1,6 @@
+#include "input.h"
 #include <map>
 #include <string>
-#include "input.h"
 
 long changelable1(std::string la) {
   std::map<std::string, long> label;

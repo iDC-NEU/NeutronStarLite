@@ -104,11 +104,10 @@ void ComputionPath::self_backward(bool retain_graph) {
    //   LOG_INFO("output_grad[count] %d \t input_grad[count] %d \t OP type %d", output_grad[count-1].size(1),input_grad[count-1].size(1),op.top());
       switch (op.top()) {
       case DIST_CPU:
-//          LOG_INFO("start graph op");
-//        LOG_INFO("start graph op%d %d \n",output_grad[top_idx()].size(1),output_grad[top_idx()-1].size(1));
+
         gt->PropagateBackwardCPU_Lockfree_multisockets(output_grad[top_idx()],
                                             output_grad[top_idx()-1], subgraphs); 
-//        LOG_INFO("finish graph op\n");
+                
         break; // TODO : choose engine
       case DIST_CPU_EDGE:
         LOG_INFO("DIST_CPU_EDGE not implement");

@@ -1,25 +1,24 @@
 #ifndef GNNMINI_H
 #define GNNMINI_H
 #include <assert.h>
-#include <map>
-#include <math.h>
-#include <stack>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <vector>
+#include <map>
+#include <math.h>
+#include <unistd.h>
+#include <stack>
 
-#include "graph.hpp"
 #include "input.h"
+#include "graph.hpp"
 
 class GNNDatum {
 public:
   GNNContext *gnnctx;
   Graph<Empty> *graph;
   ValueType *local_feature; // features of local partition
-  long *local_label;        // labels of local partition
-  int *local_mask; // mask(indicate whether data is for train, eval or test) of
-                   // local partition
+  long *local_label;  // labels of local partition
+  int *local_mask;  // mask(indicate whether data is for train, eval or test) of local partition
 
   GNNDatum(GNNContext *_gnnctx, Graph<Empty> *graph_);
   void random_generate();
@@ -43,8 +42,8 @@ public:
   void comp(ValueType *input, ValueType *output, ValueType weight,
             int feat_size);
   void acc(ValueType *input, ValueType *output, int feat_size);
-  void copy(ValueType *b_dst, long d_offset, ValueType *b_src,
-            VertexId s_offset, int feat_size);
+  void copy(ValueType* b_dst, long d_offset,ValueType* b_src,
+         VertexId s_offset,int feat_size);
   ValueType norm_degree(VertexId src, VertexId dst);
   ValueType out_degree(VertexId v);
   ValueType in_degree(VertexId v);
@@ -56,30 +55,25 @@ public:
   // graph propagation engine
 
   void LocalScatter(NtsVar &X, NtsVar &Ei,
-                    std::vector<CSC_segment_pinned *> &subgraphs,
-                    bool bi_direction = false);
-
+                               std::vector<CSC_segment_pinned *> &subgraphs,bool bi_direction=false);
+  
   void LocalScatterBackward(NtsVar &Ei, NtsVar &X,
-                            std::vector<CSC_segment_pinned *> &subgraphs,
-                            bool bi_direction = false);
-
+                               std::vector<CSC_segment_pinned *> &subgraphs,bool bi_direction=false);
+  
   void LocalAggregate(NtsVar &Ei, NtsVar &Y,
-                      std::vector<CSC_segment_pinned *> &subgraphs);
-
-  void
-  PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
+                               std::vector<CSC_segment_pinned *> &subgraphs);
+  
+  void PropagateForwardCPU_Lockfree(NtsVar &X, NtsVar &Y,
                                std::vector<CSC_segment_pinned *> &subgraphs);
 
-  void PropagateForwardCPU_Lockfree_multisockets(
-      NtsVar &X, NtsVar &Y, std::vector<CSC_segment_pinned *> &subgraphs);
+  void PropagateForwardCPU_Lockfree_multisockets(NtsVar &X, NtsVar &Y,
+                               std::vector<CSC_segment_pinned *> &subgraphs);
 
-  void
-  PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,
+  void PropagateBackwardCPU_Lockfree(NtsVar &X_grad, NtsVar &Y_grad,
                                 std::vector<CSC_segment_pinned *> &subgraphs);
 
-  void PropagateBackwardCPU_Lockfree_multisockets(
-      NtsVar &X_grad, NtsVar &Y_grad,
-      std::vector<CSC_segment_pinned *> &subgraphs);
+  void PropagateBackwardCPU_Lockfree_multisockets(NtsVar &X_grad, NtsVar &Y_grad,
+                                std::vector<CSC_segment_pinned *> &subgraphs);
 
   void GetFromDepNeighbor(NtsVar &X, std::vector<NtsVar> &Y_list,
                           std::vector<CSC_segment_pinned *> &subgraphs);
@@ -88,10 +82,12 @@ public:
                          std::vector<CSC_segment_pinned *> &subgraphs);
 
 #if CUDA_ENABLE
-  void ForwardSingle(NtsVar &X, NtsVar &Y,
-                     std::vector<CSC_segment_pinned *> &graph_partitions);
-  void BackwardSingle(NtsVar &X, NtsVar &Y,
-                      std::vector<CSC_segment_pinned *> &graph_partitions);
+  void
+  ForwardSingle(NtsVar &X, NtsVar &Y,
+                std::vector<CSC_segment_pinned *> &graph_partitions);
+  void
+  BackwardSingle(NtsVar &X, NtsVar &Y,
+                 std::vector<CSC_segment_pinned *> &graph_partitions);
   void ForwardAggMessage(NtsVar &src_input_transferred, NtsVar &dst_output,
                          std::vector<CSC_segment_pinned *> &graph_partitions);
   void
@@ -124,8 +120,8 @@ public:
       std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt,
       std::function<ValueType(VertexId, VertexId)> weight_compute);
 
-  void GenerateMessageBitmap_multisokects(
-      std::vector<CSC_segment_pinned *> &graph_partitions);
+  void
+  GenerateMessageBitmap_multisokects(std::vector<CSC_segment_pinned *> &graph_partitions);
 
   void
   GenerateMessageBitmap(std::vector<CSC_segment_pinned *> &graph_partitions);

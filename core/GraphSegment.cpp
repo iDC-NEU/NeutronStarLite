@@ -30,8 +30,9 @@
 #include "cuda/test.hpp"
 #endif
 
-void CSC_segment_pinned::init(VertexId src_start, VertexId src_end, VertexId dst_start,
-        VertexId dst_end, VertexId edge_size_, DeviceLocation dt_) {
+void CSC_segment_pinned::init(VertexId src_start, VertexId src_end,
+                              VertexId dst_start, VertexId dst_end,
+                              VertexId edge_size_, DeviceLocation dt_) {
   src_range[0] = src_start;
   src_range[1] = src_end;
   dst_range[0] = dst_start;
@@ -64,13 +65,13 @@ void CSC_segment_pinned::allocVertexAssociateData() {
 #if CUDA_ENABLE
   if (dt == GPU_T) {
     column_offset = (VertexId *)cudaMallocPinned((batch_size_forward + 1) *
-                                                  sizeof(VertexId));
+                                                 sizeof(VertexId));
     row_offset = (VertexId *)cudaMallocPinned((batch_size_backward + 1) *
                                               sizeof(VertexId)); ///
   } else
 #endif
 
-  if (dt == CPU_T) {
+      if (dt == CPU_T) {
     column_offset =
         (VertexId *)malloc((batch_size_forward + 1) * sizeof(VertexId));
     row_offset =
@@ -96,23 +97,21 @@ void CSC_segment_pinned::allocEdgeAssociateData() {
 
     column_indices =
         (VertexId *)cudaMallocPinned((edge_size + 1) * sizeof(VertexId)); ///
-    edge_weight_backward = (ValueType *)cudaMallocPinned(
-        (edge_size + 1) * sizeof(ValueType)); ///
+    edge_weight_backward =
+        (ValueType *)cudaMallocPinned((edge_size + 1) * sizeof(ValueType)); ///
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
-    source_backward =
-        (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+    source_backward = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
   } else
 #endif
-  if (dt == CPU_T) {
+      if (dt == CPU_T) {
     row_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId));
     memset(row_indices, 0, (edge_size + 1) * sizeof(VertexId));
     edge_weight_forward =
         (ValueType *)malloc((edge_size + 1) * sizeof(ValueType));
     memset(edge_weight_forward, 0, (edge_size + 1) * sizeof(VertexId));
-    column_indices =
-        (VertexId *)malloc((edge_size + 1) * sizeof(VertexId)); ///
+    column_indices = (VertexId *)malloc((edge_size + 1) * sizeof(VertexId)); ///
     memset(column_indices, 0, (edge_size + 1) * sizeof(VertexId));
     edge_weight_backward =
         (ValueType *)malloc((edge_size + 1) * sizeof(ValueType)); ///
@@ -146,7 +145,7 @@ void CSC_segment_pinned::getDevicePointerAll() {
     source_backward_gpu = (long *)getDevicePointer(source_backward);
   } else
 #endif
-  if (dt == CPU_T) {
+      if (dt == CPU_T) {
     ;
   } else {
     assert(NOT_SUPPORT_DEVICE_TYPE);
@@ -156,8 +155,8 @@ void CSC_segment_pinned::getDevicePointerAll() {
 void CSC_segment_pinned::CopyGraphToDevice() {
 #if CUDA_ENABLE
   if (dt == GPU_T) {
-    column_offset_gpu = (VertexId *)cudaMallocGPU((batch_size_forward + 1) *
-                                                  sizeof(VertexId));
+    column_offset_gpu =
+        (VertexId *)cudaMallocGPU((batch_size_forward + 1) * sizeof(VertexId));
     row_indices_gpu =
         (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
     edge_weight_forward_gpu =
@@ -170,8 +169,8 @@ void CSC_segment_pinned::CopyGraphToDevice() {
     move_bytes_in(edge_weight_forward_gpu, edge_weight_forward,
                   (edge_size + 1) * sizeof(ValueType));
 
-    row_offset_gpu = (VertexId *)cudaMallocGPU((batch_size_backward + 1) *
-                                                sizeof(VertexId));
+    row_offset_gpu =
+        (VertexId *)cudaMallocGPU((batch_size_backward + 1) * sizeof(VertexId));
     column_indices_gpu =
         (VertexId *)cudaMallocGPU((edge_size + 1) * sizeof(VertexId));
     edge_weight_backward_gpu =
@@ -190,7 +189,7 @@ void CSC_segment_pinned::CopyGraphToDevice() {
 
   } else
 #endif
-  if (dt == CPU_T) {
+      if (dt == CPU_T) {
     ;
   } else {
     assert(NOT_SUPPORT_DEVICE_TYPE);
@@ -209,8 +208,8 @@ bool CSC_segment_pinned::get_forward_active(VertexId v_i) {
   return this->forward_active->get_bit(v_i);
 }
 
-void CSC_segment_pinned::set_forward_active(VertexId v_i) { 
-  this->forward_active->set_bit(v_i); 
+void CSC_segment_pinned::set_forward_active(VertexId v_i) {
+  this->forward_active->set_bit(v_i);
 }
 
 bool CSC_segment_pinned::get_backward_active(VertexId v_i) {
@@ -341,7 +340,7 @@ void RuntimeInfo::set(InputInfo *gnncfg) {
 }
 
 void GraphStorage::optional_generate_sample_graph(GNNContext *gnnctx,
-                                    COOChunk *_graph_cpu_in) {
+                                                  COOChunk *_graph_cpu_in) {
   VertexId *tmp_column_offset;
   VertexId local_edge_size = gnnctx->l_e_num;
   column_offset = new VertexId[gnnctx->l_v_num + 1];

@@ -72,8 +72,8 @@ public:
   // graph reorganization
   // contains the all of the in_edges for local partition
   COOChunk *_graph_cpu_in;
-  // contains the informaction of every partition with respect to local partition
-  // e.g. number of edges that from partition i to local partition
+  // contains the informaction of every partition with respect to local
+  // partition e.g. number of edges that from partition i to local partition
   std::vector<COOChunk *> graph_shard_in;
 
   std::string filename;
@@ -2121,9 +2121,9 @@ public:
 
   // process edges
   /**
-   * @brief 
+   * @brief
    * do the forard process based on sparse_signal and sparse_slot
-   * @tparam R 
+   * @tparam R
    * @tparam M message type
    * @param sparse_signal function which do the mast-mirror communication
    * @param sparse_slot function which gather all the incoming features
@@ -2131,7 +2131,7 @@ public:
    * @param feature_size feature size at this layer
    * @param active active vertex subset
    * @param dense_selective not used
-   * @return R 
+   * @return R
    */
   template <typename R, typename M>
   R process_edges_forward_decoupled_dynamic_length(
@@ -2147,8 +2147,9 @@ public:
     // initialize Nts communicator for this layer
     NtsComm->init_layer_all(feature_size, Master2Mirror, CPU_T);
     // launch background thread to send and recv messages
-    // Send thread will block until we indicate that the partition is ready to send
-    // Recv thread will spawn sub-threads waiting for the corresponding partition message is received
+    // Send thread will block until we indicate that the partition is ready to
+    // send Recv thread will spawn sub-threads waiting for the corresponding
+    // partition message is received
     NtsComm->run_all_master_to_mirror_no_wait();
     R reducer = 0;
 
@@ -2174,7 +2175,8 @@ public:
       }
 
       // send data to every partition in ring style
-      // from now on, background Send thread will start sending message to other nodes
+      // from now on, background Send thread will start sending message to other
+      // nodes
       for (int step = 0; step < partitions; step++) {
         int trigger_partition = (partition_id - step + partitions) % partitions;
         NtsComm->trigger_one_partition(
@@ -2185,7 +2187,8 @@ public:
       for (int step = 0; step < partitions; step++) {
         int i = -1;
         MessageBuffer **used_buffer;
-        // i is the partition id corresponding to the recv_buffer at current step
+        // i is the partition id corresponding to the recv_buffer at current
+        // step
         used_buffer = NtsComm->recv_one_partition(i, step);
 
         // clear the recv index at this partition
@@ -2193,7 +2196,7 @@ public:
                                       partition_offset[i]);
         memset(cpu_recv_message_index.data(), 0,
                sizeof(VertexId) * cpu_recv_message_index.size());
-        
+
         for (int s_i = 0; s_i < sockets; s_i++) {
           // we will have sockets data. i.e. user_buffer[sockets]
           // for every buffer, we will process it with all local sockets
@@ -2249,17 +2252,18 @@ public:
                 // then we add it to the list
                 if (outgoing_adj_bitmap[s_i]->get_bit(v_i)) {
                   VertexId v_trans = v_i - partition_offset[i];
-                  // map the v_i to the location where it's data has been placed in recv_buffer
-                  // thus we can locate data directly from the buffer
+                  // map the v_i to the location where it's data has been placed
+                  // in recv_buffer thus we can locate data directly from the
+                  // buffer
                   cpu_recv_message_index[v_trans] = b_i;
                 }
               }
             }
             reducer += local_reducer;
           }
-          // TODO: could we optimize here to only iterate the vertex that has 
+          // TODO: could we optimize here to only iterate the vertex that has
           // corresponding incoming edges.
-          // do the sparse_slot. 
+          // do the sparse_slot.
           // i.e. for every local vertex, gather the incoming feature
 #pragma omp parallel for
           for (VertexId begin_v_i = partition_offset[partition_id];
@@ -2271,7 +2275,8 @@ public:
             while (word != 0) {
               if (word & 1) {
                 // pass the subgraph of the received partition.
-                // for every local vertex, we should find the source vertex in the recevied partition.
+                // for every local vertex, we should find the source vertex in
+                // the recevied partition.
                 sparse_slot(v_i, graph_partitions[i], buffer,
                             cpu_recv_message_index, i);
               }
@@ -2298,30 +2303,29 @@ public:
     return global_reducer;
   }
 
-  
   /**
-   * @brief 
+   * @brief
    * apply sparse_slot to every local vertex. Only used in single node scenario.
    * i.e. don't used it for distributed training
-   * @tparam R 
+   * @tparam R
    * @tparam M data type for message buffer
    * @param sparse_slot function that we want to applied
-   * @param graph_partitions vector contains the representation of every subgraph
+   * @param graph_partitions vector contains the representation of every
+   * subgraph
    * @param feature_size feature size at this layer
    * @param active active vertex subset
    * @param dense_selective not used
-   * @return R 
+   * @return R
    */
-    template <typename R, typename M>
+  template <typename R, typename M>
   R local_vertex_operation(
-      std::function<void(VertexId, CSC_segment_pinned *, VertexId)>
-          sparse_slot,
+      std::function<void(VertexId, CSC_segment_pinned *, VertexId)> sparse_slot,
       std::vector<CSC_segment_pinned *> &graph_partitions, int feature_size,
       Bitmap *active, Bitmap *dense_selective = nullptr) {
     omp_set_num_threads(threads);
     double stream_time = 0;
     stream_time -= MPI_Wtime();
-    
+
     R reducer = 0;
 
     size_t basic_chunk = 64;
@@ -2330,23 +2334,23 @@ public:
       // since we have only one partition. i think this loop should be discarded
       for (int step = 0; step < partitions; step++) {
 #pragma omp parallel for
-          for (VertexId begin_v_i = partition_offset[partition_id];
-               begin_v_i < partition_offset[partition_id + 1];
-               begin_v_i += basic_chunk) {
-            // for every vertex, apply the sparse_slot at the partition
-            // corresponding to the step
-            VertexId v_i = begin_v_i;
-            unsigned long word = active->data[WORD_OFFSET(v_i)];
-            while (word != 0) {
-              if (word & 1) {
-                sparse_slot(v_i, graph_partitions[step], step);
-              }
-              v_i++;
-              word = word >> 1;
+        for (VertexId begin_v_i = partition_offset[partition_id];
+             begin_v_i < partition_offset[partition_id + 1];
+             begin_v_i += basic_chunk) {
+          // for every vertex, apply the sparse_slot at the partition
+          // corresponding to the step
+          VertexId v_i = begin_v_i;
+          unsigned long word = active->data[WORD_OFFSET(v_i)];
+          while (word != 0) {
+            if (word & 1) {
+              sparse_slot(v_i, graph_partitions[step], step);
             }
+            v_i++;
+            word = word >> 1;
           }
+        }
       }
-//      NtsComm->release_communicator();
+      //      NtsComm->release_communicator();
     }
 
     R global_reducer;
@@ -2361,14 +2365,11 @@ public:
     return global_reducer;
   }
 
-
-  
-  
   // process edges
   /**
-   * @brief 
+   * @brief
    * do the forward process based on sparse_signal and sparse_slot
-   * @tparam R 
+   * @tparam R
    * @tparam M data type for transfering message
    * @param sparse_signal function which will send data from master to mirror
    * @param sparse_slot function which will gather feature from neighbours
@@ -2376,7 +2377,7 @@ public:
    * @param feature_size feature size at this layer
    * @param active active tertex subset
    * @param dense_selective not used
-   * @return R 
+   * @return R
    */
   template <typename R, typename M>
   R process_edges_forward_decoupled(
@@ -2426,7 +2427,7 @@ public:
             }
           }
           // mark the current partition as ready
-          // i doubt the necessity to flush buffer 
+          // i doubt the necessity to flush buffer
           // since we are using a lock free manner
           NtsComm->trigger_one_partition(
               trigger_partition, trigger_partition == current_send_part_id);
@@ -2545,12 +2546,11 @@ public:
     return global_reducer;
   }
 
-
   /**
-   * @brief 
+   * @brief
    * do the forward process based on sparse_signal and sparse_slot.
    * support multisocket with much more elegant implementation
-   * @tparam R 
+   * @tparam R
    * @tparam M data type for transfering message
    * @param sparse_signal function which will send data from master to mirror
    * @param sparse_slot function which will gather feature from neighbours
@@ -2558,7 +2558,7 @@ public:
    * @param feature_size feature size at this layer
    * @param active active tertex subset
    * @param dense_selective not used
-   * @return R 
+   * @return R
    */
   template <typename R, typename M>
   R process_edges_forward_decoupled_mutisockets(
@@ -2589,10 +2589,9 @@ public:
               (partition_id - step + partitions) % partitions;
           current_send_part_id = trigger_partition;
           NtsComm->set_current_send_partition(current_send_part_id);
-#pragma omp parallel for schedule(static,basic_chunk)
+#pragma omp parallel for schedule(static, basic_chunk)
           for (VertexId begin_v_i = partition_offset[partition_id];
-               begin_v_i < partition_offset[partition_id + 1];
-               begin_v_i ++ ) {
+               begin_v_i < partition_offset[partition_id + 1]; begin_v_i++) {
             VertexId v_i = begin_v_i;
             sparse_signal(v_i, current_send_part_id);
           }
@@ -2629,76 +2628,78 @@ public:
         MessageBuffer **used_buffer;
         used_buffer = NtsComm->recv_one_partition(i, step);
 
-        cpu_message_index.resize(partition_offset[i + 1] -
-                                      partition_offset[i]);
+        cpu_message_index.resize(partition_offset[i + 1] - partition_offset[i]);
         memset(cpu_message_index.data(), 0,
                sizeof(VertexIndex) * cpu_message_index.size());
         // char *buffer = used_buffer[s_i]->data;
         //   size_t buffer_size = used_buffer[s_i]->count;
-          for (int t_i = 0; t_i < threads; t_i++) {
-            int s_i = get_socket_id(t_i);
-            int s_j = get_socket_offset(t_i);
-            VertexId partition_size =  used_buffer[s_i]->count;
-            thread_state[t_i]->curr = partition_size / threads_per_socket /
-                                      basic_chunk * basic_chunk * s_j;
-            thread_state[t_i]->end = partition_size / threads_per_socket /
-                                     basic_chunk * basic_chunk * (s_j + 1);
-            if (s_j == threads_per_socket - 1) {
-              thread_state[t_i]->end = used_buffer[s_i]->count;
-            }
-            thread_state[t_i]->status = WORKING;
+        for (int t_i = 0; t_i < threads; t_i++) {
+          int s_i = get_socket_id(t_i);
+          int s_j = get_socket_offset(t_i);
+          VertexId partition_size = used_buffer[s_i]->count;
+          thread_state[t_i]->curr = partition_size / threads_per_socket /
+                                    basic_chunk * basic_chunk * s_j;
+          thread_state[t_i]->end = partition_size / threads_per_socket /
+                                   basic_chunk * basic_chunk * (s_j + 1);
+          if (s_j == threads_per_socket - 1) {
+            thread_state[t_i]->end = used_buffer[s_i]->count;
           }
+          thread_state[t_i]->status = WORKING;
+        }
 #pragma omp parallel reduction(+ : reducer)
-          {
-            // for every thread, pre-process the received vertex infor corresponding to it's socket
-            // then we will have all of the vertex info from all sockets
-            R local_reducer = 0;
-            int thread_id = omp_get_thread_num();
-            int s_i = get_socket_id(thread_id);
-            while (true) {
-              VertexId b_i = __sync_fetch_and_add(
-                  &thread_state[thread_id]->curr, basic_chunk);
-              if (b_i >= thread_state[thread_id]->end)
-                break;
-              VertexId begin_b_i = b_i;
-              VertexId end_b_i = b_i + basic_chunk;
-              if (end_b_i > thread_state[thread_id]->end) {
-                end_b_i = thread_state[thread_id]->end;
-              }
-              for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
-                long index = (long)b_i * sizeofM<M>(feature_size);
-                VertexId v_i = *((VertexId *)(used_buffer[s_i]->data + index));
-                M *msg_data = (M *)(used_buffer[s_i]->data + index + sizeof(VertexId));
+        {
+          // for every thread, pre-process the received vertex infor
+          // corresponding to it's socket then we will have all of the vertex
+          // info from all sockets
+          R local_reducer = 0;
+          int thread_id = omp_get_thread_num();
+          int s_i = get_socket_id(thread_id);
+          while (true) {
+            VertexId b_i = __sync_fetch_and_add(&thread_state[thread_id]->curr,
+                                                basic_chunk);
+            if (b_i >= thread_state[thread_id]->end)
+              break;
+            VertexId begin_b_i = b_i;
+            VertexId end_b_i = b_i + basic_chunk;
+            if (end_b_i > thread_state[thread_id]->end) {
+              end_b_i = thread_state[thread_id]->end;
+            }
+            for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
+              long index = (long)b_i * sizeofM<M>(feature_size);
+              VertexId v_i = *((VertexId *)(used_buffer[s_i]->data + index));
+              M *msg_data =
+                  (M *)(used_buffer[s_i]->data + index + sizeof(VertexId));
 
-                // if we have edge from v_i in partition i to local partition
-                if(graph_partitions[i]->get_backward_active(v_i)){
-                  // then we record the buffer index and position of this vertex
-                  VertexId v_trans = v_i - partition_offset[i];
-                  cpu_message_index[v_trans].bufferIndex =  s_i;
-                  cpu_message_index[v_trans].positionIndex = b_i;
-                }
+              // if we have edge from v_i in partition i to local partition
+              if (graph_partitions[i]->get_backward_active(v_i)) {
+                // then we record the buffer index and position of this vertex
+                VertexId v_trans = v_i - partition_offset[i];
+                cpu_message_index[v_trans].bufferIndex = s_i;
+                cpu_message_index[v_trans].positionIndex = b_i;
               }
             }
-            reducer += local_reducer;
           }
-          // for every thread, process the local vertex
-          // and we will fetch data from other socket if neighbour's message is placed on other socket
-          // a question here is that shouldn't we process vertex in numa-aware manner?
+          reducer += local_reducer;
+        }
+        // for every thread, process the local vertex
+        // and we will fetch data from other socket if neighbour's message is
+        // placed on other socket a question here is that shouldn't we process
+        // vertex in numa-aware manner?
 #pragma omp parallel for
-          for (VertexId begin_v_i = partition_offset[partition_id];
-               begin_v_i < partition_offset[partition_id + 1];
-               begin_v_i += basic_chunk) {
-            VertexId v_i = begin_v_i;
-            unsigned long word = active->data[WORD_OFFSET(v_i)];
-            while (word != 0) {
-              if (word & 1) {
-                sparse_slot(v_i, graph_partitions[i], used_buffer,
-                            cpu_message_index, i);
-              }
-              v_i++;
-              word = word >> 1;
+        for (VertexId begin_v_i = partition_offset[partition_id];
+             begin_v_i < partition_offset[partition_id + 1];
+             begin_v_i += basic_chunk) {
+          VertexId v_i = begin_v_i;
+          unsigned long word = active->data[WORD_OFFSET(v_i)];
+          while (word != 0) {
+            if (word & 1) {
+              sparse_slot(v_i, graph_partitions[i], used_buffer,
+                          cpu_message_index, i);
             }
+            v_i++;
+            word = word >> 1;
           }
+        }
       }
       NtsComm->release_communicator();
     }
@@ -2716,18 +2717,19 @@ public:
   }
 
   /**
-   * @brief 
-   * logic in this function is exactly the same as process_edges_backward_decoupled_multisocket
-   * except dense_signal is different. more precisely, multisocket version has different approach 
-   * while placing the data into send buffer
-   * @tparam R 
-   * @tparam M 
-   * @param dense_signal 
-   * @param dense_slot 
-   * @param feature_size 
-   * @param active 
-   * @param dense_selective 
-   * @return R 
+   * @brief
+   * logic in this function is exactly the same as
+   * process_edges_backward_decoupled_multisocket except dense_signal is
+   * different. more precisely, multisocket version has different approach while
+   * placing the data into send buffer
+   * @tparam R
+   * @tparam M
+   * @param dense_signal
+   * @param dense_slot
+   * @param feature_size
+   * @param active
+   * @param dense_selective
+   * @return R
    */
   template <typename R, typename M>
   R process_edges_backward_decoupled(
@@ -2891,23 +2893,23 @@ public:
     return global_reducer;
   }
 
-
   /**
-   * @brief 
-   * apply dense_signal and dense_slot on every vertex. 
+   * @brief
+   * apply dense_signal and dense_slot on every vertex.
    * used in backward propagation
-   * @tparam R 
-   * @tparam M 
-   * @param dense_signal 
-   * @param dense_slot 
-   * @param feature_size 
+   * @tparam R
+   * @tparam M
+   * @param dense_signal
+   * @param dense_slot
+   * @param feature_size
    * @param active active vertex set
-   * @param dense_selective 
-   * @return R 
+   * @param dense_selective
+   * @return R
    */
   template <typename R, typename M>
   R process_edges_backward_decoupled_multisockets(
-      std::function<void(VertexId, VertexAdjList<EdgeData>, VertexId, VertexId, VertexId)>
+      std::function<void(VertexId, VertexAdjList<EdgeData>, VertexId, VertexId,
+                         VertexId)>
           dense_signal,
       std::function<R(VertexId, M *)> dense_slot, int feature_size,
       Bitmap *active, Bitmap *dense_selective = nullptr) {
@@ -2946,7 +2948,8 @@ public:
             if (end_p_v_i > final_p_v_i) {
               end_p_v_i = final_p_v_i;
             }
-            // iterate the incoming vertex in partition i to the vertex in socket s_i
+            // iterate the incoming vertex in partition i to the vertex in
+            // socket s_i
             for (VertexId p_v_i = begin_p_v_i; p_v_i < end_p_v_i; p_v_i++) {
               VertexId v_i =
                   compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
@@ -2968,7 +2971,8 @@ public:
           // logic is the same as above
           thread_state[thread_id]->status = STEALING;
           for (int t_offset = 1; t_offset < threads_per_socket; t_offset++) {
-            int t_i = (thread_id + t_offset) % threads_per_socket + get_socket_id(thread_id) * threads_per_socket;
+            int t_i = (thread_id + t_offset) % threads_per_socket +
+                      get_socket_id(thread_id) * threads_per_socket;
             int s_i = get_socket_id(t_i);
             while (thread_state[t_i]->status != STEALING) {
               VertexId begin_p_v_i =
@@ -3002,8 +3006,8 @@ public:
         NtsComm->trigger_one_partition(i, true);
       }
 
-      // sending phase is over. now every partition has the corresponding gradients
-      // time to do the aggregation
+      // sending phase is over. now every partition has the corresponding
+      // gradients time to do the aggregation
       for (int step = 0; step < partitions; step++) {
         int i = -1;
         MessageBuffer **used_buffer;
@@ -3048,7 +3052,8 @@ public:
             }
 
             // for every thread, we iterate the vertices in received buffer
-            // since this is backward propagation, in another words, we are iterating local vertices
+            // since this is backward propagation, in another words, we are
+            // iterating local vertices
             for (b_i = begin_b_i; b_i < end_b_i; b_i++) {
               // retrieve the vertex
               long index =
@@ -3078,8 +3083,6 @@ public:
 #endif
     return global_reducer;
   }
-
-
 
   // process edges
   template <typename R, typename M>
@@ -3407,18 +3410,18 @@ public:
 
   // process edges
   /**
-   * @brief 
+   * @brief
    * send feature from master to mirror node, used in forward propagation.
    * we have a similar version above for CPU. this version is for GPU.
-   * @tparam R 
-   * @tparam M 
+   * @tparam R
+   * @tparam M
    * @param input_gpu_or_cpu input features
-   * @param graph_partitions 
-   * @param sparse_signal operation that we want to apply on every vertex. 
+   * @param graph_partitions
+   * @param sparse_signal operation that we want to apply on every vertex.
    * Most likely we need to emit the send buffer
    * @param Y result tensor
-   * @param feature_size 
-   * @return R 
+   * @param feature_size
+   * @return R
    */
   template <typename R, typename M>
   R sync_compute_decoupled(NtsVar &input_gpu_or_cpu,
@@ -3448,7 +3451,8 @@ public:
     Nts->ZeroVarMem(Y);
 
     { // 1-stage
-      // putting data into send buffer. And background thread will start to send messages
+      // putting data into send buffer. And background thread will start to send
+      // messages
       current_send_part_id = partition_id;
       NtsComm->set_current_send_partition(current_send_part_id);
 #pragma omp parallel for
@@ -4099,13 +4103,13 @@ public:
     }
   }
 
-  // Coordinate list, for more information, please refer to this 
+  // Coordinate list, for more information, please refer to this
   // https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_(COO)
   void generate_COO() {
     _graph_cpu_in = new COOChunk();
 
-    // count the edge num, because last element in the array has the total number of edges
-    // so just count the number in every socket
+    // count the edge num, because last element in the array has the total
+    // number of edges so just count the number in every socket
     VertexId edge_size_in = 0;
     for (int i = 0; i < sockets; i++) {
       edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
@@ -4116,8 +4120,9 @@ public:
     _graph_cpu_in->srcList = new VertexId[edge_size_in];
     _graph_cpu_in->numofedges = edge_size_in;
 
-    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the index to those edges
-    // calc all of the src and dst with respect to local vertices
+    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the
+    // index to those edges calc all of the src and dst with respect to local
+    // vertices
     int write_position_in = 0;
     for (int k = 0; k < sockets; k++) {
       for (VertexId vtx = 0; vtx < vertices; vtx++) {
@@ -4134,7 +4139,8 @@ public:
   }
 
   // process cross partition edges from partition info
-  // for every partition, we need to know the vertices that related to local partition
+  // for every partition, we need to know the vertices that related to local
+  // partition
   void reorder_COO_W2W() { // replication
     graph_shard_in.clear();
     VertexId edge_size_out = 0;
@@ -4168,8 +4174,8 @@ public:
       graph_shard_in[i]->counter = 0;
     }
     // then process the vertex id
-    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to p
-    // and dst belongs to local partition
+    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to
+    // p and dst belongs to local partition
     for (int i = 0; i < edge_size_in; i++) {
       int source = _graph_cpu_in->src()[i];
       int destination = _graph_cpu_in->dst()[i];
@@ -5194,7 +5200,7 @@ public:
       for (int step = 0; step < partitions; step++) {
         current_send_part_id = (current_send_part_id + 1) % partitions;
         int i = current_send_part_id;
-        for (int t_i = 0; t_i < threads; t_i++) { 
+        for (int t_i = 0; t_i < threads; t_i++) {
           *thread_state[t_i] = tuned_chunks_dense_backward[i][t_i];
         }
 #pragma omp parallel

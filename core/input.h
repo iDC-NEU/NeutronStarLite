@@ -1,8 +1,8 @@
 #ifndef INPUT_H
 #define INPUT_H
 
-#include <vector>
 #include <string>
+#include <vector>
 
 struct origin_feature {
   int id;

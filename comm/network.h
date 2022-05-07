@@ -8,11 +8,12 @@
 #ifndef NETWORK_H
 #define NETWORK_H
 
-#define BIG_MESSAGE 1 //untested
+#define BIG_MESSAGE 1 // untested
 
 #include "core/mpi.hpp"
 #include "core/type.hpp"
 
+#include <functional>
 #include <malloc.h>
 #include <mutex>
 #include <numa.h>
@@ -20,7 +21,6 @@
 #include <stdio.h>
 #include <thread>
 #include <vector>
-#include <functional>
 
 enum MessageTag { ShuffleGraph, PassMessage, GatherVertexArray };
 enum CommType { Master2Mirror, Mirror2Master };
@@ -43,11 +43,11 @@ struct MessageBuffer {
 
   // deprecated
   // Messagebuffer is orgainized like this
-  // unit_1 data_1 unit_2 data_2 unit_3 data_3 ... 
+  // unit_1 data_1 unit_2 data_2 unit_3 data_3 ...
   char *data;
 
   // CUDA pinned memory is faster than the normal one
-  // for study purpose, you can refer to this answer 
+  // for study purpose, you can refer to this answer
   // https://stackoverflow.com/questions/5736968/why-is-cuda-pinned-memory-so-fast
   bool pinned;
 
@@ -57,8 +57,7 @@ struct MessageBuffer {
   void resize_pinned(size_t new_capacity);
   int *getMsgUnit(int i, int msg_unit_size);
 
-  template <typename t_v>
-  t_v *getMsgData(int i, int msg_unit_size);
+  template <typename t_v> t_v *getMsgData(int i, int msg_unit_size);
 
   template <typename t_v>
   void setMsgData(int i, int msg_unit_size, t_v *buffer);
@@ -135,9 +134,9 @@ private:
   inline size_t size_of_msg(int f_size) {
     return sizeof(VertexId) + sizeof(ValueType) * f_size;
   }
-  
+
   inline size_t elements_of_msg(int f_size) {
-    return  sizeof(VertexId)/sizeof(ValueType)+ f_size;
+    return sizeof(VertexId) / sizeof(ValueType) + f_size;
   }
 
   VertexId current_send_part_id;
@@ -154,9 +153,9 @@ private:
   // number of owned vertices
   VertexId owned_vertices;
   // MessageBuffer* [partitions] [sockets]; numa-aware
-  MessageBuffer ***send_buffer; 
+  MessageBuffer ***send_buffer;
   // MessageBuffer* [partitions] [sockets]; numa-aware
-  MessageBuffer ***recv_buffer; 
+  MessageBuffer ***recv_buffer;
   // maxium number of messages that local send buffer could cache
   size_t local_send_buffer_limit;
   // MessageBuffer *local_send_buffer[sockets]

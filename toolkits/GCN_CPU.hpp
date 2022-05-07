@@ -2,6 +2,7 @@
 #include "comm/logger.h"
 #include "core/AutoDiff.h"
 #include "core/gnnmini.h"
+#include "core/ntsGraphOp.hpp"
 
 class GCN_CPU_impl {
 public:
@@ -74,14 +75,15 @@ public:
     graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
     gt = new GraphOperation(graph, active);
-    // generate the representation for subgraph corresponding to the way we partitioned
-    // e.g. generate CSC/CSR format representation for every subgraph
+    // generate the representation for subgraph corresponding to the way we
+    // partitioned e.g. generate CSC/CSR format representation for every
+    // subgraph
     gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
       return gt->norm_degree(src, dst);
     });
     // gt->GenerateMessageBitmap(subgraphs);
-    // pre-process the data that will be used while doing forward and backward propagation
-    // which has better support on multisockets.
+    // pre-process the data that will be used while doing forward and backward
+    // propagation which has better support on multisockets.
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
     cp = new nts::autodiff::ComputionPath(gt, subgraphs);
@@ -112,7 +114,8 @@ public:
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
-    // initializeing parameter. Creating tensor with shape [layer_size[i], layer_size[i + 1]]
+    // initializeing parameter. Creating tensor with shape [layer_size[i],
+    // layer_size[i + 1]]
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
@@ -145,7 +148,8 @@ public:
       NtsVar d;
       X.push_back(d);
     }
-    // X[0] is the initial vertex representation. We created it from local_feature
+    // X[0] is the initial vertex representation. We created it from
+    // local_feature
     X[0] = F.set_requires_grad(true);
   }
 
@@ -221,23 +225,27 @@ public:
         X[i] = drpmodel(X[i]);
       }
 
-      //gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
+      // gt->PropagateForwardCPU_Lockfree(X[i], Y[i], subgraphs);
       // gather neithbour's vertex feature
       // the intermediate value is stored in Y
-      gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
-
-      // push the operation and intermediate result into ComputationPath, for backward propagation
-      cp->op_push(X[i], Y[i], nts::autodiff::DIST_CPU);
+      //gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
+       NtsVar y_i;
+       y_i=nts::graphop::ForwardCPUfuseOp(graph,active,subgraphs).forward(X[i]);
+//      LOG_INFO("dim debug %d %d",X[i].dim(),y_i.dim());
+      // push the operation and intermediate result into ComputationPath, for
+      // backward propagation
+      cp->op_push(X[i], y_i, nts::autodiff::DIST_CPU);
 
       // fed aggregation value and vertex feature into nn model
       // and compute the new vertex feature
-      X[i + 1] = vertexForward(Y[i], X[i]);
+      X[i + 1] = vertexForward(y_i, X[i]);
     }
   }
 
   void run() {
     if (graph->partition_id == 0) {
-      LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n", iterations);
+      LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
+               iterations);
     }
 
     exec_time -= get_time();
@@ -247,7 +255,7 @@ public:
         // clear the gradient in parameters and values
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
-          Y[i].grad().zero_();
+          //Y[i].grad().zero_();
         }
       }
       Forward();

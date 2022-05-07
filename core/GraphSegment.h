@@ -67,7 +67,7 @@ public:
   VertexId *forward_message_index;
   VertexId *forward_multisocket_message_index;
   BackVertexIndex *backward_multisocket_message_index;
-  
+
   VertexId *column_offset_gpu; // VertexNumber
   VertexId *row_indices_gpu;
   VertexId *row_offset_gpu;     // VertexNumber
@@ -175,12 +175,11 @@ public:
 #endif
 
   void set(InputInfo *gnncfg);
-
 };
 
 class GNNContext {
 public:
-  std::vector<int> layer_size;  // feature size at each layer, 0 is input feature
+  std::vector<int> layer_size; // feature size at each layer, 0 is input feature
   size_t max_layer;
   size_t label_num;
   size_t p_id;    // partition id
@@ -200,7 +199,6 @@ public:
   VertexId *vertex_gpu_buffer;
   VertexId *index_gpu_buffer;
   VertexId max_buffer_size; // for alloc
-
 };
 
 class GraphStorage {
@@ -216,7 +214,6 @@ public:
 
   void optional_generate_sample_graph(GNNContext *gnnctx,
                                       COOChunk *_graph_cpu_in);
-
 };
 
 #endif

@@ -16,8 +16,8 @@ const OpType DIST_GPU = 2;
 const OpType SINGLE_CPU = 3;
 const OpType SINGLE_GPU = 4;
 
-const OpType SINGLE_CPU_EDGE_SCATTER =5;
-const OpType SINGLE_CPU_EDGE_GATHER =6;
+const OpType SINGLE_CPU_EDGE_SCATTER = 5;
+const OpType SINGLE_CPU_EDGE_GATHER = 6;
 
 const OpType SINGLE_GPU_EDGE_SCATTER = 7;
 const OpType SINGLE_GPU_EDGE_GATHER = 8;
@@ -25,20 +25,21 @@ const OpType SINGLE_GPU_EDGE_GATHER = 8;
 const OpType DIST_CPU_EDGE = 9;
 const OpType DIST_GPU_EDGE = 10;
 
-
 /**
- * @brief 
+ * @brief
  * since GNN operation is just iteration of graph operation and NN operation.
- * so we can simply use a chain to represent GNN operation, which can reduce 
+ * so we can simply use a chain to represent GNN operation, which can reduce
  * system complexity greatly.
  * you can also regard it as the NN operation splited by graph operation.
- * And as the extention of auto diff library, we will provide backward computation for
- * graph operation. And thus, the computation path of GNN is constructed.
+ * And as the extention of auto diff library, we will provide backward
+ * computation for graph operation. And thus, the computation path of GNN is
+ * constructed.
  */
 class ComputionPath {
 public:
   ComputionPath(GraphOperation *gt_,
-                std::vector<CSC_segment_pinned *> subgraphs_,bool bi_direction=false);
+                std::vector<CSC_segment_pinned *> subgraphs_,
+                bool bi_direction = false);
   void op_push(NtsVar &input_t, NtsVar &output_t, OpType op_type);
   void reset();
   void pop_one_op();

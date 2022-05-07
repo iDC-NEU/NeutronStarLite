@@ -4,7 +4,7 @@ void Bitmap::clear() {
   // not sure whether for range loop in c++ will be optimized by omp
   // since compiler essentially replace it by iterator
   size_t bm_size = WORD_OFFSET(size);
-  #pragma omp parallel for
+#pragma omp parallel for
   for (size_t i = 0; i <= bm_size; i++) {
     data[i] = 0;
   }
@@ -12,7 +12,7 @@ void Bitmap::clear() {
 
 void Bitmap::fill() {
   size_t bm_size = WORD_OFFSET(size);
-  #pragma omp parallel for
+#pragma omp parallel for
   for (size_t i = 0; i < bm_size; i++) {
     data[i] = 0xffffffffffffffff;
   }

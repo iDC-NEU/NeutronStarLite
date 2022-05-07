@@ -2,8 +2,10 @@
 //#include "comm/logger.h"
 //#include "core/AutoDiff.hpp"
 //#include "core/gnnmini.hpp"
-#include "core/gnnmini.h"
+#include "comm/logger.h"
+#include "core/AutoDiff.h"
 #include "core/NtsEdgeTensor.hpp"
+#include "core/gnnmini.h"
 
 class GAT_CPU_impl {
 public:
@@ -85,7 +87,7 @@ public:
     // gt->GenerateMessageBitmap(subgraphs);
     gt->GenerateMessageBitmap_multisokects(subgraphs);
     graph->init_communicatior();
-    cp = new nts::autodiff::ComputionPath(gt, subgraphs,true);
+    cp = new nts::autodiff::ComputionPath(gt, subgraphs, true);
   }
   void init_nn() {
 
@@ -113,11 +115,10 @@ public:
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
-                                graph->gnnctx->layer_size[i+1], alpha, beta1,
+                                graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
-      P.push_back(new Parameter(graph->gnnctx->layer_size[i+1]*2,
-                                1, alpha, beta1,
-                                beta2, epsilon, weight_decay));
+      P.push_back(new Parameter(graph->gnnctx->layer_size[i + 1] * 2, 1, alpha,
+                                beta1, beta2, epsilon, weight_decay));
     }
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
@@ -130,17 +131,17 @@ public:
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
-//      F = graph->Nts->NewOnesTensor(
-//        {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
-//        torch::DeviceType::CPU);
-//        for(int i=0;i<F.size(0);i++){
-//            F[i]=F[i]*i+1;
-//        }
+    //      F = graph->Nts->NewOnesTensor(
+    //        {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
+    //        torch::DeviceType::CPU);
+    //        for(int i=0;i<F.size(0);i++){
+    //            F[i]=F[i]*i+1;
+    //        }
 
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-        
+
       Ei.push_back(graph->Nts->NewKeyTensor(
-          {graph->gnnctx->l_e_num, 2*graph->gnnctx->layer_size[i+1]},
+          {graph->gnnctx->l_e_num, 2 * graph->gnnctx->layer_size[i + 1]},
           torch::DeviceType::CPU));
       Y.push_back(graph->Nts->NewKeyTensor(
           {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
@@ -151,7 +152,7 @@ public:
       X.push_back(d);
       Eo.push_back(d);
     }
-    E_tmp.resize(graph->gnnctx->l_v_num,d);
+    E_tmp.resize(graph->gnnctx->l_v_num, d);
     X[0] = F.set_requires_grad(true);
   }
 
@@ -206,53 +207,55 @@ public:
   NtsVar preForward(NtsVar &x) {
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
-      y =P[2*layer]->forward(x).set_requires_grad(true);
+    y = P[2 * layer]->forward(x).set_requires_grad(true);
     cp->op_push(x, y, nts::autodiff::NNOP);
     return y;
   }
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
     NtsVar y;
-    y=a;
+    y = a;
     return y;
   }
   NtsVar EdgeForward(NtsVar &ei) {
-    NtsVar y=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,ei.size(1)/2},torch::DeviceType::CPU);
-    nts::ntsVertexTensor y_vtx(ei.size(1)/2,subgraphs[0],graph->Nts);
+    NtsVar y = graph->Nts->NewLeafTensor(
+        {graph->gnnctx->l_v_num, ei.size(1) / 2}, torch::DeviceType::CPU);
+    nts::ntsVertexTensor y_vtx(ei.size(1) / 2, subgraphs[0], graph->Nts);
     int layer = graph->rtminfo->curr_layer;
-    NtsVar m = torch::exp(P[2*layer+1]->forward(ei));
-    NtsVar e_src=ei.slice(1,0,ei.size(1)/2,1);
-//    NtsVar dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
-//    LOG_INFO("%d",m.dim());
+    NtsVar m = torch::exp(P[2 * layer + 1]->forward(ei));
+    NtsVar e_src = ei.slice(1, 0, ei.size(1) / 2, 1);
+    //    NtsVar
+    //    dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
+    //    LOG_INFO("%d",m.dim());
     graph->local_vertex_operation<int, ValueType>( // For EACH Vertex
-      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {     
-        long eid_start=subgraph->column_offset[vtx];
-        long eid_end=subgraph->column_offset[vtx+1];
-        assert(eid_end<=graph->edges);
-        assert(eid_start>=0); 
-        NtsVar d=m.slice(0,eid_start,eid_end,1).softmax(0);
-        y_vtx.getVtxTensor(vtx)=(e_src.slice(0,eid_start,eid_end,1)*d).sum(0);
-      },
-      subgraphs, m.size(1), active);
-      for(VertexId vtx=0;vtx<graph->gnnctx->l_v_num;vtx++){
-        y[vtx]=y_vtx.getVtxTensor(vtx);
-      }
-    //y.backward(torch::ones_like(y));
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          long eid_start = subgraph->column_offset[vtx];
+          long eid_end = subgraph->column_offset[vtx + 1];
+          assert(eid_end <= graph->edges);
+          assert(eid_start >= 0);
+          NtsVar d = m.slice(0, eid_start, eid_end, 1).softmax(0);
+          y_vtx.getVtxTensor(vtx) =
+              (e_src.slice(0, eid_start, eid_end, 1) * d).sum(0);
+        },
+        subgraphs, m.size(1), active);
+    for (VertexId vtx = 0; vtx < graph->gnnctx->l_v_num; vtx++) {
+      y[vtx] = y_vtx.getVtxTensor(vtx);
+    }
+    // y.backward(torch::ones_like(y));
     cp->op_push(ei, y, nts::autodiff::NNOP);
-//      printf("finish\n");
+    //      printf("finish\n");
     return y;
   }
-  
+
   void Forward() {
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-        torch::Tensor X_trans= preForward(X[i]);
-        gt->LocalScatter(X_trans,Ei[i],subgraphs,true);
-        cp->op_push(X_trans, Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
-        X[i+1]=EdgeForward(Ei[i]);
-
+      torch::Tensor X_trans = preForward(X[i]);
+      gt->LocalScatter(X_trans, Ei[i], subgraphs, true);
+      cp->op_push(X_trans, Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
+      X[i + 1] = EdgeForward(Ei[i]);
     }
-//        printf("hellow\n");
+    //        printf("hellow\n");
   }
 
   void run() {
@@ -265,8 +268,8 @@ public:
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
         }
-        for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++){
-//          Y[i].grad().zero_();
+        for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
+          //          Y[i].grad().zero_();
           Ei[i].grad().zero_();
         }
       }
@@ -277,80 +280,90 @@ public:
       Loss();
       cp->self_backward();
       Update();
-//     cp->debug();
+      //     cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
-//    NtsVar s=4*graph->Nts->NewOnesTensor({3,1},torch::DeviceType::CPU);
-//    NtsVar s1=graph->Nts->NewOnesTensor({10,1},torch::DeviceType::CPU).set_requires_grad(true);
-////    NtsVar indice=torch::range(1,3,1,torch::kLong);
-////    std::cout<<indice<<std::endl;
-//    s[0]=s1[2]*3;
-//    s[2]=s1[5]*4;
-//    s.backward(torch::ones_like(s));
-//        std::cout<<s1.grad()<<std::endl;
+    //    NtsVar s=4*graph->Nts->NewOnesTensor({3,1},torch::DeviceType::CPU);
+    //    NtsVar
+    //    s1=graph->Nts->NewOnesTensor({10,1},torch::DeviceType::CPU).set_requires_grad(true);
+    ////    NtsVar indice=torch::range(1,3,1,torch::kLong);
+    ////    std::cout<<indice<<std::endl;
+    //    s[0]=s1[2]*3;
+    //    s[2]=s1[5]*4;
+    //    s.backward(torch::ones_like(s));
+    //        std::cout<<s1.grad()<<std::endl;
     exec_time += get_time();
+
+    //    nts::OP::ntsOps  *nop=new nts::OP::ntsOps(graph,active);
+    //    nop->segmentReduce(X[0],subgraphs,0);
+    // nop.
 
     delete active;
   }
 
   void test_debug() {
-//            Eo[i]=torch::ones_like(Ei[i]);
-//         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
-//      std::cout<<Y[i].t()[0]<<std::endl;  
-//      for(int i=2680;i<2708;i++){
-//          printf("dgr: %d \n",subgraphs[0]->column_offset[i+1]-subgraphs[0]->column_offset[i]);
-//      }
-         
-//      gt->LocalScatter(X[i],Ei[i],subgraphs);
-//      std::cout<<Ei[i].t()[0].slice(0,13540,13566,1).t()<<std::endl;
-//      for(int i=2700;i<2708;i++){
-//          printf("dst: %d \t",i);
-//          for(int j=subgraphs[0]->column_offset[i];j<subgraphs[0]->column_offset[i+1];j++){
-//              printf("src:%d ",subgraphs[0]->row_indices[j]);
-//            }
-//          printf("\n");
-//      }
-      
+    //            Eo[i]=torch::ones_like(Ei[i]);
+    //         gt->LocalAggregate(Eo[i],Y[i],subgraphs);
+    //      std::cout<<Y[i].t()[0]<<std::endl;
+    //      for(int i=2680;i<2708;i++){
+    //          printf("dgr: %d
+    //          \n",subgraphs[0]->column_offset[i+1]-subgraphs[0]->column_offset[i]);
+    //      }
+
+    //      gt->LocalScatter(X[i],Ei[i],subgraphs);
+    //      std::cout<<Ei[i].t()[0].slice(0,13540,13566,1).t()<<std::endl;
+    //      for(int i=2700;i<2708;i++){
+    //          printf("dst: %d \t",i);
+    //          for(int
+    //          j=subgraphs[0]->column_offset[i];j<subgraphs[0]->column_offset[i+1];j++){
+    //              printf("src:%d ",subgraphs[0]->row_indices[j]);
+    //            }
+    //          printf("\n");
+    //      }
   }
-  
-//    NtsVar EdgeForward(NtsVar &ei) {
-//    NtsVar y;
-//    
-//    int layer = graph->rtminfo->curr_layer;
-//    NtsVar m = torch::exp(P[2*layer+1]->forward(ei));
-//    NtsVar a = torch::zeros_like(m);
-//    NtsVar e_dst=ei.slice(1,0,ei.size(1)/2,1);
-//    NtsVar v_sum=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1},torch::DeviceType::CPU);
-//    
-//    NtsVar dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
-////    LOG_INFO("%d %d %d %d",m.size(0),m.size(1),e_dst.size(0),e_dst.size(1));
-////    NtsVar sum =graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1},
-////                    torch::DeviceType::CPU);
-//    LOG_INFO("%d",m.sum(0).dim());
-//    for(VertexId vtx=0;vtx<graph->gnnctx->l_v_num;vtx++){
-//            long eid_start=subgraphs[0]->column_offset[vtx];
-//            long eid_end=subgraphs[0]->column_offset[vtx+1];
-//            NtsVar d;
-//            assert(eid_end<=graph->edges);
-//            assert(eid_start>=0); 
-//            if(vtx==0){
-//                LOG_INFO("%d %d",eid_end-eid_start,m.slice(0,eid_start,eid_end,1).size(0));
-//            }
-//            if(eid_end>eid_start){
-//               d=m.slice(0,eid_start,eid_end,1).softmax(0);
-//               for(int eid_i=eid_start;eid_i=eid_end;eid_i++){
-//                  a[eid_i]=d[eid_i-eid_start];
-//               }
-//            }        
-//            
-//    }
-//       //  LOG_INFO("%d",a.dim());
-//         LOG_INFO("%d %d",e_dst.size(0),e_dst.size(1));
-//       //  LOG_INFO("%d",a.dim());
-//        y=e_dst*a;
-//    cp->op_push(ei, y, nts::autodiff::NNOP);
-//    return y;
-//  }
+
+  //    NtsVar EdgeForward(NtsVar &ei) {
+  //    NtsVar y;
+  //
+  //    int layer = graph->rtminfo->curr_layer;
+  //    NtsVar m = torch::exp(P[2*layer+1]->forward(ei));
+  //    NtsVar a = torch::zeros_like(m);
+  //    NtsVar e_dst=ei.slice(1,0,ei.size(1)/2,1);
+  //    NtsVar
+  //    v_sum=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1},torch::DeviceType::CPU);
+  //
+  //    NtsVar
+  //    dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
+  ////    LOG_INFO("%d %d %d
+  ///%d",m.size(0),m.size(1),e_dst.size(0),e_dst.size(1)); /    NtsVar sum
+  ///=graph->Nts->NewLeafTensor({graph->gnnctx->l_v_num,1}, /
+  ///torch::DeviceType::CPU);
+  //    LOG_INFO("%d",m.sum(0).dim());
+  //    for(VertexId vtx=0;vtx<graph->gnnctx->l_v_num;vtx++){
+  //            long eid_start=subgraphs[0]->column_offset[vtx];
+  //            long eid_end=subgraphs[0]->column_offset[vtx+1];
+  //            NtsVar d;
+  //            assert(eid_end<=graph->edges);
+  //            assert(eid_start>=0);
+  //            if(vtx==0){
+  //                LOG_INFO("%d
+  //                %d",eid_end-eid_start,m.slice(0,eid_start,eid_end,1).size(0));
+  //            }
+  //            if(eid_end>eid_start){
+  //               d=m.slice(0,eid_start,eid_end,1).softmax(0);
+  //               for(int eid_i=eid_start;eid_i=eid_end;eid_i++){
+  //                  a[eid_i]=d[eid_i-eid_start];
+  //               }
+  //            }
+  //
+  //    }
+  //       //  LOG_INFO("%d",a.dim());
+  //         LOG_INFO("%d %d",e_dst.size(0),e_dst.size(1));
+  //       //  LOG_INFO("%d",a.dim());
+  //        y=e_dst*a;
+  //    cp->op_push(ei, y, nts::autodiff::NNOP);
+  //    return y;
+  //  }
 };
