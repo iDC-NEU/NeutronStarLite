@@ -86,8 +86,8 @@ public:
         // pre-alloc space to save graident
         output_grad.push_back(ig);
         count++;
-        return f_output;
     }
+    return f_output;
 }
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &)> vertexforward,
             NtsVar &nbr_input){//NNOP
@@ -106,8 +106,8 @@ public:
         // pre-alloc space to save graident
         output_grad.push_back(ig);
         count++;
-        return f_output;
     }
+    return f_output;
 }
  
  NtsVar runEdgeForward(std::function<NtsVar(NtsVar &)> edgeforward,
@@ -127,8 +127,8 @@ public:
         // pre-alloc space to save graident
         output_grad.push_back(ig);
         count++;
-        return f_output;
     }
+    return f_output;
 } 
   
   void appendNNOp(NtsVar &input_t, NtsVar &output_t){
