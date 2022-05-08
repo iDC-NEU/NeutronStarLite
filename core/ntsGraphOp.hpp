@@ -357,6 +357,65 @@ public:
 
 };
 
+class SingleCPUDstAggregateOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  SingleCPUDstAggregateOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+    
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+          nts_acc(f_output_buffer + vtx * feature_size, 
+                  f_input_buffer + eid * feature_size, feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);            
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+      int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+              
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+            nts_acc(f_input_grad_buffer+ (feature_size * eid),
+                    f_output_grad_buffer + src * feature_size,
+                     feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);
+      return f_input_grad;
+  }    
+
+};
+
+
 } // namespace graphop
 } // namespace nts
 
