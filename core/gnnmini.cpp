@@ -456,7 +456,7 @@ void GraphOperation::LocalScatterBackward(
           } else {
             // copy only src
             acc(X_buffer + src * feature_size,
-                Ei_buffer + (feature_size * eid * 2), feature_size);
+                Ei_buffer + (feature_size * eid), feature_size);
           }
         }
       },

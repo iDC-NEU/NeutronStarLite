@@ -174,13 +174,13 @@ public:
   }
   void Loss() {
     //  return torch::nll_loss(a,L_GT_C);
-    torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1];
+    torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1].log_softmax(1);
     torch::Tensor mask_train = MASK.eq(0);
     loss = torch::nll_loss(
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
-    ctx->appendNNOp(a, loss);
+    ctx->appendNNOp(X[graph->gnnctx->layer_size.size() - 1], loss);
   }
 
   void Update() {
@@ -270,7 +270,7 @@ public:
 //      ctx->debug();
 //       ctx->reset();
       ctx->self_backward(true);
-//      Update();
+      Update();
       //     cp->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss

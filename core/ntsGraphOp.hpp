@@ -15,79 +15,6 @@
 
 namespace nts {
 namespace op {
-void comp(ValueType *input, ValueType *output, ValueType weight,
-          int feat_size) {
-  for (int i = 0; i < feat_size; i++) {
-    output[i] += input[i] * weight;
-  }
-}
-
-/**
- * @brief
- * do output += input at feature(array) level
- * @param input input feature
- * @param output output feature
- * @param feat_size feature size
- */
-void acc(ValueType *input, ValueType *output, int feat_size) {
-  for (int i = 0; i < feat_size; i++) {
-    // atomic add
-    write_add(&output[i], input[i]);
-  }
-}
-
-/**
- * @brief
- * copy feature_size elements from b_src[d_offset * feature_size]
- * to d_dst[s_offset * feature_size]
- * @param b_dst dst buffer
- * @param d_offset dst offset, should be a vertex id
- * @param b_src src buffer
- * @param s_offset src offset, should be a vertex id
- * @param feat_size feature size that every vertex have
- */
-void copy(ValueType *b_dst, long d_offset, ValueType *b_src, VertexId s_offset,
-          int feat_size) {
-  // length is the byte level space cost for a vertex feature data
-  VertexId length = sizeof(ValueType) * feat_size;
-  // LOG_INFO("length %d feat_size %d d_offset %d s_offset
-  // %d\n",length,feat_size,d_offset,s_offset);
-  memcpy((char *)b_dst + d_offset * length, (char *)b_src + s_offset * length,
-         length);
-}
-
-/**
- * @brief
- * return 1 / sqrt(out_degree[src] * in_degree[dst]).
- * normally used as edge weight
- * @param src src id
- * @param dst dst id
- * @return ValueType
- */
-ValueType norm_degree(Graph<Empty> *graph_, VertexId src, VertexId dst) {
-  return 1 / ((ValueType)std::sqrt(graph_->out_degree_for_backward[src]) *
-              (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
-}
-
-/**
- * @brief
- * get out degree for v
- * @param v vertex id
- * @return ValueType
- */
-ValueType out_degree(Graph<Empty> *graph_, VertexId v) {
-  return (ValueType)(graph_->out_degree_for_backward[v]);
-}
-
-/**
- * @brief
- * get in degree for v
- * @param v vertex id
- * @return ValueType
- */
-ValueType in_degree(Graph<Empty> *graph_, VertexId v) {
-  return (ValueType)(graph_->in_degree_for_backward[v]);
-}
 
 //class ntsGraphOp {
 //public:
@@ -172,7 +99,7 @@ public:
                               sizeof(VertexId));
             ValueType *local_output =
                 f_output_buffer + dst_trans * feature_size;
-            comp(local_input, local_output, norm_degree(graph_, src, dst),
+            nts_comp(local_output, local_input, nts_norm_degree(graph_, src, dst),
                  feature_size);
           }
         },
@@ -212,7 +139,7 @@ public:
           VertexId dst_trans = dst - graph_->gnnctx->p_v_s;
           ValueType *local_input_buffer =
              output_grad_buffer + (dst_trans)*feature_size;
-          comp(local_input_buffer, local_output_buffer, norm_degree(graph_,src, dst),
+          nts_comp(local_output_buffer, local_input_buffer, nts_norm_degree(graph_,src, dst),
                feature_size);
         }
         if (graph_->rtminfo->lock_free) {
@@ -229,7 +156,7 @@ public:
         }
       },
       [&](VertexId src, ValueType *msg) {
-        acc(msg, input_grad_buffer + (src - graph_->gnnctx->p_v_s) * feature_size, feature_size);
+        nts_acc(input_grad_buffer + (src - graph_->gnnctx->p_v_s) * feature_size, msg, feature_size);
         return 1;
       },
       feature_size, active_);
@@ -334,8 +261,8 @@ public:
         for (long eid = subgraph->column_offset[vtx];
              eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
-          copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
+          nts_copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
+          nts_copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
         }
       },
       subgraphs, feature_size, active_);            
@@ -359,12 +286,11 @@ public:
         for (long eid = subgraph->column_offset[vtx];
              eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          assert(0 <= src && src < graph_->vertices);
-          assert(0 <= eid && eid < graph_->edges);
-            acc(f_output_grad_buffer + (feature_size * eid * 2),
-                    f_input_grad_buffer + src * feature_size, feature_size);
-            acc(f_output_grad_buffer + (feature_size * (eid * 2 + 1)),
-                    f_input_grad_buffer + vtx * feature_size, feature_size);
+            nts_acc(f_input_grad_buffer + src * feature_size,
+                    f_output_grad_buffer + (feature_size * eid * 2), feature_size);
+            nts_acc(f_input_grad_buffer + vtx * feature_size,
+                    f_output_grad_buffer + (feature_size * (eid * 2 + 1)),
+                     feature_size);
         }
       },
       subgraphs, feature_size, active_);
@@ -373,6 +299,63 @@ public:
 
 };
 
+class SingleCPUSrcScatterOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  SingleCPUSrcScatterOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);            
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+          nts_copy(f_output_buffer, eid, f_input_buffer, src, feature_size);
+//          nts_copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
+//          nts_copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);            
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){
+      int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+              
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+            nts_acc(f_output_grad_buffer + (feature_size * eid),
+                    f_input_grad_buffer + src * feature_size,
+                     feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);
+      return f_input_grad;
+  }    
+
+};
 
 } // namespace graphop
 } // namespace nts
