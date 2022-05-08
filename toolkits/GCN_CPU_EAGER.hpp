@@ -1,5 +1,5 @@
 #include "core/gnnmini.h"
-
+#include "core/ntsContext.hpp"
 class GCN_CPU_EAGER_impl {
 public:
   int iterations;

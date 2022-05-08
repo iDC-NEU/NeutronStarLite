@@ -311,6 +311,69 @@ public:
 
 };
 
+class SingleCPUSrcDstScatterOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  SingleCPUSrcDstScatterOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_e_num, 
+                2*feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);            
+  graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+          copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
+          copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);            
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){
+      int feature_size=f_output_grad.size(1);
+                     assert(feature_size%2==0); 
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size/2},torch::DeviceType::CPU);
+              
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+    feature_size/=2;
+      graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+      [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+        // iterate the incoming edge for vtx
+        for (long eid = subgraph->column_offset[vtx];
+             eid < subgraph->column_offset[vtx + 1]; eid++) {
+          VertexId src = subgraph->row_indices[eid];
+          assert(0 <= src && src < graph_->vertices);
+          assert(0 <= eid && eid < graph_->edges);
+            acc(f_output_grad_buffer + (feature_size * eid * 2),
+                    f_input_grad_buffer + src * feature_size, feature_size);
+            acc(f_output_grad_buffer + (feature_size * (eid * 2 + 1)),
+                    f_input_grad_buffer + vtx * feature_size, feature_size);
+        }
+      },
+      subgraphs, feature_size, active_);
+      return f_input_grad;
+  }    
+
+};
+
+
 } // namespace graphop
 } // namespace nts
 

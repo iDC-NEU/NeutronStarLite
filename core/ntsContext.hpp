@@ -88,34 +88,49 @@ public:
         count++;
         return f_output;
     }
-} 
+}
+ NtsVar runVertexForward(std::function<NtsVar(NtsVar &)> vertexforward,
+            NtsVar &nbr_input){//NNOP
+//     LOG_INFO("call run vertex forward");
+    NtsVar f_output=vertexforward(nbr_input); 
+    NtsVar ig;
+    if (count > 0 && op.top() == NNOP) {
+        output.pop();
+        output.push(f_output);
+        //     LOG_INFO("TRIG");
+    }else{
+        op.push(NNOP);
+        output.push(f_output);
+        input.push(nbr_input);
+        ntsOp.push(ntsOperator(NNOP));
+        // pre-alloc space to save graident
+        output_grad.push_back(ig);
+        count++;
+        return f_output;
+    }
+}
  
+ NtsVar runEdgeForward(std::function<NtsVar(NtsVar &)> edgeforward,
+            NtsVar &edge_input){//NNOP
+//     LOG_INFO("call run vertex forward");
+    NtsVar f_output=edgeforward(edge_input); 
+    NtsVar ig;
+    if (count > 0 && op.top() == NNOP) {
+        output.pop();
+        output.push(f_output);
+        //     LOG_INFO("TRIG");
+    }else{
+        op.push(NNOP);
+        output.push(f_output);
+        input.push(edge_input);
+        ntsOp.push(ntsOperator(NNOP));
+        // pre-alloc space to save graident
+        output_grad.push_back(ig);
+        count++;
+        return f_output;
+    }
+} 
   
-  
-//  void op_push(nts::op::ntsGraphOp* op_, NtsVar &input_t, NtsVar &output_t, OpType op_type){//graph op
-////    if(output_t.dim()>1&&input_t.dim()>1)
-////  LOG_INFO("input dim %d \t output dim %d \t OP type %d", input_t.size(1),output_t.size(1),op_type);
-//  NtsVar ig;
-//  NtsVar og;
-//
-//  assert(op_type == 1);
-//
-//  // we will chain the NNOP together, because torch lib will handle the backward propagation
-//  // when there is no graph operation
-//  if (count > 0 && NNOP == op_type && op.top() == NNOP) {
-//    output.pop();
-//    output.push(output_t);
-//    //     LOG_INFO("TRIG");
-//  } else {
-//    count++;
-//    op.push(op_type);
-//    output.push(output_t);
-//    input.push(input_t);
-//    ntsOp.push(ntsOperator(op_,GRAPHOP));
-//    // pre-alloc space to save graident
-//    output_grad.push_back(ig);
-//  }
-//}
   void appendNNOp(NtsVar &input_t, NtsVar &output_t){
     NtsVar ig;
 
@@ -162,14 +177,20 @@ public:
     output.top().backward(torch::ones_like(output.top()), retain_graph);
     output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
+//    LOG_INFO("FINISH LOSS");
       while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
+         
     if (GRAPHOP == op.top()) { // test
+//         LOG_INFO("START GRAPH op%d",op.top());
       output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
 
     } else if (NNOP == op.top()) {// directly use pytorch
+//        LOG_INFO("START nn op%d",op.top());
+      assert(output_grad[top_idx()].size(1)==output.top().size(1));
+      assert(output_grad[top_idx()].size(0)==output.top().size(0));  
       output.top().backward(output_grad[top_idx()], retain_graph);
       if(count>1)
           output_grad[top_idx()-1] = input.top().grad();
@@ -185,13 +206,22 @@ public:
   void debug(){
     printf("ADDEBUG input.size()%d\n", input.size());
     // for(int i=0;i<count;i++){
+    int i=0;
     while (!input.empty()) {
-        LOG_INFO("input dim %d \t output dim %d \t OP type %d", input.top().dim(),output.top().dim(),op.top());
+        if(i==0){
+          LOG_INFO("input dim %d %d\t output dim %d \t OP type %d", input.top().size(0),input.top().size(1),output.top().dim(),op.top());
+        }else{
+          LOG_INFO("input dim %d %d \t output dim %d %d\t OP type %d", input.top().size(0),
+                  input.top().size(1),output.top().size(0),output.top().size(1),op.top());  
+        }
         input.pop();
         output.pop();
         op.pop();
         ntsOp.pop();
+        i++;
     }
+    this->output_grad.clear();
+    count=0;
   }
   
   int top_idx(){
