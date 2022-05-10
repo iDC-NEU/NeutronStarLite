@@ -182,4 +182,3 @@ sudo apt install mpich
 
 Remember to set environment variables mentioned above.
 
-if there are any problems, please contact 1173886760@qq.com
