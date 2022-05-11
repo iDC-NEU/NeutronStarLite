@@ -200,7 +200,7 @@ public:
   }
 
   void Update() {
-    for (int i = 0; i < P.size() - 1; i++) {
+    for (int i = 0; i < P.size(); i++) {
       // accumulate the gradient using all_reduce
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
       // update parameters with Adam optimizer

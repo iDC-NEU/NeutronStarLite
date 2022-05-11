@@ -216,7 +216,7 @@ public:
   }
 
   void Update() {
-    for (int i = 0; i < P.size() - 1; i++) {
+    for (int i = 0; i < P.size(); i++) {
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
