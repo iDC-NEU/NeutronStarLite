@@ -261,8 +261,8 @@ public:
         for (long eid = subgraph->column_offset[vtx];
              eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          nts_copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
-          nts_copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
+          nts_copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size,1);
+          nts_copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size,1);
         }
       },
       subgraphs, feature_size, active_);            
@@ -322,9 +322,7 @@ public:
         for (long eid = subgraph->column_offset[vtx];
              eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
-          nts_copy(f_output_buffer, eid, f_input_buffer, src, feature_size);
-//          nts_copy(f_output_buffer, eid * 2, f_input_buffer, src, feature_size);
-//          nts_copy(f_output_buffer, eid * 2 + 1, f_input_buffer, vtx, feature_size);
+          nts_copy(f_output_buffer, eid, f_input_buffer, src, feature_size,1);
         }
       },
       subgraphs, feature_size, active_);            
@@ -405,11 +403,115 @@ public:
              eid < subgraph->column_offset[vtx + 1]; eid++) {
           VertexId src = subgraph->row_indices[eid];
             nts_acc(f_input_grad_buffer+ (feature_size * eid),
-                    f_output_grad_buffer + src * feature_size,
+                    f_output_grad_buffer + vtx * feature_size,
                      feature_size);
         }
       },
       subgraphs, feature_size, active_);
+      return f_input_grad;
+  }    
+
+};
+
+class DistGetDepNbrOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  DistGetDepNbrOp(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+          
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+      int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+              
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+
+      return f_input_grad;
+  }    
+
+};
+
+class EdgeSoftMax : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  NtsVar IntermediateResult;
+  
+  EdgeSoftMax(Graph<Empty> *graph, VertexSubset *active,
+                   std::vector<CSC_segment_pinned *> &subgraphs_)
+      : ntsGraphOp(graph, active) {
+    subgraphs = subgraphs_;
+  }
+  NtsVar forward(NtsVar &f_input){// input i_msg  output o_msg
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);
+    
+        graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          long eid_start = subgraph->column_offset[vtx];
+          long eid_end = subgraph->column_offset[vtx + 1];
+          assert(eid_end <= graph_->edges);
+          assert(eid_start >= 0);
+          NtsVar d = f_input.slice(0, eid_start, eid_end, 1).softmax(0);
+          ValueType *d_buffer =
+          graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);      
+          nts_copy(f_output_buffer, eid_start, d_buffer, 
+                  0, feature_size,(eid_end-eid_start));
+          IntermediateResult=f_output;
+          
+        },
+        subgraphs, f_input.size(1), this->active_);
+    
+    
+          
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    
+    graph_->local_vertex_operation<int, ValueType>( // For EACH Vertex
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          long eid_start = subgraph->column_offset[vtx];
+          long eid_end = subgraph->column_offset[vtx + 1];
+          assert(eid_end <= graph_->edges);
+          assert(eid_start >= 0);
+          NtsVar d   = f_output_grad.slice(0, eid_start, eid_end, 1);
+          NtsVar imr =IntermediateResult.slice(0, eid_start, eid_end, 1);
+          //s4=(s2*s1)-(s2)*(s2.t().mm(s1)); 
+          NtsVar d_o =(imr*d)-imr*(d.t().mm(imr)); 
+          ValueType *d_o_buffer =
+          graph_->Nts->getWritableBuffer(d_o, torch::DeviceType::CPU);
+          nts_copy(f_input_grad_buffer, eid_start, d_o_buffer, 
+                  0, feature_size,(eid_end-eid_start));
+        },
+        subgraphs, f_output_grad.size(1), this->active_);
       return f_input_grad;
   }    
 

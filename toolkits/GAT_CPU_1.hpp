@@ -128,6 +128,12 @@ public:
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
+    //      F = graph->Nts->NewOnesTensor(
+    //        {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
+    //        torch::DeviceType::CPU);
+    //        for(int i=0;i<F.size(0);i++){
+    //            F[i]=F[i]*i+1;
+    //        }
 
     NtsVar d;
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
@@ -193,6 +199,35 @@ public:
   NtsVar vertexForward(NtsVar &a, NtsVar &x) {
     return torch::relu(a);
   }
+  NtsVar edgeForward(NtsVar &ei) {
+    NtsVar y = graph->Nts->NewLeafTensor(
+        {graph->gnnctx->l_v_num, ei.size(1) / 2}, torch::DeviceType::CPU);
+    nts::ntsVertexTensor y_vtx(ei.size(1) / 2, subgraphs[0], graph->Nts);
+    int layer = graph->rtminfo->curr_layer;
+    NtsVar m = torch::exp(P[2 * layer + 1]->forward(ei));
+    NtsVar e_src = ei.slice(1, 0, ei.size(1) / 2, 1);
+    //    NtsVar
+    //    dst_edge=torch::from_blob(subgraphs[0]->destination,{graph->gnnctx->l_e_num,1},torch::kLong);
+    //    LOG_INFO("%d",m.dim());
+    graph->local_vertex_operation<int, ValueType>( // For EACH Vertex
+        [&](VertexId vtx, CSC_segment_pinned *subgraph, VertexId recv_id) {
+          long eid_start = subgraph->column_offset[vtx];
+          long eid_end = subgraph->column_offset[vtx + 1];
+          assert(eid_end <= graph->edges);
+          assert(eid_start >= 0);
+          NtsVar d = m.slice(0, eid_start, eid_end, 1).softmax(0);
+          y_vtx.getVtxTensor(vtx) =
+              (e_src.slice(0, eid_start, eid_end, 1) * d).sum(0);
+        },
+        subgraphs, m.size(1), active);
+    for (VertexId vtx = 0; vtx < graph->gnnctx->l_v_num; vtx++) {
+      y[vtx] = y_vtx.getVtxTensor(vtx);
+    }
+//    // y.backward(torch::ones_like(y));
+//    cp->op_push(ei, y, nts::autodiff::NNOP);
+//    //      printf("finish\n");
+    return y;
+  }
 
   void Forward() {
     graph->rtminfo->forward = true;
@@ -200,32 +235,20 @@ public:
       graph->rtminfo->curr_layer = i;
       NtsVar X_trans=ctx->runVertexForward([&](NtsVar x_i){
             return preForward(x_i);},
-        X[i]);//pre apply    
+        X[i]);
       NtsVar E_msg=ctx->runGraphOp<nts::op::SingleCPUSrcDstScatterOp>(graph,
-                active,subgraphs,X_trans);// scatterto edge
+                active,subgraphs,X_trans);
+      X[i+1]=ctx->runEdgeForward([&](NtsVar e_msg){
+            return edgeForward(e_msg);},
+      E_msg);
       
-      NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
-            int layer = graph->rtminfo->curr_layer;
-            return torch::exp(P[2 * layer + 1]->forward(E_msg));
-        },
-      E_msg);//edge NN
-        
-      NtsVar a=ctx->runGraphOp<nts::op::EdgeSoftMax>(graph,
-                active,subgraphs,m);// edge NN   
-      
-      NtsVar E_msg_out=ctx->runEdgeForward([&](NtsVar a){
-            return E_msg.slice(1, 0, E_msg.size(1) / 2, 1)*a;
-        },
-      a);//Edge NN 
-        
-      NtsVar nbr=ctx->runGraphOp<nts::op::SingleCPUDstAggregateOp>(graph,
-                active,subgraphs,E_msg_out);//agg  
-      
-      X[i+1]=ctx->runVertexForward([&](NtsVar nbr){
-            return torch::relu(nbr);
-        },nbr);
-    //        printf("hellow\n");
+//      torch::Tensor X_trans = preForward(X[i]);
+//      
+//      gt->LocalScatter(X_trans, Ei[i], subgraphs, true);
+//      cp->op_push(X_trans, Ei[i], nts::autodiff::SINGLE_CPU_EDGE_SCATTER);
+//      X[i + 1] = EdgeForward(Ei[i]);
     }
+    //        printf("hellow\n");
   }
 
   void run() {
@@ -253,27 +276,15 @@ public:
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
-//        NtsVar s=torch::rand({3,1});
-//        s[0][0]=1;
-//        s[1][0]=2;
-//        s[2][0]=3;
-//        NtsVar s1=torch::rand({3,1});
-//        s1[0][0]=2;
-//        s1[1][0]=3;
-//        s1[2][0]=4;
-//        s.set_requires_grad(true);
-//        s1.set_requires_grad(true);
-//        NtsVar s2=s.softmax(0);
-//        NtsVar s3=s2*s1;
-//        std::cout<<"s :\n"<<s<<std::endl;
-//        std::cout<<"s1:\n"<<s1<<std::endl;
-//        std::cout<<"s2:\n"<<s2<<std::endl;
-//        std::cout<<"s3:\n"<<s3<<std::endl;
-//        s3.backward(torch::ones_like(s3));
-//        std::cout<<"s.grad():\n"<<s.grad()<<std::endl;
-//        NtsVar s4=torch::zeros({3,1});
-//        s4=(s2*s1)-(s2)*(s2.t().mm(s1));        
-//        std::cout<<"s4.grad():\n"<<s4<<std::endl;
+    //    NtsVar s=4*graph->Nts->NewOnesTensor({3,1},torch::DeviceType::CPU);
+    //    NtsVar
+    //    s1=graph->Nts->NewOnesTensor({10,1},torch::DeviceType::CPU).set_requires_grad(true);
+    ////    NtsVar indice=torch::range(1,3,1,torch::kLong);
+    ////    std::cout<<indice<<std::endl;W
+    //    s[0]=s1[2]*3;
+    //    s[2]=s1[5]*4;
+    //    s.backward(torch::ones_like(s));
+    //        std::cout<<s1.grad()<<std::endl;
     exec_time += get_time();
 
     //    nts::OP::ntsOps  *nop=new nts::OP::ntsOps(graph,active);

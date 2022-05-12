@@ -53,13 +53,13 @@ void nts_acc(ValueType *output, ValueType *input, int feat_size) {
  * @param feat_size feature size that every vertex have
  */
 void nts_copy(ValueType *b_dst, long d_offset, ValueType *b_src, VertexId s_offset,
-          int feat_size) {
+          int feat_size, int counts) {
   // length is the byte level space cost for a vertex feature data
   VertexId length = sizeof(ValueType) * feat_size;
   // LOG_INFO("length %d feat_size %d d_offset %d s_offset
   // %d\n",length,feat_size,d_offset,s_offset);
   memcpy((char *)b_dst + d_offset * length, (char *)b_src + s_offset * length,
-         length);
+         length*counts);
 }
 
 /**
