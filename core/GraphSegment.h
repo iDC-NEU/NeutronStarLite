@@ -90,12 +90,12 @@ public:
   int src_range[2];
   int dst_range[2];
   Bitmap *source_active;
+  VertexId *source_index;
   Bitmap *destination_active;
   Bitmap *forward_active;
   std::vector<Bitmap *> VertexToComm;
 
   DeviceLocation dt;
-
   void init(VertexId src_start, VertexId src_end, VertexId dst_start,
             VertexId dst_end, VertexId edge_size_, DeviceLocation dt_);
   void optional_init_sample(int layers);
