@@ -55,7 +55,8 @@ public:
   void generatePartitionedSubgraph(){
       owned_edges=0;
       for (int i = 0; i < graph_->sockets; i++) {
-      owned_edges += (VertexId)(graph_->outgoing_adj_index[i])[graph_->vertices];
+        owned_edges += (VertexId)(graph_->outgoing_adj_index[i])[graph_->vertices];
+      }
       this->dstList = new VertexId[owned_edges];
       this->srcList = new VertexId[owned_edges];
       int write_position=0; 
@@ -69,7 +70,6 @@ public:
       }
       if (partition_id == 0)
       printf("NeutronStar::Preprocessing[Generate Partitioned Subgraph]\n");
-    }
     }
   }
   void PartitionToChunks(std::function<ValueType(VertexId, VertexId)> weight_compute,
