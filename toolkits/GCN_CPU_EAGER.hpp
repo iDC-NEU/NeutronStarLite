@@ -1,5 +1,4 @@
-#include "core/gnnmini.h"
-#include "core/ntsContext.hpp"
+#include "core/neutronstar.hpp"
 class GCN_CPU_EAGER_impl {
 public:
   int iterations;
@@ -15,13 +14,14 @@ public:
   // graph
   VertexSubset *active;
   Graph<Empty> *graph;
-  std::vector<CSC_segment_pinned *> subgraphs;
+  //std::vector<CSC_segment_pinned *> subgraphs;
   // NN
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
-  GraphOperation *gt;
+  //GraphOperation *gt;
+  PartitionedGraph *partitioned_graph;
   nts::ctx::NtsContext *ctx;
   // Variables
   std::vector<Parameter *> P;
@@ -63,14 +63,18 @@ public:
   }
   void init_graph() {
     // std::vector<CSC_segment_pinned *> csc_segment;
-    graph->generate_COO();
-    graph->reorder_COO_W2W();
-    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GraphOperation(graph, active);
-    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
-      return gt->norm_degree(src, dst);
-    });
-    gt->GenerateMessageBitmap_multisokects(subgraphs);
+//    graph->generate_COO();
+//    graph->reorder_COO_W2W();
+//    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
+//    gt = new GraphOperation(graph, active);
+//    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
+//      return gt->norm_degree(src, dst);
+//    });
+//    gt->GenerateMessageBitmap_multisokects(subgraphs);
+    partitioned_graph=new PartitionedGraph(graph, active);
+    partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
+      return 1;
+    },CPU_T);
     graph->init_communicatior();
     ctx=new nts::ctx::NtsContext();
   }
@@ -198,7 +202,7 @@ public:
         },
         X[i],
         X[i]);
-        X[i + 1] = ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,subgraphs,Y_i);
+        X[i + 1] = ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,partitioned_graph->graph_chunks,Y_i);
 
     }
   }

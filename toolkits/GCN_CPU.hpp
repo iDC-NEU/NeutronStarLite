@@ -1,7 +1,4 @@
-
-#include "comm/logger.h"
-#include "core/gnnmini.h"
-#include "core/ntsContext.hpp"
+#include "core/neutronstar.hpp"
 
 class GCN_CPU_impl {
 public:
@@ -19,13 +16,14 @@ public:
   VertexSubset *active;
   // graph with no edge data
   Graph<Empty> *graph;
-  std::vector<CSC_segment_pinned *> subgraphs;
+  //std::vector<CSC_segment_pinned *> subgraphs;
   // NN
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
-  GraphOperation *gt;
+  //GraphOperation *gt;
+  PartitionedGraph *partitioned_graph;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -68,20 +66,25 @@ public:
   }
   void init_graph() {
     // std::vector<CSC_segment_pinned *> csc_segment;
-    graph->generate_COO();
-    graph->reorder_COO_W2W();
+//    graph->generate_COO();
+//    graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GraphOperation(graph, active);
-    // generate the representation for subgraph corresponding to the way we
-    // partitioned e.g. generate CSC/CSR format representation for every
-    // subgraph
-    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
-      return gt->norm_degree(src, dst);
-    });
-    // gt->GenerateMessageBitmap(subgraphs);
-    // pre-process the data that will be used while doing forward and backward
-    // propagation which has better support on multisockets.
-    gt->GenerateMessageBitmap_multisokects(subgraphs);
+//    gt = new GraphOperation(graph, active);
+//    // generate the representation for subgraph corresponding to the way we
+//    // partitioned e.g. generate CSC/CSR format representation for every
+//    // subgraph
+//    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
+//      return gt->norm_degree(src, dst);
+//    });
+//    // gt->GenerateMessageBitmap(subgraphs);
+//    // pre-process the data that will be used while doing forward and backward
+//    // propagation which has better support on multisockets.
+//    gt->GenerateMessageBitmap_multisokects(subgraphs);
+    
+    partitioned_graph=new PartitionedGraph(graph, active);
+    partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
+      return nts::op::nts_norm_degree(graph,src, dst);
+    },CPU_T);
     graph->init_communicatior();
     //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
     ctx=new nts::ctx::NtsContext();
@@ -216,7 +219,7 @@ public:
         X[i] = drpmodel(X[i]);
       }
 
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,subgraphs,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },

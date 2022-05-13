@@ -1,7 +1,4 @@
-#include "core/AutoDiff.h"
-#include "core/gnnmini.h"
-#include "comm/logger.h"
-#include "core/ntsContext.hpp"
+#include "core/neutronstar.hpp"
 
 class GIN_CPU_impl : torch::nn::Module {
 public:
@@ -18,14 +15,15 @@ public:
   // graph
   VertexSubset *active;
   Graph<Empty> *graph;
-  std::vector<CSC_segment_pinned *> subgraphs;
+  //std::vector<CSC_segment_pinned *> subgraphs;
   // NN
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
   std::map<std::string, NtsVar> I_data;
-  GraphOperation *gt;
+  //GraphOperation *gt;
+  PartitionedGraph* partitioned_graph;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -70,14 +68,18 @@ public:
   }
   void init_graph() {
     // std::vector<CSC_segment_pinned *> csc_segment;
-    graph->generate_COO();
-    graph->reorder_COO_W2W();
-    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GraphOperation(graph, active);
-    gt->GenerateGraphSegment(subgraphs, CPU_T,
-                             [&](VertexId src, VertexId dst) { return 1; });
-    // gt->GenerateMessageBitmap(subgraphs);
-    gt->GenerateMessageBitmap_multisokects(subgraphs);
+//    graph->generate_COO();
+//    graph->reorder_COO_W2W();
+//    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
+//    gt = new GraphOperation(graph, active);
+//    gt->GenerateGraphSegment(subgraphs, CPU_T,
+//                             [&](VertexId src, VertexId dst) { return 1; });
+//    // gt->GenerateMessageBitmap(subgraphs);
+//    gt->GenerateMessageBitmap_multisokects(subgraphs);
+    partitioned_graph=new PartitionedGraph(graph, active);
+    partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
+      return nts::op::nts_norm_degree(graph,src, dst);
+    },CPU_T);      
     graph->init_communicatior();
     ctx = new nts::ctx::NtsContext();
   }
@@ -215,7 +217,7 @@ public:
 
       
     //  gt->PropagateForwardCPU_Lockfree_multisockets(X[i], Y[i], subgraphs);
-      NtsVar Y_i=ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,subgraphs,X[i]);
+      NtsVar Y_i=ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);
       X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },
@@ -230,7 +232,6 @@ public:
       printf("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epochs\n", iterations);
     // graph->print_info();
     // std::cout <<"LOCAL EDGE NUM"<<graph->gnnctx->l_e_num<<std::endl;
-    std::cout << subgraphs[0]->column_offset[0] << std::endl;
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;

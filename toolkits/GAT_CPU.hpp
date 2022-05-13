@@ -1,13 +1,4 @@
-
-//#include "comm/logger.h"
-//#include "core/AutoDiff.hpp"
-//#include "core/gnnmini.hpp"
-#include "comm/logger.h"
-#include "core/AutoDiff.h"
-#include "core/NtsEdgeTensor.hpp"
-#include "core/gnnmini.h"
-#include "core/ntsContext.hpp"
-#include "core/PartitionedGraph.hpp"
+#include "core/neutronstar.hpp"
 
 class GAT_CPU_impl {
 public:

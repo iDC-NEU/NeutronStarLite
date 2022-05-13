@@ -1,6 +1,4 @@
-#include "core/gnnmini.h"
-#include "core/ntsContext.hpp"
-
+#include "core/neutronstar.hpp"
 class GCN_impl {
 public:
   int iterations;
@@ -17,7 +15,7 @@ public:
   // graph
   VertexSubset *active;
   Graph<Empty> *graph;
-  std::vector<CSC_segment_pinned *> subgraphs;
+  //std::vector<CSC_segment_pinned *> subgraphs;
   // NN
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
@@ -25,7 +23,8 @@ public:
   NtsVar MASK;
   NtsVar MASK_gpu;
   std::map<std::string, NtsVar> I_data;
-  GraphOperation *gt;
+ //GraphOperation *gt;
+  PartitionedGraph* partitioned_graph;
   nts::ctx::NtsContext* ctx;
   // Variables
   std::vector<Parameter *> P;
@@ -68,13 +67,17 @@ public:
   }
   void init_graph() {
     // std::vector<CSC_segment_pinned *> csc_segment;
-    graph->generate_COO();
-    graph->reorder_COO_W2W();
-    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GraphOperation(graph, active);
-    gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
-      return gt->norm_degree(src, dst);
-    });
+//    graph->generate_COO();
+//    graph->reorder_COO_W2W();
+//    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
+//    gt = new GraphOperation(graph, active);
+//    gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
+//      return gt->norm_degree(src, dst);
+//    });
+    partitioned_graph=new PartitionedGraph(graph, active);
+    partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
+      return nts::op::nts_norm_degree(graph,src, dst);
+    },GPU_T);    
     double load_rep_time = 0;
     load_rep_time -= get_time();
     // graph->load_replicate3(graph->gnnctx->layer_size);
@@ -221,7 +224,7 @@ public:
 //      gt->GraphPropagateForward(X[i], Y[i], subgraphs);
 //      cp->op_push(X[i], Y[i], nts::autodiff::DIST_GPU);
 //      X[i + 1] = vertexForward(Y[i], X[i]);
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,subgraphs,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },
