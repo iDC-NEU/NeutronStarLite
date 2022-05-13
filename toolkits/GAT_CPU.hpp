@@ -7,6 +7,7 @@
 #include "core/NtsEdgeTensor.hpp"
 #include "core/gnnmini.h"
 #include "core/ntsContext.hpp"
+#include "core/PartitionedGraph.hpp"
 
 class GAT_CPU_impl {
 public:
@@ -23,14 +24,15 @@ public:
   // graph
   VertexSubset *active;
   Graph<Empty> *graph;
-  std::vector<CSC_segment_pinned *> subgraphs;
+  //std::vector<CSC_segment_pinned *> subgraphs;
   // NN
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
   std::map<std::string, NtsVar> I_data;
-  GraphOperation *gt;
+  //GraphOperation *gt;
+  PartitionedGraph * partitioned_graph;
   // Variables
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
@@ -73,15 +75,21 @@ public:
   }
   void init_graph() {
     // std::vector<CSC_segment_pinned *> csc_segment;
-    graph->generate_COO();
-    graph->reorder_COO_W2W();
+//    graph->generate_COO();
+//    graph->reorder_COO_W2W();
     // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-    gt = new GraphOperation(graph, active);
-    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
-      return gt->norm_degree(src, dst);
-    });
-    // gt->GenerateMessageBitmap(subgraphs);
-    gt->GenerateMessageBitmap_multisokects(subgraphs);
+    
+//    gt = new GraphOperation(graph, active);
+//    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
+//      return gt->norm_degree(src, dst);
+//    });
+//    // gt->GenerateMessageBitmap(subgraphs);
+//    gt->GenerateMessageBitmap_multisokects(subgraphs);
+    partitioned_graph=new PartitionedGraph(graph, active);
+    partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
+      return 1;
+    },CPU_T);
+    
     graph->init_communicatior();
     //cp = new nts::autodiff::ComputionPath(gt, subgraphs, true);
     ctx= new nts::ctx::NtsContext();
@@ -200,7 +208,7 @@ public:
             return preForward(x_i);},
         X[i]);//pre apply    
       NtsVar E_msg=ctx->runGraphOp<nts::op::SingleCPUSrcDstScatterOp>(graph,
-                active,subgraphs,X_trans);// scatterto edge
+                active,partitioned_graph->graph_chunks,X_trans);// scatterto edge
       
       NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
             int layer = graph->rtminfo->curr_layer;
@@ -209,7 +217,7 @@ public:
       E_msg);//edge NN
         
       NtsVar a=ctx->runGraphOp<nts::op::SingleEdgeSoftMax>(graph,
-                active,subgraphs,m);// edge NN   
+                active,partitioned_graph->graph_chunks,m);// edge NN   
       
       NtsVar E_msg_out=ctx->runEdgeForward([&](NtsVar a){
             return E_msg.slice(1, 0, E_msg.size(1) / 2, 1)*a;
@@ -217,7 +225,7 @@ public:
       a);//Edge NN 
         
       NtsVar nbr=ctx->runGraphOp<nts::op::SingleCPUDstAggregateOp>(graph,
-                active,subgraphs,E_msg_out);//agg  
+                active,partitioned_graph->graph_chunks,E_msg_out);//agg  
       
       X[i+1]=ctx->runVertexForward([&](NtsVar nbr){
             return torch::relu(nbr);

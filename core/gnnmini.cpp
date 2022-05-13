@@ -914,50 +914,50 @@ void GraphOperation::GraphPropagateBackward(
   }
 }
 
-void GraphOperation::PropagateForwardEdgeGPU(
-    NtsVar &src_input_transferred, NtsVar &dst_output,
-    std::vector<CSC_segment_pinned *> &graph_partitions,
-    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)>
-        EdgeComputation) {
-  int feature_size = src_input_transferred.size(1);
-  NtsVar X_cpu = src_input_transferred.cpu();
-  ValueType *X_buffered = X_cpu.accessor<ValueType, 2>().data();
-  graph_->sync_compute_decoupled_edge<int, ValueType>(
-      src_input_transferred, graph_partitions,
-      [&](VertexId src) {
-        graph_->NtsComm->emit_buffer(
-            src, X_buffered + (src - graph_->gnnctx->p_v_s) * feature_size,
-            feature_size);
-      },
-      [&](NtsVar &s_i_t, NtsVar &d_i_t, NtsScheduler *nts) {
-        return EdgeComputation(s_i_t, d_i_t, nts);
-      },
-      dst_output, feature_size);
-}
-
-void GraphOperation::PropagateBackwardEdgeGPU(
-    NtsVar &src_input_origin, NtsVar &dst_grad_input, NtsVar &dst_grad_output,
-    std::vector<CSC_segment_pinned *> &graph_partitions,
-    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)>
-        EdgeComputation,
-    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)> EdgeBackward) {
-  int feature_size = src_input_origin.size(
-      1); //= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
-  graph_->compute_sync_decoupled_edge<int, ValueType>(
-      dst_grad_input, src_input_origin, graph_partitions,
-      [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {
-        graph_->NtsComm->emit_buffer(
-            src, graph_->output_cpu_buffer + (src)*feature_size, feature_size);
-      },
-      [&](NtsVar &s_i_t, NtsVar &d_i_t, NtsScheduler *nts) {
-        return EdgeComputation(s_i_t, d_i_t, nts);
-      },
-      [&](NtsVar &b_i, NtsVar &c_i, NtsScheduler *nts) {
-        return EdgeBackward(b_i, c_i, nts);
-      },
-      dst_grad_output, feature_size);
-  // printf("done!\n");
-}
+//void GraphOperation::PropagateForwardEdgeGPU(
+//    NtsVar &src_input_transferred, NtsVar &dst_output,
+//    std::vector<CSC_segment_pinned *> &graph_partitions,
+//    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)>
+//        EdgeComputation) {
+//  int feature_size = src_input_transferred.size(1);
+//  NtsVar X_cpu = src_input_transferred.cpu();
+//  ValueType *X_buffered = X_cpu.accessor<ValueType, 2>().data();
+//  graph_->sync_compute_decoupled_edge<int, ValueType>(
+//      src_input_transferred, graph_partitions,
+//      [&](VertexId src) {
+//        graph_->NtsComm->emit_buffer(
+//            src, X_buffered + (src - graph_->gnnctx->p_v_s) * feature_size,
+//            feature_size);
+//      },
+//      [&](NtsVar &s_i_t, NtsVar &d_i_t, NtsScheduler *nts) {
+//        return EdgeComputation(s_i_t, d_i_t, nts);
+//      },
+//      dst_output, feature_size);
+//}
+//
+//void GraphOperation::PropagateBackwardEdgeGPU(
+//    NtsVar &src_input_origin, NtsVar &dst_grad_input, NtsVar &dst_grad_output,
+//    std::vector<CSC_segment_pinned *> &graph_partitions,
+//    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)>
+//        EdgeComputation,
+//    std::function<NtsVar(NtsVar &, NtsVar &, NtsScheduler *nts)> EdgeBackward) {
+//  int feature_size = src_input_origin.size(
+//      1); //= graph_->gnnctx->layer_size[graph_->rtminfo->curr_layer];
+//  graph_->compute_sync_decoupled_edge<int, ValueType>(
+//      dst_grad_input, src_input_origin, graph_partitions,
+//      [&](VertexId src, VertexAdjList<Empty> outgoing_adj) {
+//        graph_->NtsComm->emit_buffer(
+//            src, graph_->output_cpu_buffer + (src)*feature_size, feature_size);
+//      },
+//      [&](NtsVar &s_i_t, NtsVar &d_i_t, NtsScheduler *nts) {
+//        return EdgeComputation(s_i_t, d_i_t, nts);
+//      },
+//      [&](NtsVar &b_i, NtsVar &c_i, NtsScheduler *nts) {
+//        return EdgeBackward(b_i, c_i, nts);
+//      },
+//      dst_grad_output, feature_size);
+//  // printf("done!\n");
+//}
 #endif
 
 /**

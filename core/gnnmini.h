@@ -133,4 +133,7 @@ public:
   void TestGeneratedBitmap(std::vector<CSC_segment_pinned *> &subgraphs);
 };
 
+
+
+
 #endif
