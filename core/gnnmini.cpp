@@ -967,296 +967,296 @@ void GraphOperation::GraphPropagateBackward(
  * @param dt device type
  * @param weight_compute function which used to compute edge weight
  */
-void GraphOperation::GenerateGraphSegment(
-    std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt,
-    std::function<ValueType(VertexId, VertexId)> weight_compute) {
-  graph_partitions.clear();
-  int *tmp_column_offset = new int[graph_->vertices + 1];
-  int *tmp_row_offset = new int[graph_->vertices + 1];
-  memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1)); //
-  memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));    //
-  // for every partition
-  for (int i = 0; i < graph_->graph_shard_in.size(); i++) {
-    graph_partitions.push_back(new CSC_segment_pinned);
-    graph_partitions[i]->init(graph_->graph_shard_in[i]->src_range[0],
-                              graph_->graph_shard_in[i]->src_range[1],
-                              graph_->graph_shard_in[i]->dst_range[0],
-                              graph_->graph_shard_in[i]->dst_range[1],
-                              graph_->graph_shard_in[i]->numofedges, dt);
-    graph_partitions[i]->allocVertexAssociateData();
-    graph_partitions[i]->allocEdgeAssociateData();
-    memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
-    memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
-
-    for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
-      // note that the vertex in the same partition has the contiguous vertexID
-      // so we can minus the start index to get the offset
-      // v_src_m and v_dst_m is the real vertex id
-      // v_dst and v_src is local vertex id
-      VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
-      VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
-      VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
-      VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
-
-      // count of edges which has dst to v_dst plus one
-      tmp_column_offset[v_dst + 1] += 1;
-      // count of edges which has src from v_src plus one
-      tmp_row_offset[v_src + 1] += 1; ///
-      // graph_partitions[i]->weight_buffer[j]=(ValueType)std::sqrt(graph->out_degree_for_backward[v_src])*(ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
-    }
-    // accumulate those offset, calc the partial sum
-    for (int j = 0; j < graph_partitions[i]->batch_size_forward; j++) {
-      tmp_column_offset[j + 1] += tmp_column_offset[j];
-      graph_partitions[i]->column_offset[j + 1] = tmp_column_offset[j + 1];
-    }
-
-    for (int j = 0; j < graph_partitions[i]->batch_size_backward; j++) ///
-    {
-      tmp_row_offset[j + 1] += tmp_row_offset[j];
-      graph_partitions[i]->row_offset[j + 1] = tmp_row_offset[j + 1];
-    }
-
-    // after calc the offset, we should place those edges now
-    for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
-      // if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
-      // v_src is from partition i
-      // v_dst is from local partition
-      VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
-      VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
-      VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
-      VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
-
-      // save the src and dst in the column format
-      graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)(v_src_m);
-      graph_partitions[i]->destination[tmp_column_offset[v_dst]] =
-          (long)(v_dst_m);
-      // save the src in the row format
-
-      graph_partitions[i]->src_set_active(
-          v_src_m); // source_active->set_bit(v_src);
-      graph_partitions[i]->dst_set_active(
-          v_dst_m); // destination_active->set_bit(v_dst);
-
-      // save src in CSC format, used in forward computation
-      graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
-      graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] =
-          weight_compute(v_src_m, v_dst_m);
-
-      // save dst in CSR format, used in backward computation
-      graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m; ///
-      graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] =
-          weight_compute(v_src_m, v_dst_m);
-    }
-    // graph_partitions[i]->getDevicePointerAll();
-    graph_partitions[i]->CopyGraphToDevice();
-  }
-#if CUDA_ENABLE
-  if (GPU_T == dt) {
-    int max_batch_size = 0;
-    for (int i = 0; i < graph_partitions.size(); i++) {
-      max_batch_size =
-          std::max(max_batch_size, graph_partitions[i]->batch_size_backward);
-    }
-    graph_->output_gpu_buffered = graph_->Nts->NewLeafTensor(
-        {max_batch_size, graph_->gnnctx->max_layer}, torch::DeviceType::CUDA);
-  }
-#endif
-  delete[] tmp_column_offset;
-  delete[] tmp_row_offset;
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Graph Segments Prepared]\n");
-}
-
-/**
- * @brief
- * preprocess bitmap, used in forward and backward propagation
- * @param graph_partitions
- */
-void GraphOperation::GenerateMessageBitmap_multisokects(
-    std::vector<CSC_segment_pinned *>
-        &graph_partitions) { // local partition offset
-  int feature_size = 1;
-  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
-      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
-          VertexId recv_id) { // pull
-        VertexId src_trans = src - graph_->partition_offset[recv_id];
-        // send id of local partition to src
-        // indicate that src will have contribution to local partition
-        // while doing forward propagation
-        if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
-          VertexId part = (VertexId)graph_->partition_id;
-          graph_->emit_buffer(src, &part, feature_size);
-        }
-      },
-      [&](VertexId master, VertexId *msg) {
-        // vertex master in local partition will have contribution to partition
-        // part
-        VertexId part = *msg;
-        graph_partitions[part]->set_forward_active(
-            master -
-            graph_->gnnctx
-                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
-        return 0;
-      },
-      feature_size, active_);
-
-  size_t basic_chunk = 64;
-  // for every partition
-  for (int i = 0; i < graph_partitions.size(); i++) {
-    // allocate the data structure
-    graph_partitions[i]->forward_multisocket_message_index =
-        new VertexId[graph_partitions[i]->batch_size_forward];
-    memset(graph_partitions[i]->forward_multisocket_message_index, 0,
-           sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
-
-    graph_partitions[i]->backward_multisocket_message_index =
-        new BackVertexIndex[graph_partitions[i]->batch_size_backward];
-    int socketNum = numa_num_configured_nodes();
-    // for every vertex in partition i, set socket num
-    for (int bck = 0; bck < graph_partitions[i]->batch_size_backward; bck++) {
-      graph_partitions[i]->backward_multisocket_message_index[bck].setSocket(
-          socketNum);
-    }
-
-    std::vector<VertexId> socket_backward_write_offset;
-    socket_backward_write_offset.resize(numa_num_configured_nodes());
-    memset(socket_backward_write_offset.data(), 0,
-           sizeof(VertexId) * socket_backward_write_offset.size());
-#pragma omp parallel
-    {
-      int thread_id = omp_get_thread_num();
-      int s_i = graph_->get_socket_id(thread_id);
-      VertexId begin_p_v_i =
-          graph_->tuned_chunks_dense_backward[i][thread_id].curr;
-      VertexId final_p_v_i =
-          graph_->tuned_chunks_dense_backward[i][thread_id].end;
-      // for every vertex, we calc the message_index. This is used in backward
-      // propagation in lockfree style and every vertex has chance to gain
-      // gradient from every socket in local partition so we need to calculate
-      // write index for every socket
-      for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
-        VertexId v_i =
-            graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
-        VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
-        if (graph_partitions[i]->src_get_active(v_i)) {
-          int position =
-              __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
-          graph_partitions[i]
-              ->backward_multisocket_message_index[v_trans]
-              .vertexSocketPosition[s_i] = position;
-        }
-      }
-    }
-
-    std::vector<VertexId> socket_forward_write_offset;
-    socket_forward_write_offset.resize(numa_num_configured_nodes());
-    memset(socket_forward_write_offset.data(), 0,
-           sizeof(VertexId) * socket_forward_write_offset.size());
-#pragma omp parallel for schedule(static, basic_chunk)
-    // pragma omp parallel for
-    for (VertexId begin_v_i = graph_partitions[i]->dst_range[0];
-         begin_v_i < graph_partitions[i]->dst_range[1]; begin_v_i++) {
-      int thread_id = omp_get_thread_num();
-      int s_i = graph_->get_socket_id(thread_id);
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
-      // if v_trans has contribution to partition i
-      // then we calculate the write_index for it
-      // Looks like vertex id will bind to the socket id
-      // i.e. the same vertex will always be processed by the same thread
-      if (graph_partitions[i]->get_forward_active(v_trans)) {
-        int position =
-            __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
-        graph_partitions[i]->forward_multisocket_message_index[v_trans] =
-            position;
-      }
-    }
-    // printf("forward_write_offset %d\n",forward_write_offset);
-  }
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
-}
-
-void GraphOperation::GenerateMessageBitmap(
-    std::vector<CSC_segment_pinned *>
-        &graph_partitions) { // local partition offset
-  int feature_size = 1;
-  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
-      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
-          VertexId recv_id) { // pull
-        VertexId src_trans = src - graph_->partition_offset[recv_id];
-        if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
-          VertexId part = (VertexId)graph_->partition_id;
-          graph_->emit_buffer(src, &part, feature_size);
-        }
-      },
-      [&](VertexId master, VertexId *msg) {
-        VertexId part = *msg;
-        graph_partitions[part]->set_forward_active(
-            master -
-            graph_->gnnctx
-                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
-        return 0;
-      },
-      feature_size, active_);
-
-  size_t basic_chunk = 64;
-  for (int i = 0; i < graph_partitions.size(); i++) {
-    graph_partitions[i]->backward_message_index =
-        new VertexId[graph_partitions[i]->batch_size_backward];
-    graph_partitions[i]->forward_message_index =
-        new VertexId[graph_partitions[i]->batch_size_forward];
-    memset(graph_partitions[i]->backward_message_index, 0,
-           sizeof(VertexId) * graph_partitions[i]->batch_size_backward);
-    memset(graph_partitions[i]->forward_message_index, 0,
-           sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
-    int backward_write_offset = 0;
-
-    for (VertexId begin_v_i = graph_partitions[i]->src_range[0];
-         begin_v_i < graph_partitions[i]->src_range[1]; begin_v_i += 1) {
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
-      if (graph_partitions[i]->src_get_active(v_i))
-        graph_partitions[i]->backward_message_index[v_trans] =
-            backward_write_offset++;
-    }
-
-    int forward_write_offset = 0;
-    for (VertexId begin_v_i = graph_partitions[i]->dst_range[0];
-         begin_v_i < graph_partitions[i]->dst_range[1]; begin_v_i += 1) {
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
-      if (graph_partitions[i]->get_forward_active(v_trans))
-        graph_partitions[i]->forward_message_index[v_trans] =
-            forward_write_offset++;
-    }
-    // printf("forward_write_offset %d\n",forward_write_offset);
-  }
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
-}
-
-void GraphOperation::TestGeneratedBitmap(
-    std::vector<CSC_segment_pinned *> &subgraphs) {
-  for (int i = 0; i < subgraphs.size(); i++) {
-    int count_act_src = 0;
-    int count_act_dst = 0;
-    int count_act_master = 0;
-    for (int j = subgraphs[i]->dst_range[0]; j < subgraphs[i]->dst_range[1];
-         j++) {
-      if (subgraphs[i]->dst_get_active(j)) {
-        count_act_dst++;
-      }
-    }
-    for (int j = subgraphs[i]->src_range[0]; j < subgraphs[i]->src_range[1];
-         j++) {
-      if (subgraphs[i]->src_get_active(j)) {
-        count_act_src++;
-      }
-    }
-    printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR "
-           "%d\n",
-           graph_->partition_id, i, count_act_src, count_act_dst,
-           count_act_master);
-  }
-}
+//void GraphOperation::GenerateGraphSegment(
+//    std::vector<CSC_segment_pinned *> &graph_partitions, DeviceLocation dt,
+//    std::function<ValueType(VertexId, VertexId)> weight_compute) {
+//  graph_partitions.clear();
+//  int *tmp_column_offset = new int[graph_->vertices + 1];
+//  int *tmp_row_offset = new int[graph_->vertices + 1];
+//  memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1)); //
+//  memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));    //
+//  // for every partition
+//  for (int i = 0; i < graph_->graph_shard_in.size(); i++) {
+//    graph_partitions.push_back(new CSC_segment_pinned);
+//    graph_partitions[i]->init(graph_->graph_shard_in[i]->src_range[0],
+//                              graph_->graph_shard_in[i]->src_range[1],
+//                              graph_->graph_shard_in[i]->dst_range[0],
+//                              graph_->graph_shard_in[i]->dst_range[1],
+//                              graph_->graph_shard_in[i]->numofedges, dt);
+//    graph_partitions[i]->allocVertexAssociateData();
+//    graph_partitions[i]->allocEdgeAssociateData();
+//    memset(tmp_column_offset, 0, sizeof(int) * (graph_->vertices + 1));
+//    memset(tmp_row_offset, 0, sizeof(int) * (graph_->vertices + 1));
+//
+//    for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
+//      // note that the vertex in the same partition has the contiguous vertexID
+//      // so we can minus the start index to get the offset
+//      // v_src_m and v_dst_m is the real vertex id
+//      // v_dst and v_src is local vertex id
+//      VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
+//      VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
+//      VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
+//      VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
+//
+//      // count of edges which has dst to v_dst plus one
+//      tmp_column_offset[v_dst + 1] += 1;
+//      // count of edges which has src from v_src plus one
+//      tmp_row_offset[v_src + 1] += 1; ///
+//      // graph_partitions[i]->weight_buffer[j]=(ValueType)std::sqrt(graph->out_degree_for_backward[v_src])*(ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
+//    }
+//    // accumulate those offset, calc the partial sum
+//    for (int j = 0; j < graph_partitions[i]->batch_size_forward; j++) {
+//      tmp_column_offset[j + 1] += tmp_column_offset[j];
+//      graph_partitions[i]->column_offset[j + 1] = tmp_column_offset[j + 1];
+//    }
+//
+//    for (int j = 0; j < graph_partitions[i]->batch_size_backward; j++) ///
+//    {
+//      tmp_row_offset[j + 1] += tmp_row_offset[j];
+//      graph_partitions[i]->row_offset[j + 1] = tmp_row_offset[j + 1];
+//    }
+//
+//    // after calc the offset, we should place those edges now
+//    for (int j = 0; j < graph_partitions[i]->edge_size; j++) {
+//      // if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
+//      // v_src is from partition i
+//      // v_dst is from local partition
+//      VertexId v_src_m = graph_->graph_shard_in[i]->src_delta[j];
+//      VertexId v_dst_m = graph_->graph_shard_in[i]->dst_delta[j];
+//      VertexId v_dst = v_dst_m - graph_partitions[i]->dst_range[0];
+//      VertexId v_src = v_src_m - graph_partitions[i]->src_range[0];
+//
+//      // save the src and dst in the column format
+//      graph_partitions[i]->source[tmp_column_offset[v_dst]] = (long)(v_src_m);
+//      graph_partitions[i]->destination[tmp_column_offset[v_dst]] =
+//          (long)(v_dst_m);
+//      // save the src in the row format
+//
+//      graph_partitions[i]->src_set_active(
+//          v_src_m); // source_active->set_bit(v_src);
+//      graph_partitions[i]->dst_set_active(
+//          v_dst_m); // destination_active->set_bit(v_dst);
+//
+//      // save src in CSC format, used in forward computation
+//      graph_partitions[i]->row_indices[tmp_column_offset[v_dst]] = v_src_m;
+//      graph_partitions[i]->edge_weight_forward[tmp_column_offset[v_dst]++] =
+//          weight_compute(v_src_m, v_dst_m);
+//
+//      // save dst in CSR format, used in backward computation
+//      graph_partitions[i]->column_indices[tmp_row_offset[v_src]] = v_dst_m; ///
+//      graph_partitions[i]->edge_weight_backward[tmp_row_offset[v_src]++] =
+//          weight_compute(v_src_m, v_dst_m);
+//    }
+//    // graph_partitions[i]->getDevicePointerAll();
+//    graph_partitions[i]->CopyGraphToDevice();
+//  }
+//#if CUDA_ENABLE
+//  if (GPU_T == dt) {
+//    int max_batch_size = 0;
+//    for (int i = 0; i < graph_partitions.size(); i++) {
+//      max_batch_size =
+//          std::max(max_batch_size, graph_partitions[i]->batch_size_backward);
+//    }
+//    graph_->output_gpu_buffered = graph_->Nts->NewLeafTensor(
+//        {max_batch_size, graph_->gnnctx->max_layer}, torch::DeviceType::CUDA);
+//  }
+//#endif
+//  delete[] tmp_column_offset;
+//  delete[] tmp_row_offset;
+//  if (graph_->partition_id == 0)
+//    printf("GNNmini::Preprocessing[Graph Segments Prepared]\n");
+//}
+//
+///**
+// * @brief
+// * preprocess bitmap, used in forward and backward propagation
+// * @param graph_partitions
+// */
+//void GraphOperation::GenerateMessageBitmap_multisokects(
+//    std::vector<CSC_segment_pinned *>
+//        &graph_partitions) { // local partition offset
+//  int feature_size = 1;
+//  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+//      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+//          VertexId recv_id) { // pull
+//        VertexId src_trans = src - graph_->partition_offset[recv_id];
+//        // send id of local partition to src
+//        // indicate that src will have contribution to local partition
+//        // while doing forward propagation
+//        if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
+//          VertexId part = (VertexId)graph_->partition_id;
+//          graph_->emit_buffer(src, &part, feature_size);
+//        }
+//      },
+//      [&](VertexId master, VertexId *msg) {
+//        // vertex master in local partition will have contribution to partition
+//        // part
+//        VertexId part = *msg;
+//        graph_partitions[part]->set_forward_active(
+//            master -
+//            graph_->gnnctx
+//                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
+//        return 0;
+//      },
+//      feature_size, active_);
+//
+//  size_t basic_chunk = 64;
+//  // for every partition
+//  for (int i = 0; i < graph_partitions.size(); i++) {
+//    // allocate the data structure
+//    graph_partitions[i]->forward_multisocket_message_index =
+//        new VertexId[graph_partitions[i]->batch_size_forward];
+//    memset(graph_partitions[i]->forward_multisocket_message_index, 0,
+//           sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
+//
+//    graph_partitions[i]->backward_multisocket_message_index =
+//        new BackVertexIndex[graph_partitions[i]->batch_size_backward];
+//    int socketNum = numa_num_configured_nodes();
+//    // for every vertex in partition i, set socket num
+//    for (int bck = 0; bck < graph_partitions[i]->batch_size_backward; bck++) {
+//      graph_partitions[i]->backward_multisocket_message_index[bck].setSocket(
+//          socketNum);
+//    }
+//
+//    std::vector<VertexId> socket_backward_write_offset;
+//    socket_backward_write_offset.resize(numa_num_configured_nodes());
+//    memset(socket_backward_write_offset.data(), 0,
+//           sizeof(VertexId) * socket_backward_write_offset.size());
+//#pragma omp parallel
+//    {
+//      int thread_id = omp_get_thread_num();
+//      int s_i = graph_->get_socket_id(thread_id);
+//      VertexId begin_p_v_i =
+//          graph_->tuned_chunks_dense_backward[i][thread_id].curr;
+//      VertexId final_p_v_i =
+//          graph_->tuned_chunks_dense_backward[i][thread_id].end;
+//      // for every vertex, we calc the message_index. This is used in backward
+//      // propagation in lockfree style and every vertex has chance to gain
+//      // gradient from every socket in local partition so we need to calculate
+//      // write index for every socket
+//      for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
+//        VertexId v_i =
+//            graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+//        VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
+//        if (graph_partitions[i]->src_get_active(v_i)) {
+//          int position =
+//              __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
+//          graph_partitions[i]
+//              ->backward_multisocket_message_index[v_trans]
+//              .vertexSocketPosition[s_i] = position;
+//        }
+//      }
+//    }
+//
+//    std::vector<VertexId> socket_forward_write_offset;
+//    socket_forward_write_offset.resize(numa_num_configured_nodes());
+//    memset(socket_forward_write_offset.data(), 0,
+//           sizeof(VertexId) * socket_forward_write_offset.size());
+//#pragma omp parallel for schedule(static, basic_chunk)
+//    // pragma omp parallel for
+//    for (VertexId begin_v_i = graph_partitions[i]->dst_range[0];
+//         begin_v_i < graph_partitions[i]->dst_range[1]; begin_v_i++) {
+//      int thread_id = omp_get_thread_num();
+//      int s_i = graph_->get_socket_id(thread_id);
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
+//      // if v_trans has contribution to partition i
+//      // then we calculate the write_index for it
+//      // Looks like vertex id will bind to the socket id
+//      // i.e. the same vertex will always be processed by the same thread
+//      if (graph_partitions[i]->get_forward_active(v_trans)) {
+//        int position =
+//            __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
+//        graph_partitions[i]->forward_multisocket_message_index[v_trans] =
+//            position;
+//      }
+//    }
+//    // printf("forward_write_offset %d\n",forward_write_offset);
+//  }
+//  if (graph_->partition_id == 0)
+//    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+//}
+//
+//void GraphOperation::GenerateMessageBitmap(
+//    std::vector<CSC_segment_pinned *>
+//        &graph_partitions) { // local partition offset
+//  int feature_size = 1;
+//  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+//      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+//          VertexId recv_id) { // pull
+//        VertexId src_trans = src - graph_->partition_offset[recv_id];
+//        if (graph_partitions[recv_id]->source_active->get_bit(src_trans)) {
+//          VertexId part = (VertexId)graph_->partition_id;
+//          graph_->emit_buffer(src, &part, feature_size);
+//        }
+//      },
+//      [&](VertexId master, VertexId *msg) {
+//        VertexId part = *msg;
+//        graph_partitions[part]->set_forward_active(
+//            master -
+//            graph_->gnnctx
+//                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
+//        return 0;
+//      },
+//      feature_size, active_);
+//
+//  size_t basic_chunk = 64;
+//  for (int i = 0; i < graph_partitions.size(); i++) {
+//    graph_partitions[i]->backward_message_index =
+//        new VertexId[graph_partitions[i]->batch_size_backward];
+//    graph_partitions[i]->forward_message_index =
+//        new VertexId[graph_partitions[i]->batch_size_forward];
+//    memset(graph_partitions[i]->backward_message_index, 0,
+//           sizeof(VertexId) * graph_partitions[i]->batch_size_backward);
+//    memset(graph_partitions[i]->forward_message_index, 0,
+//           sizeof(VertexId) * graph_partitions[i]->batch_size_forward);
+//    int backward_write_offset = 0;
+//
+//    for (VertexId begin_v_i = graph_partitions[i]->src_range[0];
+//         begin_v_i < graph_partitions[i]->src_range[1]; begin_v_i += 1) {
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_partitions[i]->src_range[0];
+//      if (graph_partitions[i]->src_get_active(v_i))
+//        graph_partitions[i]->backward_message_index[v_trans] =
+//            backward_write_offset++;
+//    }
+//
+//    int forward_write_offset = 0;
+//    for (VertexId begin_v_i = graph_partitions[i]->dst_range[0];
+//         begin_v_i < graph_partitions[i]->dst_range[1]; begin_v_i += 1) {
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_partitions[i]->dst_range[0];
+//      if (graph_partitions[i]->get_forward_active(v_trans))
+//        graph_partitions[i]->forward_message_index[v_trans] =
+//            forward_write_offset++;
+//    }
+//    // printf("forward_write_offset %d\n",forward_write_offset);
+//  }
+//  if (graph_->partition_id == 0)
+//    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+//}
+//
+//void GraphOperation::TestGeneratedBitmap(
+//    std::vector<CSC_segment_pinned *> &subgraphs) {
+//  for (int i = 0; i < subgraphs.size(); i++) {
+//    int count_act_src = 0;
+//    int count_act_dst = 0;
+//    int count_act_master = 0;
+//    for (int j = subgraphs[i]->dst_range[0]; j < subgraphs[i]->dst_range[1];
+//         j++) {
+//      if (subgraphs[i]->dst_get_active(j)) {
+//        count_act_dst++;
+//      }
+//    }
+//    for (int j = subgraphs[i]->src_range[0]; j < subgraphs[i]->src_range[1];
+//         j++) {
+//      if (subgraphs[i]->src_get_active(j)) {
+//        count_act_src++;
+//      }
+//    }
+//    printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR "
+//           "%d\n",
+//           graph_->partition_id, i, count_act_src, count_act_dst,
+//           count_act_master);
+//  }
+//}

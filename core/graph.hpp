@@ -72,10 +72,10 @@ public:
 
   // graph reorganization
   // contains the all of the in_edges for local partition
-  COOChunk *_graph_cpu_in;
+ // COOChunk *_graph_cpu_in;
   // contains the informaction of every partition with respect to local
   // partition e.g. number of edges that from partition i to local partition
-  std::vector<COOChunk *> graph_shard_in;
+ // std::vector<COOChunk *> graph_shard_in;
 
   std::string filename;
 
@@ -4103,91 +4103,91 @@ public:
     }
   }
 
-  // Coordinate list, for more information, please refer to this
-  // https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_(COO)
-  void generate_COO() {
-    _graph_cpu_in = new COOChunk();
-
-    // count the edge num, because last element in the array has the total
-    // number of edges so just count the number in every socket
-    VertexId edge_size_in = 0;
-    for (int i = 0; i < sockets; i++) {
-      edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
-    }
-
-    // allocate space for saving src and dst for every edges
-    _graph_cpu_in->dstList = new VertexId[edge_size_in];
-    _graph_cpu_in->srcList = new VertexId[edge_size_in];
-    _graph_cpu_in->numofedges = edge_size_in;
-
-    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the
-    // index to those edges calc all of the src and dst with respect to local
-    // vertices
-    int write_position_in = 0;
-    for (int k = 0; k < sockets; k++) {
-      for (VertexId vtx = 0; vtx < vertices; vtx++) {
-        for (int i = outgoing_adj_index[k][vtx];
-             i < outgoing_adj_index[k][vtx + 1]; i++) {
-          _graph_cpu_in->srcList[write_position_in] = vtx;
-          _graph_cpu_in->dstList[write_position_in++] =
-              outgoing_adj_list[k][i].neighbour;
-        }
-      }
-    }
-    if (partition_id == 0)
-      printf("GNNmini::Preprocessing[Generate Edges]\n");
-  }
-
-  // process cross partition edges from partition info
-  // for every partition, we need to know the vertices that related to local
-  // partition
-  void reorder_COO_W2W() { // replication
-    graph_shard_in.clear();
-    VertexId edge_size_out = 0;
-    //(VertexId)incoming_adj_index[sockets-1][vertices];
-    VertexId edge_size_in = 0;
-    // count edge num, same as above
-    for (int i = 0; i < sockets; i++) {
-      //edge_size_out += (VertexId)incoming_adj_index[i][vertices];
-      edge_size_in += (VertexId)incoming_adj_index_backward[i][vertices];
-    }
-
-    int src_blocks = partitions;
-    for (int i = 0; i < src_blocks; i++) {
-      graph_shard_in.push_back(new COOChunk());
-      graph_shard_in[i]->dst_range[0] = partition_offset[partition_id];
-      graph_shard_in[i]->dst_range[1] = partition_offset[partition_id + 1];
-      graph_shard_in[i]->src_range[0] = partition_offset[i];
-      graph_shard_in[i]->src_range[1] = partition_offset[i + 1];
-    }
-    // for every partition
-    // calc the number of edges which dst is local partition
-    for (int i = 0; i < edge_size_in; i++) {
-      int src_bucket = this->get_partition_id(_graph_cpu_in->srcList[i]);
-      graph_shard_in[src_bucket]->numofedges += 1;
-    }
-    for (int i = 0; i < src_blocks; i++) {
-      graph_shard_in[i]->src_delta =
-          new VertexId[graph_shard_in[i]->numofedges];
-      graph_shard_in[i]->dst_delta =
-          new VertexId[graph_shard_in[i]->numofedges];
-      graph_shard_in[i]->counter = 0;
-    }
-    // then process the vertex id
-    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to
-    // p and dst belongs to local partition
-    for (int i = 0; i < edge_size_in; i++) {
-      int source = _graph_cpu_in->src()[i];
-      int destination = _graph_cpu_in->dst()[i];
-      int bucket_s = this->get_partition_id(source);
-      int offset = graph_shard_in[bucket_s]->counter++;
-      graph_shard_in[bucket_s]->src_delta[offset] = source;
-      graph_shard_in[bucket_s]->dst_delta[offset] = destination;
-    }
-
-    if (partition_id == 0)
-      printf("GNNmini::Preprocessing[Reorganize Edges]\n");
-  }
+//  // Coordinate list, for more information, please refer to this
+//  // https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_(COO)
+//  void generate_COO() {
+//    _graph_cpu_in = new COOChunk();
+//
+//    // count the edge num, because last element in the array has the total
+//    // number of edges so just count the number in every socket
+//    VertexId edge_size_in = 0;
+//    for (int i = 0; i < sockets; i++) {
+//      edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
+//    }
+//
+//    // allocate space for saving src and dst for every edges
+//    _graph_cpu_in->dstList = new VertexId[edge_size_in];
+//    _graph_cpu_in->srcList = new VertexId[edge_size_in];
+//    _graph_cpu_in->numofedges = edge_size_in;
+//
+//    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the
+//    // index to those edges calc all of the src and dst with respect to local
+//    // vertices
+//    int write_position_in = 0;
+//    for (int k = 0; k < sockets; k++) {
+//      for (VertexId vtx = 0; vtx < vertices; vtx++) {
+//        for (int i = outgoing_adj_index[k][vtx];
+//             i < outgoing_adj_index[k][vtx + 1]; i++) {
+//          _graph_cpu_in->srcList[write_position_in] = vtx;
+//          _graph_cpu_in->dstList[write_position_in++] =
+//              outgoing_adj_list[k][i].neighbour;
+//        }
+//      }
+//    }
+//    if (partition_id == 0)
+//      printf("GNNmini::Preprocessing[Generate Edges]\n");
+//  }
+//
+//  // process cross partition edges from partition info
+//  // for every partition, we need to know the vertices that related to local
+//  // partition
+//  void reorder_COO_W2W() { // replication
+//    graph_shard_in.clear();
+//    VertexId edge_size_out = 0;
+//    //(VertexId)incoming_adj_index[sockets-1][vertices];
+//    VertexId edge_size_in = 0;
+//    // count edge num, same as above
+//    for (int i = 0; i < sockets; i++) {
+//      //edge_size_out += (VertexId)incoming_adj_index[i][vertices];
+//      edge_size_in += (VertexId)incoming_adj_index_backward[i][vertices];
+//    }
+//
+//    int src_blocks = partitions;
+//    for (int i = 0; i < src_blocks; i++) {
+//      graph_shard_in.push_back(new COOChunk());
+//      graph_shard_in[i]->dst_range[0] = partition_offset[partition_id];
+//      graph_shard_in[i]->dst_range[1] = partition_offset[partition_id + 1];
+//      graph_shard_in[i]->src_range[0] = partition_offset[i];
+//      graph_shard_in[i]->src_range[1] = partition_offset[i + 1];
+//    }
+//    // for every partition
+//    // calc the number of edges which dst is local partition
+//    for (int i = 0; i < edge_size_in; i++) {
+//      int src_bucket = this->get_partition_id(_graph_cpu_in->srcList[i]);
+//      graph_shard_in[src_bucket]->numofedges += 1;
+//    }
+//    for (int i = 0; i < src_blocks; i++) {
+//      graph_shard_in[i]->src_delta =
+//          new VertexId[graph_shard_in[i]->numofedges];
+//      graph_shard_in[i]->dst_delta =
+//          new VertexId[graph_shard_in[i]->numofedges];
+//      graph_shard_in[i]->counter = 0;
+//    }
+//    // then process the vertex id
+//    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to
+//    // p and dst belongs to local partition
+//    for (int i = 0; i < edge_size_in; i++) {
+//      int source = _graph_cpu_in->src()[i];
+//      int destination = _graph_cpu_in->dst()[i];
+//      int bucket_s = this->get_partition_id(source);
+//      int offset = graph_shard_in[bucket_s]->counter++;
+//      graph_shard_in[bucket_s]->src_delta[offset] = source;
+//      graph_shard_in[bucket_s]->dst_delta[offset] = destination;
+//    }
+//
+//    if (partition_id == 0)
+//      printf("GNNmini::Preprocessing[Reorganize Edges]\n");
+//  }
 
   template <typename R, typename M>
   R process_edges(
