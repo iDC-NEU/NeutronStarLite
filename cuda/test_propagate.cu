@@ -186,7 +186,7 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
         
 }
 void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float* weight_forward,//data 
-        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,long *destination,
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 	VertexId_CUDA edges,VertexId_CUDA batch_size,
@@ -194,18 +194,19 @@ void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float*
 #if CUDA_ENABLE
             if(with_weight){
             if(tensor_weight){
-		aggregate_kernel_from_src_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_indices, column_offset,destination, input, output, weight_forward, 
-				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
+//		aggregate_kernel_from_src_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+//			row_indices, column_offset, input, output, weight_forward, 
+//				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
+                printf("DEBUGGING \n");
             }else{
                 aggregate_kernel_from_src_with_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_indices, column_offset,destination, input, output, weight_forward, 
+			row_indices, column_offset, input, output, weight_forward, 
 				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
             }
         }
         else{
                 aggregate_kernel_from_src_without_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_indices, column_offset,destination, input, output, weight_forward, 
+			row_indices, column_offset, input, output, weight_forward, 
 				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
         }
 #else
@@ -217,7 +218,7 @@ void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float*
 }
 
 void Cuda_Stream::Gather_By_Src_From_Dst_Optim(float* input,float* output,float* weight_forward,//data  
-        VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,long *source,
+        VertexId_CUDA* row_offset,VertexId_CUDA *column_indices,
         VertexId_CUDA src_start, VertexId_CUDA src_end,
         VertexId_CUDA dst_start, VertexId_CUDA dst_end,
 	VertexId_CUDA edges,VertexId_CUDA batch_size,
@@ -226,17 +227,17 @@ void Cuda_Stream::Gather_By_Src_From_Dst_Optim(float* input,float* output,float*
         if(with_weight){
             if(tensor_weight){
 		aggregate_kernel_from_dst_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_offset, column_indices,source, input, output, weight_forward, 
+			row_offset, column_indices, input, output, weight_forward, 
 				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
             }else{
                 aggregate_kernel_from_dst_with_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_offset, column_indices,source, input, output, weight_forward, 
+			row_offset, column_indices, input, output, weight_forward, 
 				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
             }
         }
         else{
                 aggregate_kernel_from_dst_without_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_offset, column_indices,source, input, output, weight_forward, 
+			row_offset, column_indices, input, output, weight_forward, 
 				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
         }
 #else

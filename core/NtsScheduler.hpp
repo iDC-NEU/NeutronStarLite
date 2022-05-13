@@ -48,7 +48,7 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/torch.h"
-
+//#define CUDA_ENABLE 1
 typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
 typedef torch::DeviceType NtsDevide;
@@ -182,7 +182,7 @@ public:
           // weight_buffer, //data
           forward_weight_from_pinned, row_indices_from_pinned,
           column_offset_from_pinned, // graph
-          subgraph->destination_gpu, (VertexId)src_start, (VertexId)src_end,
+          (VertexId)src_start, (VertexId)src_end,
           (VertexId)dst_start, (VertexId)dst_end, (VertexId)subgraph->edge_size,
           (VertexId)subgraph->batch_size_forward, (VertexId)output_size,
           rtminfo->with_weight);
@@ -284,7 +284,7 @@ public:
           // weight_buffer, //data
           backward_weight_from_pinned,
           row_offset_from_pinned, // graph
-          column_indices_from_pinned, subgraph->source_backward_gpu,
+          column_indices_from_pinned,
           (VertexId)src_start, (VertexId)src_end, (VertexId)dst_start,
           (VertexId)dst_end, (VertexId)subgraph->edge_size,
           (VertexId)subgraph->batch_size_backward, (VertexId)output_size,

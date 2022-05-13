@@ -6,7 +6,7 @@
  */
 
 #include "cuda_type.h"
-
+#define CUDA_ENABLE 1
 #if CUDA_ENABLE
 #include "cuda_runtime.h"
 #endif
@@ -60,7 +60,6 @@ public:
   void Gather_By_Dst_From_Src_Optim(
       float *input, float *output, float *weight_forward, // data
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset,
-      long *destination, // graph
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
@@ -68,7 +67,6 @@ public:
   void Gather_By_Src_From_Dst_Optim(
       float *input, float *output, float *weight_forward, // data
       VertexId_CUDA *row_offset, VertexId_CUDA *column_indices,
-      long *source, // graph
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
