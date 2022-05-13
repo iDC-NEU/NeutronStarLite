@@ -130,9 +130,7 @@ public:
         torch::DeviceType::CPU);
 
     NtsVar d;
-    for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
-      X.push_back(d);
-    }
+    X.resize(graph->gnnctx->layer_size.size(),d);
     X[0] = F.set_requires_grad(true);
   }
 
@@ -210,7 +208,7 @@ public:
         },
       E_msg);//edge NN
         
-      NtsVar a=ctx->runGraphOp<nts::op::EdgeSoftMax>(graph,
+      NtsVar a=ctx->runGraphOp<nts::op::SingleEdgeSoftMax>(graph,
                 active,subgraphs,m);// edge NN   
       
       NtsVar E_msg_out=ctx->runEdgeForward([&](NtsVar a){
