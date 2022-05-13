@@ -100,7 +100,6 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
-
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
     // gnndatum->random_generate();
     if (0 == graph->config->feature_file.compare("random")) {

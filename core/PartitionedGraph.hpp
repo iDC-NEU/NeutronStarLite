@@ -40,6 +40,7 @@ public:
         partition_offset=graph->partition_offset;
         graph_=graph;
         active_=active;
+        graph_chunks.clear();
   }
   void GenerateAll(std::function<ValueType(VertexId, VertexId)> weight_compute,
                             DeviceLocation dt_){
@@ -48,7 +49,7 @@ public:
       if(dt_==CPU_T)
         GenerateMessageBitmap_multisokects();
       else{
-        GenerateMessageBitmap();  
+       // GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
   }
@@ -61,17 +62,19 @@ public:
       this->srcList = new VertexId[owned_edges];
       int write_position=0; 
       for (int k = 0; k < graph_->sockets; k++) {
-      for (VertexId vtx = 0; vtx < graph_->vertices; vtx++) {
-        for (VertexId i = graph_->outgoing_adj_index[k][vtx];
-             i < graph_->outgoing_adj_index[k][vtx + 1]; i++) {
-          srcList[write_position] = vtx;
-          dstList[write_position++] =graph_->outgoing_adj_list[k][i].neighbour;
+        for (VertexId vtx = 0; vtx < graph_->vertices; vtx++) {
+            for (VertexId i = graph_->outgoing_adj_index[k][vtx];
+                i < graph_->outgoing_adj_index[k][vtx + 1]; i++) {
+                srcList[write_position] = vtx;
+                dstList[write_position++] =graph_->outgoing_adj_list[k][i].neighbour;
+            }
         }
       }
       if (partition_id == 0)
       printf("NeutronStar::Preprocessing[Generate Partitioned Subgraph]\n");
-    }
   }
+ 
+  
   void PartitionToChunks(std::function<ValueType(VertexId, VertexId)> weight_compute,
                             DeviceLocation dt_){
       graph_chunks.clear();
@@ -87,7 +90,7 @@ public:
       
       // assign all edges to partitions
       for (VertexId i = 0; i < partitions; i++) {
-        graph_chunks.push_back(new CSC_segment_pinned());
+        graph_chunks.push_back(new CSC_segment_pinned);
         graph_chunks[i]->init(partition_offset[i],
                               partition_offset[i + 1],
                               partition_offset[partition_id],
@@ -127,11 +130,12 @@ public:
             // graph_partitions[i]->weight_buffer[j]=(ValueType)std::sqrt(graph->out_degree_for_backward[v_src])*(ValueType)std::sqrt(graph->in_degree_for_backward[v_dst]);
         }
         // accumulate those offset, calc the partial sum
+        graph_chunks[i]->column_offset[0]=0;
         for (VertexId j = 0; j < graph_chunks[i]->batch_size_forward; j++) {
             tmp_column_offset[j + 1] += tmp_column_offset[j];
             graph_chunks[i]->column_offset[j + 1] = tmp_column_offset[j + 1];
         }
-
+        graph_chunks[i]->row_offset[0]=0;
         for (VertexId j = 0; j < graph_chunks[i]->batch_size_backward; j++){
             tmp_row_offset[j + 1] += tmp_row_offset[j];
             graph_chunks[i]->row_offset[j + 1] = tmp_row_offset[j + 1];

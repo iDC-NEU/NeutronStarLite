@@ -58,7 +58,7 @@ public:
 
   long *source;
   long *destination;
-  long *source_backward;
+//  long *source_backward;
 
   ValueType *edge_weight_forward; // edge_size
   ValueType *edge_weight_backward;
@@ -76,7 +76,7 @@ public:
   long *source_gpu;
   long *destination_gpu;
 
-  long *source_backward_gpu;
+//  long *source_backward_gpu;
 
   ValueType *edge_weight_forward_gpu;  // edge_size
   ValueType *edge_weight_backward_gpu; // edge_size

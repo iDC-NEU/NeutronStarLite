@@ -66,7 +66,6 @@ public:
     graph->rtminfo->lock_free = graph->config->lock_free;
   }
   void init_graph() {
-    // std::vector<CSC_segment_pinned *> csc_segment;
 //    graph->generate_COO();
 //    graph->reorder_COO_W2W();
 //    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
@@ -80,6 +79,7 @@ public:
 //    load_rep_time += get_time();
 //    if (graph->partition_id == 0)
 //      printf("#load_rep_time=%lf(s)\n", load_rep_time);
+//    gt->GenerateMessageBitmap(subgraphs);
     partitioned_graph=new PartitionedGraph(graph, active);
     partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
       return nts::op::nts_norm_degree(graph,src, dst);
@@ -99,7 +99,8 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
-
+    
+    torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();

@@ -102,7 +102,7 @@ void CSC_segment_pinned::allocEdgeAssociateData() {
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
-    source_backward = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
+//    source_backward = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
   } else
 #endif
       if (dt == CPU_T) {
@@ -120,8 +120,8 @@ void CSC_segment_pinned::allocEdgeAssociateData() {
     memset(destination, 0, (edge_size + 1) * sizeof(long));
     source = (long *)malloc((edge_size + 1) * sizeof(long));
     memset(source, 0, (edge_size + 1) * sizeof(long));
-    source_backward = (long *)malloc((edge_size + 1) * sizeof(long));
-    memset(source_backward, 0, (edge_size + 1) * sizeof(long));
+//    source_backward = (long *)malloc((edge_size + 1) * sizeof(long));
+//    memset(source_backward, 0, (edge_size + 1) * sizeof(long));
   } else {
     assert(NOT_SUPPORT_DEVICE_TYPE);
   }
@@ -142,7 +142,7 @@ void CSC_segment_pinned::getDevicePointerAll() {
 
     source_gpu = (long *)getDevicePointer(source);           ///
     destination_gpu = (long *)getDevicePointer(destination); ///
-    source_backward_gpu = (long *)getDevicePointer(source_backward);
+//    source_backward_gpu = (long *)getDevicePointer(source_backward);
   } else
 #endif
       if (dt == CPU_T) {
@@ -185,7 +185,7 @@ void CSC_segment_pinned::CopyGraphToDevice() {
 
     source_gpu = (long *)getDevicePointer(source);           ///
     destination_gpu = (long *)getDevicePointer(destination); ///
-    source_backward_gpu = (long *)getDevicePointer(source_backward);
+//    source_backward_gpu = (long *)getDevicePointer(source_backward);
 
   } else
 #endif

@@ -1031,8 +1031,6 @@ void GraphOperation::GenerateGraphSegment(
       graph_partitions[i]->destination[tmp_column_offset[v_dst]] =
           (long)(v_dst_m);
       // save the src in the row format
-      graph_partitions[i]->source_backward[tmp_row_offset[v_src]] =
-          (long)(v_src_m);
 
       graph_partitions[i]->src_set_active(
           v_src_m); // source_active->set_bit(v_src);
