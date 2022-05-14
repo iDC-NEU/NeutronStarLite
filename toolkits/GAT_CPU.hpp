@@ -96,7 +96,7 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
-
+    torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
     // gnndatum->random_generate();
     if (0 == graph->config->feature_file.compare("random")) {
@@ -203,7 +203,7 @@ public:
       
       NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
             int layer = graph->rtminfo->curr_layer;
-            return torch::exp(P[2 * layer + 1]->forward(E_msg));
+            return torch::leaky_relu(P[2 * layer + 1]->forward(E_msg),0.2);
         },
       E_msg);//edge NN
         
