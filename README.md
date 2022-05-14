@@ -7,12 +7,15 @@ NeutronStar distinguishes itself from other GNN training frameworks with the fol
  * The dependency management (how to acquire the embeddings and gradients from neighbors) plays a key role in distributed GNN training. NeutronStar combines the cache-based dependency management that are adopted by DGL and Aligraph and the communication-based dependency management method that are widely adopted by traditional graph computing systems, and proposes a hybrid dependency management GNN distributed training system. NeutronStar can determine the optimal way to acquire the embeddings (during forward propagation) and the gradients (during backward propagation) from neighboring vertices. 
  * NeutronStar integrates the pytorch automatic differentiation library libtorch and tensorflow to support automatic differentiation (automatic backpropagation) across workers. 
  * NeutronStar is enhanced with many optimization techniques from traditional distributed graph computing systems to effectively accelerate the performance of distributed GNN training, such as CPU-GPU I/O optimization, Ring-based Communication, Overlapping Communication with Computation, Lock-free Parallel Message Enqueuing, and so on.
- * NeutronStar shows better performance than many state-of-the-art GNN training systems. The following figure shows the performance comparison. DistDGL is a distributed version of DGL system. ROC is a system originated from Stanford. DepCache is a variantion of NeutronStar that acquires dependencies by caching. DepComm is a variantion of NeutronStar that acquires dependencies from remote servers.
-
-![result](https://user-images.githubusercontent.com/11622204/157364687-39e7e4be-7494-41c2-a9f8-7835334b50ad.png)
 
 The overall architecture of NeutronStar
 ![architecture](https://user-images.githubusercontent.com/11622204/157367313-275431a3-09f5-4a7c-a8eb-b86317ef6713.png)
+
+
+Currently NeutronStar is under refactoring. We will release all features of NeutronStar soon.
+(The optimizations and auto. diff. functions are almost finished.)
+(The new DepCache engine is under progress.)
+
 
 
 ## Quick Start
