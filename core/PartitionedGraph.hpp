@@ -26,6 +26,7 @@ public:
   // vertex range for this chunk
   VertexId owned_vertices;
   VertexId owned_edges;
+  VertexId owned_mirrors;
   
   //graph segment;
   std::vector<CSC_segment_pinned*>graph_chunks;
@@ -44,15 +45,17 @@ public:
         graph_chunks.clear();
   }
   void GenerateAll(std::function<ValueType(VertexId, VertexId)> weight_compute,
-                            DeviceLocation dt_){
+                            DeviceLocation dt_,bool dist=false){
       generatePartitionedSubgraph();
       PartitionToChunks(weight_compute, dt_);
       if(dt_==CPU_T)
         GenerateMessageBitmap_multisokects();
       else{
-       // GenerateMessageBitmap();  
+        GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
+      if(dist)
+        generateMirrorIndex();
   }
   void generateMirrorIndex(){
       MirrorIndex=new VertexId[global_vertices+1];
@@ -63,6 +66,9 @@ public:
       for(VertexId i=0;i<global_vertices;i++){
           MirrorIndex[i+1]+=MirrorIndex[i];
       }
+      owned_mirrors=MirrorIndex[global_vertices];
+      if (partition_id == 0)
+      printf("NeutronStar::Preprocessing[Generate Mirror Indices]\n");
   }
   void generatePartitionedSubgraph(){
       owned_edges=0;

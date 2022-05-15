@@ -529,7 +529,7 @@ void NtsGraphCommunicator::send_mirror_to_master() {
       MPI_Send(send_msg,
                 elements_of_msg(feature_size) * send_buffer[i][s_i]->count,
                 MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD);
-      printf("MI-MA SEND 8GB\n");
+//      printf("MI-MA SEND 8GB\n");
 #else
 /*Message less than 2GB*/        
       MPI_Send(send_buffer[i][s_i]->data,
@@ -574,7 +574,7 @@ void NtsGraphCommunicator::send_master_to_mirror_no_wait() {
       MPI_Send(send_msg, elements_of_msg(feature_size) *
                     send_buffer[partition_id][s_i]->count,
                 MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD);
-      printf("MA-MI SEND 8GB\n");
+//      printf("MA-MI SEND 8GB\n");
 #else
 /*Message less than 2GB*/   
       MPI_Send(send_buffer[partition_id][s_i]->data,
@@ -639,7 +639,7 @@ void NtsGraphCommunicator::recv_master_to_mirror_no_wait() {
                       MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD,
                       MPI_STATUS_IGNORE);
             recv_buffer[i][s_i]->count /= elements_of_msg(feature_size);
-            printf("MA-MI RECV 8GB\n");
+//            printf("MA-MI RECV 8GB\n");
 #else
 /*Message less than 2GB*/            
             MPI_Get_count(&recv_status, MPI_CHAR,
@@ -721,7 +721,7 @@ void NtsGraphCommunicator::recv_mirror_to_master() {
                       MPI_FLOAT, i, PassMessage, MPI_COMM_WORLD,
                       MPI_STATUS_IGNORE);
             recv_buffer[i][s_i]->count /= elements_of_msg(feature_size);
-            printf("MI-MA RECV 8GB\n");
+//            printf("MI-MA RECV 8GB\n");
 #else
 /*Message less than 2GB*/            
             MPI_Get_count(&recv_status, MPI_CHAR,
