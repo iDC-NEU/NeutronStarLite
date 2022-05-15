@@ -12,6 +12,7 @@
 #include "graph.hpp"
 #include "ntsBaseOp.hpp"
 #include "input.h"
+#include "PartitionedGraph.hpp"
 
 namespace nts {
 namespace op {
@@ -32,11 +33,9 @@ namespace op {
 class ForwardCPUfuseOp : public ntsGraphOp {
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
-
-  ForwardCPUfuseOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  ForwardCPUfuseOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input) {
     //f_input = input;
@@ -170,10 +169,9 @@ class ForwardGPUfuseOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
 
-  ForwardGPUfuseOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  ForwardGPUfuseOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){
         int feature_size = f_input.size(1);
@@ -216,10 +214,9 @@ class ForwardSingleGPUfuseOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
   
-  ForwardSingleGPUfuseOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  ForwardSingleGPUfuseOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){
     int feature_size = f_input.size(1);
@@ -242,10 +239,9 @@ class SingleCPUSrcDstScatterOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
   
-  SingleCPUSrcDstScatterOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  SingleCPUSrcDstScatterOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){
     int feature_size = f_input.size(1);
@@ -303,10 +299,9 @@ class SingleCPUSrcScatterOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
   
-  SingleCPUSrcScatterOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  SingleCPUSrcScatterOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){
     int feature_size = f_input.size(1);
@@ -359,10 +354,9 @@ class SingleCPUDstAggregateOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
   
-  SingleCPUDstAggregateOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  SingleCPUDstAggregateOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){// input edge  output vertex
     int feature_size = f_input.size(1);
@@ -413,51 +407,14 @@ public:
 
 };
 
-class DistGetDepNbrOp : public ntsGraphOp{
-public:
-  std::vector<CSC_segment_pinned *> subgraphs;
-  
-  DistGetDepNbrOp(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
-  }
-  NtsVar forward(NtsVar &f_input){// input edge  output vertex
-    int feature_size = f_input.size(1);
-    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_v_num, 
-                feature_size},torch::DeviceType::CPU);
-    ValueType *f_input_buffer =
-      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
-    ValueType *f_output_buffer =
-      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
-          
-    return f_output;
-  }
-  
-  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
-      int feature_size=f_output_grad.size(1);
-    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_e_num, 
-                feature_size},torch::DeviceType::CPU);
-              
-    ValueType *f_input_grad_buffer =
-      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
-    ValueType *f_output_grad_buffer =
-      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
-
-      return f_input_grad;
-  }    
-
-};
-
-class EdgeSoftMax : public ntsGraphOp{
+class SingleEdgeSoftMax : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
   NtsVar IntermediateResult;
   
-  EdgeSoftMax(Graph<Empty> *graph, VertexSubset *active,
-                   std::vector<CSC_segment_pinned *> &subgraphs_)
-      : ntsGraphOp(graph, active) {
-    subgraphs = subgraphs_;
+  SingleEdgeSoftMax(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
   }
   NtsVar forward(NtsVar &f_input){// input i_msg  output o_msg
     int feature_size = f_input.size(1);
@@ -512,6 +469,68 @@ public:
                   0, feature_size,(eid_end-eid_start));
         },
         subgraphs, f_output_grad.size(1), this->active_);
+      return f_input_grad;
+  }    
+
+};
+
+class DistGetDepNbrOp : public ntsGraphOp{
+public:
+  std::vector<CSC_segment_pinned *> subgraphs;
+  
+  DistGetDepNbrOp(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    subgraphs = partitioned_graph->graph_chunks;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_e_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+        
+      graph_->get_from_dep_neighbor<int, ValueType>( // For EACH Vertex Processing
+      [&](VertexId src, int current_send_partition) {
+        if (graph_->rtminfo->lock_free) {
+          VertexId src_trans = src - graph_->gnnctx->p_v_s;
+          if (subgraphs[current_send_partition]->get_forward_active(
+                  src_trans)) {
+            VertexId write_index = subgraphs[current_send_partition]
+                                       ->forward_message_index[src_trans];
+            graph_->NtsComm->emit_buffer_lock_free(
+                src, f_input_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
+                write_index, feature_size);
+          }
+        } else {
+          graph_->NtsComm->emit_buffer(
+              src, f_input_buffer + (src - graph_->gnnctx->p_v_s) * feature_size,
+              feature_size);
+        }
+      },
+      [&](VertexId dst, ValueType *recv_buffer, VertexId recv_id) {
+        VertexId dst_trans = dst - graph_->partition_offset[recv_id];
+        memcpy(f_output_buffer + dst_trans * feature_size, recv_buffer,
+               sizeof(ValueType) * feature_size);
+        return 0;
+      },
+      subgraphs, feature_size, active_);
+      
+      
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+
+    
       return f_input_grad;
   }    
 

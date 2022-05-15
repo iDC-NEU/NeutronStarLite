@@ -198,8 +198,8 @@ public:
       NtsVar X_trans=ctx->runVertexForward([&](NtsVar x_i){
             return preForward(x_i);},
         X[i]);//pre apply    
-      NtsVar E_msg=ctx->runGraphOp<nts::op::SingleCPUSrcDstScatterOp>(graph,
-                active,partitioned_graph->graph_chunks,X_trans);// scatterto edge
+      NtsVar E_msg=ctx->runGraphOp<nts::op::SingleCPUSrcDstScatterOp>(
+              partitioned_graph,active,X_trans);// scatterto edge
       
       NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
             int layer = graph->rtminfo->curr_layer;
@@ -207,16 +207,16 @@ public:
         },
       E_msg);//edge NN
         
-      NtsVar a=ctx->runGraphOp<nts::op::SingleEdgeSoftMax>(graph,
-                active,partitioned_graph->graph_chunks,m);// edge NN   
+      NtsVar a=ctx->runGraphOp<nts::op::SingleEdgeSoftMax>(partitioned_graph,
+              active,m);// edge NN   
       
       NtsVar E_msg_out=ctx->runEdgeForward([&](NtsVar a){
             return E_msg.slice(1, 0, E_msg.size(1) / 2, 1)*a;
         },
       a);//Edge NN 
         
-      NtsVar nbr=ctx->runGraphOp<nts::op::SingleCPUDstAggregateOp>(graph,
-                active,partitioned_graph->graph_chunks,E_msg_out);//agg  
+      NtsVar nbr=ctx->runGraphOp<nts::op::SingleCPUDstAggregateOp>(
+              partitioned_graph,active,E_msg_out);//agg  
       
       X[i+1]=ctx->runVertexForward([&](NtsVar nbr){
             return torch::relu(nbr);

@@ -224,7 +224,7 @@ public:
 //      gt->GraphPropagateForward(X[i], Y[i], subgraphs);
 //      cp->op_push(X[i], Y[i], nts::autodiff::DIST_GPU);
 //      X[i + 1] = vertexForward(Y[i], X[i]);
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(partitioned_graph,active,X[i]);      
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },

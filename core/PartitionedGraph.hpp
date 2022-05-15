@@ -14,6 +14,7 @@ public:
     //topo:
   VertexId *dstList;
   VertexId *srcList;
+  VertexId *MirrorIndex;
   //meta info
   Graph<Empty> *graph_;
   VertexSubset *active_;
@@ -51,6 +52,16 @@ public:
       else{
        // GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
+      }
+  }
+  void generateMirrorIndex(){
+      MirrorIndex=new VertexId[global_vertices+1];
+      memset(MirrorIndex,0,sizeof(VertexId)*global_vertices+1);
+      for(VertexId i=0;i<this->owned_edges;i++){
+          MirrorIndex[srcList[i]+1]=1;
+      }
+      for(VertexId i=0;i<global_vertices;i++){
+          MirrorIndex[i+1]+=MirrorIndex[i];
       }
   }
   void generatePartitionedSubgraph(){

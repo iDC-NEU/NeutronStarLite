@@ -219,7 +219,7 @@ public:
         },
         X[i],
         X[i]);
-        X[i + 1] = ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,partitioned_graph->graph_chunks,Y_i);
+        X[i + 1] = ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(partitioned_graph,active,Y_i);
     }
     // loss=X[graph->gnnctx->layer_size.size()-1];
   }

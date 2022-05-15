@@ -202,7 +202,7 @@ public:
         },
         X[i],
         X[i]);
-        X[i + 1] = ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,partitioned_graph->graph_chunks,Y_i);
+        X[i + 1] = ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,Y_i);
 
     }
   }

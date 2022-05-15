@@ -101,6 +101,7 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
+    torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
@@ -131,8 +132,6 @@ public:
       P[i]->to(GPU);
       P[i]->Adam_to_GPU();
     }
-    drpmodel = torch::nn::Dropout(
-        torch::nn::DropoutOptions().p(drop_rate).inplace(true));
 
     //        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num,
     //        graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
@@ -222,14 +221,15 @@ public:
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-        NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
+        NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(
+                partitioned_graph,active,X[i]);      
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },
         Y_i,
         X[i]);
     }
-        printf("stateless\n");
+     //   printf("stateless\n");
     
   }
 

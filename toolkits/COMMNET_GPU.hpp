@@ -219,7 +219,7 @@ public:
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardGPUfuseOp>(partitioned_graph,active,X[i]);      
        X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },

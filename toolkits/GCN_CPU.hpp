@@ -33,6 +33,7 @@ public:
   NtsVar loss;
   NtsVar tt;
   torch::nn::Dropout drpmodel;
+  
   double exec_time = 0;
   double all_sync_time = 0;
   double sync_time = 0;
@@ -218,7 +219,7 @@ public:
         X[i] = drpmodel(X[i]);
       }
 
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(graph,active,partitioned_graph->graph_chunks,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,X[i]);      
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },

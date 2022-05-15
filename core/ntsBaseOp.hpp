@@ -1,7 +1,7 @@
 #ifndef NTSBASEOP_HPP
 #define NTSBASEOP_HPP
 #include "graph.hpp"
-
+#include "PartitionedGraph.hpp"
 namespace nts {
 namespace op {
 
@@ -9,17 +9,16 @@ class ntsGraphOp {
 public:
   Graph<Empty> *graph_;
   VertexSubset *active_;
+    PartitionedGraph *partitioned_graph_;
   ntsGraphOp() {}
-  ntsGraphOp(Graph<Empty> *graph, VertexSubset *active) {
-    graph_ = graph;
+  ntsGraphOp(PartitionedGraph *partitioned_graph,VertexSubset *active) {
+    graph_ = partitioned_graph->graph_;
+    partitioned_graph_=partitioned_graph;
     active_ = active;
   }
   virtual NtsVar forward(NtsVar &f_input)=0;
   virtual NtsVar backward(NtsVar &output_grad)=0;
 };
-
-} // namespace graphop
-} // namespace nts
 
 void nts_comp(ValueType *output, ValueType *input, ValueType weight,
           int feat_size) {
@@ -94,6 +93,11 @@ ValueType nts_out_degree(Graph<Empty> *graph_, VertexId v) {
 ValueType nts_in_degree(Graph<Empty> *graph_, VertexId v) {
   return (ValueType)(graph_->in_degree_for_backward[v]);
 }
+
+} // namespace graphop
+} // namespace nts
+
+
 
 //class ntsNNOp {
 //public:
