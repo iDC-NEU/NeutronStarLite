@@ -35,6 +35,8 @@ public:
   NtsVar loss;
   NtsVar tt;
   torch::nn::Dropout drpmodel;
+  std::vector<torch::nn::BatchNorm1d> bn1d;
+  //torch::nn::ModuleList bn1d;
   double exec_time = 0;
   double all_sync_time = 0;
   double sync_time = 0;
@@ -94,7 +96,7 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
-
+    torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
     // gnndatum->random_generate();
     if (0 == graph->config->feature_file.compare("random")) {
@@ -121,23 +123,18 @@ public:
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
-      //        bias[i]->init_parameter();
     }
-    drpmodel = torch::nn::Dropout(
-        torch::nn::DropoutOptions().p(drop_rate).inplace(true));
 
     F = graph->Nts->NewLeafTensor(
         gnndatum->local_feature,
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
-
-//    for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
-//      Y.push_back(graph->Nts->NewKeyTensor(
-//          {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[i]},
-//          torch::DeviceType::CPU));
-//    }
         
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
+      if(i<graph->gnnctx->layer_size.size()){
+          //push_back(torch::nn::BatchNorm1d(graph->gnnctx->layer_size[i+1]));
+          bn1d.push_back(torch::nn::BatchNorm1d(graph->gnnctx->layer_size[i+1]));
+      }
       NtsVar d;
       X.push_back(d);
     }
@@ -180,25 +177,25 @@ public:
     NtsVar y;
     int layer = graph->rtminfo->curr_layer;
     if (layer < graph->gnnctx->layer_size.size() - 2) {
-      y = P[layer * 2 + 1]
-              ->forward(torch::relu(P[layer * 2 + 0]->forward(a + x)))
-              .set_requires_grad(true);
+      y = bn1d[layer](torch::relu(P[layer * 2 + 1]
+              ->forward(torch::relu(P[layer * 2 + 0]->forward(a + (1)*x)))));
+//              .set_requires_grad(true);
     } else if (layer == graph->gnnctx->layer_size.size() - 2) {
-      y = P[layer * 2 + 1]->forward(
-          torch::relu(P[layer * 2 + 0]->forward(a + x)));
-      y = y.log_softmax(1);
+      y = bn1d[layer](P[layer * 2 + 1]->forward(
+          torch::relu(P[layer * 2 + 0]->forward(a + (1)*x))));
     }
+    
     return y;
   }
   void Loss() {
     //  return torch::nll_loss(a,L_GT_C);
-    torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1];
+    torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1].log_softmax(1);
     torch::Tensor mask_train = MASK.eq(0);
     loss = torch::nll_loss(
         a.masked_select(mask_train.expand({mask_train.size(0), a.size(1)}))
             .view({-1, a.size(1)}),
         L_GT_C.masked_select(mask_train.view({mask_train.size(0)})));
-    ctx->appendNNOp(a, loss);
+    ctx->appendNNOp(X[graph->gnnctx->layer_size.size() - 1], loss);
   }
 
   void Update() {

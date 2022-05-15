@@ -270,7 +270,8 @@ public:
 //        std::cout<<"s.grad():\n"<<s.grad()<<std::endl;
 //        NtsVar s4=torch::zeros({3,1});
 //        s4=(s2*s1)-(s2)*(s2.t().mm(s1));        
-//        std::cout<<"s4.grad():\n"<<s4<<std::endl;
+//    NtsVar s4=torch::rand({3,3});
+//        std::cout<<"s4.grad():\n"<<s4<<"\n"<<s4.sum(-1)<<std::endl;
     exec_time += get_time();
 
     //    nts::OP::ntsOps  *nop=new nts::OP::ntsOps(graph,active);
