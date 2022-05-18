@@ -104,7 +104,6 @@ message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 set(NEUTRONSTAR_SRC_FILES
         "toolkits/main.cpp"
         "comm/network.cpp"
-        "core/input.cpp"
         "core/bitmap.cpp"
         "core/GraphSegment.cpp"
 )

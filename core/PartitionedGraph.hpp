@@ -62,7 +62,7 @@ public:
       if(dt_==CPU_T)
         GenerateMessageBitmap_multisokects();
       else{
-        //GenerateMessageBitmap();  
+//        GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
       if(dist)

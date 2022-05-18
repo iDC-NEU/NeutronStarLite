@@ -11,7 +11,6 @@
 
 #include "graph.hpp"
 #include "ntsBaseOp.hpp"
-#include "input.h"
 #include "PartitionedGraph.hpp"
 
 namespace nts {
