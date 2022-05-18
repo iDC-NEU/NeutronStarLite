@@ -196,33 +196,33 @@ void CSC_segment_pinned::CopyGraphToDevice() {
   }
 }
 
-bool CSC_segment_pinned::src_get_active(VertexId v_i) {
-  return this->source_active->get_bit(v_i - src_range[0]);
-}
-
-bool CSC_segment_pinned::dst_get_active(VertexId v_i) {
-  return this->destination_active->get_bit(v_i - dst_range[0]);
-}
-
-bool CSC_segment_pinned::get_forward_active(VertexId v_i) {
-  return this->forward_active->get_bit(v_i);
-}
-
-void CSC_segment_pinned::set_forward_active(VertexId v_i) {
-  this->forward_active->set_bit(v_i);
-}
-
-bool CSC_segment_pinned::get_backward_active(VertexId v_i) {
-  return this->source_active->get_bit(v_i - src_range[0]);
-}
-
-void CSC_segment_pinned::src_set_active(VertexId v_i) {
-  this->source_active->set_bit(v_i - src_range[0]);
-}
-
-void CSC_segment_pinned::dst_set_active(VertexId v_i) {
-  this->destination_active->set_bit(v_i - dst_range[0]);
-}
+//bool CSC_segment_pinned::src_get_active(VertexId v_i) {
+//  return this->source_active->get_bit(v_i - src_range[0]);
+//}
+//
+//bool CSC_segment_pinned::dst_get_active(VertexId v_i) {
+//  return this->destination_active->get_bit(v_i - dst_range[0]);
+//}
+//
+//bool CSC_segment_pinned::get_forward_active(VertexId v_i) {
+//  return this->forward_active->get_bit(v_i);
+//}
+//
+//void CSC_segment_pinned::set_forward_active(VertexId v_i) {
+//  this->forward_active->set_bit(v_i);
+//}
+//
+//bool CSC_segment_pinned::get_backward_active(VertexId v_i) {
+//  return this->source_active->get_bit(v_i - src_range[0]);
+//}
+//
+//void CSC_segment_pinned::src_set_active(VertexId v_i) {
+//  this->source_active->set_bit(v_i - src_range[0]);
+//}
+//
+//void CSC_segment_pinned::dst_set_active(VertexId v_i) {
+//  this->destination_active->set_bit(v_i - dst_range[0]);
+//}
 
 void InputInfo::readFromCfgFile(std::string config_file) {
   std::string cfg_oneline;

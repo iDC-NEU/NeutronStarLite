@@ -280,12 +280,13 @@ public:
       : ntsGraphOp(partitioned_graph, active) {
     subgraphs = partitioned_graph->graph_chunks;
   }
-  NtsVar forward(NtsVar &f_input){// input i_msg  output o_msg
-    int feature_size = f_input.size(1);
+  NtsVar forward(NtsVar &f_input_){// input i_msg  output o_msg
+     //NtsVar f_input_=f_input.detach();
+    int feature_size = f_input_.size(1);
     NtsVar f_output=graph_->Nts->NewKeyTensor({graph_->gnnctx->l_e_num, 
                 feature_size},torch::DeviceType::CPU);
     ValueType *f_input_buffer =
-      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+      graph_->Nts->getWritableBuffer(f_input_, torch::DeviceType::CPU);
     ValueType *f_output_buffer =
       graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);
     
@@ -295,7 +296,7 @@ public:
           long eid_end = subgraph->column_offset[vtx + 1];
           assert(eid_end <= graph_->edges);
           assert(eid_start >= 0);
-          NtsVar d = f_input.slice(0, eid_start, eid_end, 1).softmax(0);
+          NtsVar d = f_input_.slice(0, eid_start, eid_end, 1).softmax(0);
           ValueType *d_buffer =
           graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);      
           nts_copy(f_output_buffer, eid_start, d_buffer, 
@@ -303,7 +304,7 @@ public:
           IntermediateResult=f_output;
           
         },
-        subgraphs, f_input.size(1), this->active_);
+        subgraphs, f_input_.size(1), this->active_);
     
     
           

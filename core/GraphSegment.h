@@ -110,13 +110,33 @@ public:
   void getDevicePointerAll();
   void CopyGraphToDevice();
 
-  bool src_get_active(VertexId v_i);
-  bool dst_get_active(VertexId v_i);
-  bool get_forward_active(VertexId v_i);
-  void set_forward_active(VertexId v_i);
-  bool get_backward_active(VertexId v_i);
-  void src_set_active(VertexId v_i);
-  void dst_set_active(VertexId v_i);
+  inline bool src_get_active(VertexId v_i) {
+      return this->source_active->get_bit(v_i - src_range[0]);
+  }
+
+  inline bool dst_get_active(VertexId v_i) {
+      return this->destination_active->get_bit(v_i - dst_range[0]);
+  }
+
+  inline bool get_forward_active(VertexId v_i) {
+      return this->forward_active->get_bit(v_i);
+  }
+
+  inline void set_forward_active(VertexId v_i) {
+      this->forward_active->set_bit(v_i);
+  }
+
+  inline bool get_backward_active(VertexId v_i) {
+      return this->source_active->get_bit(v_i - src_range[0]);
+  }
+
+  inline void src_set_active(VertexId v_i) {
+      this->source_active->set_bit(v_i - src_range[0]);
+  }
+
+  inline void dst_set_active(VertexId v_i) {
+      this->destination_active->set_bit(v_i - dst_range[0]);
+  }
 };
 
 class InputInfo {
