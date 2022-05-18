@@ -93,7 +93,7 @@ public:
   VertexId *source_index;
   Bitmap *destination_active;
   Bitmap *forward_active;
-  std::vector<Bitmap *> VertexToComm;
+  //std::vector<Bitmap *> VertexToComm;
 
   DeviceLocation dt;
   void init(VertexId src_start, VertexId src_end, VertexId dst_start,
@@ -118,17 +118,17 @@ public:
       return this->destination_active->get_bit(v_i - dst_range[0]);
   }
 
-  inline bool get_forward_active(VertexId v_i) {
-      return this->forward_active->get_bit(v_i);
-  }
-
-  inline void set_forward_active(VertexId v_i) {
-      this->forward_active->set_bit(v_i);
-  }
-
-  inline bool get_backward_active(VertexId v_i) {
-      return this->source_active->get_bit(v_i - src_range[0]);
-  }
+//  inline bool get_forward_active(VertexId v_i) {
+//      return this->forward_active->get_bit(v_i);
+//  }
+//
+//  inline void set_forward_active(VertexId v_i) {
+//      this->forward_active->set_bit(v_i);
+//  }
+//
+//  inline bool get_backward_active(VertexId v_i) {
+//      return this->source_active->get_bit(v_i - src_range[0]);
+//  }
 
   inline void src_set_active(VertexId v_i) {
       this->source_active->set_bit(v_i - src_range[0]);

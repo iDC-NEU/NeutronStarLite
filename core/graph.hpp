@@ -2365,6 +2365,56 @@ public:
     return global_reducer;
   }
 
+  template <typename R, typename M>
+  R local_vertex_operation_on_subgraph(
+      std::function<void(VertexId, CSC_segment_pinned *, VertexId)> sparse_slot,
+      std::vector<CSC_segment_pinned *> &graph_partitions, int feature_size,
+      Bitmap *active, Bitmap *dense_selective = nullptr) {
+    omp_set_num_threads(threads);
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+
+    R reducer = 0;
+
+    size_t basic_chunk = 64;
+    {
+
+      // since we have only one partition. i think this loop should be discarded
+      for (int step = 0; step < partitions; step++) {
+#pragma omp parallel for
+        for (VertexId begin_v_i = partition_offset[partition_id];
+             begin_v_i < partition_offset[partition_id + 1];
+             begin_v_i += basic_chunk) {
+          // for every vertex, apply the sparse_slot at the partition
+          // corresponding to the step
+          VertexId v_i = begin_v_i;
+          unsigned long word = active->data[WORD_OFFSET(v_i)];
+          while (word != 0) {
+            if (word & 1) {
+              sparse_slot(v_i, graph_partitions[step], step);
+            }
+            v_i++;
+            word = word >> 1;
+          }
+        }
+      }
+      //      NtsComm->release_communicator();
+    }
+
+    R global_reducer;
+    MPI_Datatype dt = get_mpi_data_type<R>();
+    MPI_Allreduce(&reducer, &global_reducer, 1, dt, MPI_SUM, MPI_COMM_WORLD);
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+  
+  
+  
   // process edges
   /**
    * @brief
@@ -2671,7 +2721,7 @@ public:
                   (M *)(used_buffer[s_i]->data + index + sizeof(VertexId));
 
               // if we have edge from v_i in partition i to local partition
-              if (graph_partitions[i]->get_backward_active(v_i)) {
+              if (graph_partitions[i]->src_get_active(v_i)) {
                 // then we record the buffer index and position of this vertex
                 VertexId v_trans = v_i - partition_offset[i];
                 cpu_message_index[v_trans].bufferIndex = s_i;
@@ -2825,7 +2875,7 @@ public:
                   (M *)(used_buffer[s_i]->data + index + sizeof(VertexId));
 
               // if we have edge from v_i in partition i to local partition
-              if (graph_partitions[i]->get_backward_active(v_i)) {
+              if (graph_partitions[i]->src_get_active(v_i)) {
                 // then we record the buffer index and position of this vertex
                 sparse_slot(v_i, msg_data, i);
               }

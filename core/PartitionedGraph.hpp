@@ -28,6 +28,13 @@ public:
   VertexId owned_edges;
   VertexId owned_mirrors;
   
+  //communication
+  std::vector<Bitmap*>hasMirrorAtPartition;
+  
+  
+  
+  
+  
   //graph segment;
   std::vector<CSC_segment_pinned*>graph_chunks;
   PartitionedGraph(){
@@ -43,6 +50,10 @@ public:
         graph_=graph;
         active_=active;
         graph_chunks.clear();
+        hasMirrorAtPartition.clear();
+  }
+  inline bool has_mirror_at(VertexId p_i,VertexId v_i){
+      return hasMirrorAtPartition[p_i]->get_bit(v_i-graph_->gnnctx->p_v_s);
   }
   void GenerateAll(std::function<ValueType(VertexId, VertexId)> weight_compute,
                             DeviceLocation dt_,bool dist=false){
@@ -51,11 +62,114 @@ public:
       if(dt_==CPU_T)
         GenerateMessageBitmap_multisokects();
       else{
-        GenerateMessageBitmap();  
+        //GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
       if(dist)
         generateMirrorIndex();
+  }
+  void GenerateMessageBitmap_multisokects(){
+      for(int i=0;i<this->partitions;i++){
+          hasMirrorAtPartition.push_back(new Bitmap(owned_vertices));
+      }
+      int feature_size = 1;
+        graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+          VertexId recv_id) { // pull
+        VertexId src_trans = src - graph_->partition_offset[recv_id];
+        // send id of local partition to src
+        // indicate that src will have contribution to local partition
+        // while doing forward propagation
+        if (graph_chunks[recv_id]->source_active->get_bit(src_trans)) {
+          VertexId part = (VertexId)graph_->partition_id;
+          graph_->emit_buffer(src, &part, feature_size);
+        }
+      },
+      [&](VertexId master, VertexId *msg) {
+        // vertex master in local partition will have contribution to partition
+        // part
+        VertexId part = *msg;
+        hasMirrorAtPartition[part]->set_bit(master - graph_->gnnctx->p_v_s); 
+        // destination_mirror_active->set_bit(master-start_);
+        return 0;
+      },
+      feature_size, active_);
+        size_t basic_chunk = 64;
+  // for every partition
+  for (int i = 0; i < graph_chunks.size(); i++) {
+    // allocate the data structure
+    graph_chunks[i]->forward_multisocket_message_index =
+        new VertexId[graph_chunks[i]->batch_size_forward];
+    memset(graph_chunks[i]->forward_multisocket_message_index, 0,
+           sizeof(VertexId) * graph_chunks[i]->batch_size_forward);
+
+    graph_chunks[i]->backward_multisocket_message_index =
+        new BackVertexIndex[graph_chunks[i]->batch_size_backward];
+    int socketNum = numa_num_configured_nodes();
+    // for every vertex in partition i, set socket num
+    for (int bck = 0; bck < graph_chunks[i]->batch_size_backward; bck++) {
+      graph_chunks[i]->backward_multisocket_message_index[bck].setSocket(
+          socketNum);
+    }
+
+    std::vector<VertexId> socket_backward_write_offset;
+    socket_backward_write_offset.resize(numa_num_configured_nodes());
+    memset(socket_backward_write_offset.data(), 0,
+           sizeof(VertexId) * socket_backward_write_offset.size());
+#pragma omp parallel
+    {
+      int thread_id = omp_get_thread_num();
+      int s_i = graph_->get_socket_id(thread_id);
+      VertexId begin_p_v_i =
+          graph_->tuned_chunks_dense_backward[i][thread_id].curr;
+      VertexId final_p_v_i =
+          graph_->tuned_chunks_dense_backward[i][thread_id].end;
+      // for every vertex, we calc the message_index. This is used in backward
+      // propagation in lockfree style and every vertex has chance to gain
+      // gradient from every socket in local partition so we need to calculate
+      // write index for every socket
+      for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
+        VertexId v_i =
+            graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+        VertexId v_trans = v_i - graph_chunks[i]->src_range[0];
+        if (graph_chunks[i]->src_get_active(v_i)) {
+          int position =
+              __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
+          graph_chunks[i]
+              ->backward_multisocket_message_index[v_trans]
+              .vertexSocketPosition[s_i] = position;
+        }
+      }
+    }
+
+    std::vector<VertexId> socket_forward_write_offset;
+    socket_forward_write_offset.resize(numa_num_configured_nodes());
+    memset(socket_forward_write_offset.data(), 0,
+           sizeof(VertexId) * socket_forward_write_offset.size());
+#pragma omp parallel for schedule(static, basic_chunk)
+    // pragma omp parallel for
+    for (VertexId begin_v_i = graph_chunks[i]->dst_range[0];
+         begin_v_i < graph_chunks[i]->dst_range[1]; begin_v_i++) {
+      int thread_id = omp_get_thread_num();
+      int s_i = graph_->get_socket_id(thread_id);
+      VertexId v_i = begin_v_i;
+      VertexId v_trans = v_i - graph_chunks[i]->dst_range[0];
+      // if v_trans has contribution to partition i
+      // then we calculate the write_index for it
+      // Looks like vertex id will bind to the socket id
+      // i.e. the same vertex will always be processed by the same thread
+      if (hasMirrorAtPartition[i]->get_bit(v_trans)) {
+        int position =
+            __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
+        graph_chunks[i]->forward_multisocket_message_index[v_trans] =
+            position;
+      }
+    }
+    // printf("forward_write_offset %d\n",forward_write_offset);
+  }
+  if (graph_->partition_id == 0)
+    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+      
   }
   void generateMirrorIndex(){
       MirrorIndex=new VertexId[global_vertices+1];
@@ -198,165 +312,165 @@ public:
  * preprocess bitmap, used in CPU based forward and backward propagation
  * @param graph_partitions
  */
-void GenerateMessageBitmap_multisokects() { // local partition offset
-  int feature_size = 1;
-  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
-      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
-          VertexId recv_id) { // pull
-        VertexId src_trans = src - graph_->partition_offset[recv_id];
-        // send id of local partition to src
-        // indicate that src will have contribution to local partition
-        // while doing forward propagation
-        if (graph_chunks[recv_id]->source_active->get_bit(src_trans)) {
-          VertexId part = (VertexId)graph_->partition_id;
-          graph_->emit_buffer(src, &part, feature_size);
-        }
-      },
-      [&](VertexId master, VertexId *msg) {
-        // vertex master in local partition will have contribution to partition
-        // part
-        VertexId part = *msg;
-        graph_chunks[part]->set_forward_active(
-            master -
-            graph_->gnnctx
-                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
-        return 0;
-      },
-      feature_size, active_);
-
-  size_t basic_chunk = 64;
-  // for every partition
-  for (int i = 0; i < graph_chunks.size(); i++) {
-    // allocate the data structure
-    graph_chunks[i]->forward_multisocket_message_index =
-        new VertexId[graph_chunks[i]->batch_size_forward];
-    memset(graph_chunks[i]->forward_multisocket_message_index, 0,
-           sizeof(VertexId) * graph_chunks[i]->batch_size_forward);
-
-    graph_chunks[i]->backward_multisocket_message_index =
-        new BackVertexIndex[graph_chunks[i]->batch_size_backward];
-    int socketNum = numa_num_configured_nodes();
-    // for every vertex in partition i, set socket num
-    for (int bck = 0; bck < graph_chunks[i]->batch_size_backward; bck++) {
-      graph_chunks[i]->backward_multisocket_message_index[bck].setSocket(
-          socketNum);
-    }
-
-    std::vector<VertexId> socket_backward_write_offset;
-    socket_backward_write_offset.resize(numa_num_configured_nodes());
-    memset(socket_backward_write_offset.data(), 0,
-           sizeof(VertexId) * socket_backward_write_offset.size());
-#pragma omp parallel
-    {
-      int thread_id = omp_get_thread_num();
-      int s_i = graph_->get_socket_id(thread_id);
-      VertexId begin_p_v_i =
-          graph_->tuned_chunks_dense_backward[i][thread_id].curr;
-      VertexId final_p_v_i =
-          graph_->tuned_chunks_dense_backward[i][thread_id].end;
-      // for every vertex, we calc the message_index. This is used in backward
-      // propagation in lockfree style and every vertex has chance to gain
-      // gradient from every socket in local partition so we need to calculate
-      // write index for every socket
-      for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
-        VertexId v_i =
-            graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
-        VertexId v_trans = v_i - graph_chunks[i]->src_range[0];
-        if (graph_chunks[i]->src_get_active(v_i)) {
-          int position =
-              __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
-          graph_chunks[i]
-              ->backward_multisocket_message_index[v_trans]
-              .vertexSocketPosition[s_i] = position;
-        }
-      }
-    }
-
-    std::vector<VertexId> socket_forward_write_offset;
-    socket_forward_write_offset.resize(numa_num_configured_nodes());
-    memset(socket_forward_write_offset.data(), 0,
-           sizeof(VertexId) * socket_forward_write_offset.size());
-#pragma omp parallel for schedule(static, basic_chunk)
-    // pragma omp parallel for
-    for (VertexId begin_v_i = graph_chunks[i]->dst_range[0];
-         begin_v_i < graph_chunks[i]->dst_range[1]; begin_v_i++) {
-      int thread_id = omp_get_thread_num();
-      int s_i = graph_->get_socket_id(thread_id);
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_chunks[i]->dst_range[0];
-      // if v_trans has contribution to partition i
-      // then we calculate the write_index for it
-      // Looks like vertex id will bind to the socket id
-      // i.e. the same vertex will always be processed by the same thread
-      if (graph_chunks[i]->get_forward_active(v_trans)) {
-        int position =
-            __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
-        graph_chunks[i]->forward_multisocket_message_index[v_trans] =
-            position;
-      }
-    }
-    // printf("forward_write_offset %d\n",forward_write_offset);
-  }
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
-}
-
-void GenerateMessageBitmap() { // local partition offset
-  int feature_size = 1;
-  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
-      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
-          VertexId recv_id) { // pull
-        VertexId src_trans = src - graph_->partition_offset[recv_id];
-        if (graph_chunks[recv_id]->source_active->get_bit(src_trans)) {
-          VertexId part = (VertexId)graph_->partition_id;
-          graph_->emit_buffer(src, &part, feature_size);
-        }
-      },
-      [&](VertexId master, VertexId *msg) {
-        VertexId part = *msg;
-        graph_chunks[part]->set_forward_active(
-            master -
-            graph_->gnnctx
-                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
-        return 0;
-      },
-      feature_size, active_);
-
-  size_t basic_chunk = 64;
-  for (int i = 0; i < graph_chunks.size(); i++) {
-    graph_chunks[i]->backward_message_index =
-        new VertexId[graph_chunks[i]->batch_size_backward];
-    graph_chunks[i]->forward_message_index =
-        new VertexId[graph_chunks[i]->batch_size_forward];
-    memset(graph_chunks[i]->backward_message_index, 0,
-           sizeof(VertexId) * graph_chunks[i]->batch_size_backward);
-    memset(graph_chunks[i]->forward_message_index, 0,
-           sizeof(VertexId) * graph_chunks[i]->batch_size_forward);
-    int backward_write_offset = 0;
-
-    for (VertexId begin_v_i = graph_chunks[i]->src_range[0];
-         begin_v_i < graph_chunks[i]->src_range[1]; begin_v_i += 1) {
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_chunks[i]->src_range[0];
-      if (graph_chunks[i]->src_get_active(v_i))
-        graph_chunks[i]->backward_message_index[v_trans] =
-            backward_write_offset++;
-    }
-
-    int forward_write_offset = 0;
-    for (VertexId begin_v_i = graph_chunks[i]->dst_range[0];
-         begin_v_i < graph_chunks[i]->dst_range[1]; begin_v_i += 1) {
-      VertexId v_i = begin_v_i;
-      VertexId v_trans = v_i - graph_chunks[i]->dst_range[0];
-      if (graph_chunks[i]->get_forward_active(v_trans))
-        graph_chunks[i]->forward_message_index[v_trans] =
-            forward_write_offset++;
-    }
-    // printf("forward_write_offset %d\n",forward_write_offset);
-  }
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
-}
+//void GenerateMessageBitmap_multisokects_() { // local partition offset
+//  int feature_size = 1;
+//  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+//      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+//          VertexId recv_id) { // pull
+//        VertexId src_trans = src - graph_->partition_offset[recv_id];
+//        // send id of local partition to src
+//        // indicate that src will have contribution to local partition
+//        // while doing forward propagation
+//        if (graph_chunks[recv_id]->source_active->get_bit(src_trans)) {
+//          VertexId part = (VertexId)graph_->partition_id;
+//          graph_->emit_buffer(src, &part, feature_size);
+//        }
+//      },
+//      [&](VertexId master, VertexId *msg) {
+//        // vertex master in local partition will have contribution to partition
+//        // part
+//        VertexId part = *msg;
+//        graph_chunks[part]->set_forward_active(
+//            master -
+//            graph_->gnnctx
+//                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
+//        return 0;
+//      },
+//      feature_size, active_);
+//
+//  size_t basic_chunk = 64;
+//  // for every partition
+//  for (int i = 0; i < graph_chunks.size(); i++) {
+//    // allocate the data structure
+//    graph_chunks[i]->forward_multisocket_message_index =
+//        new VertexId[graph_chunks[i]->batch_size_forward];
+//    memset(graph_chunks[i]->forward_multisocket_message_index, 0,
+//           sizeof(VertexId) * graph_chunks[i]->batch_size_forward);
+//
+//    graph_chunks[i]->backward_multisocket_message_index =
+//        new BackVertexIndex[graph_chunks[i]->batch_size_backward];
+//    int socketNum = numa_num_configured_nodes();
+//    // for every vertex in partition i, set socket num
+//    for (int bck = 0; bck < graph_chunks[i]->batch_size_backward; bck++) {
+//      graph_chunks[i]->backward_multisocket_message_index[bck].setSocket(
+//          socketNum);
+//    }
+//
+//    std::vector<VertexId> socket_backward_write_offset;
+//    socket_backward_write_offset.resize(numa_num_configured_nodes());
+//    memset(socket_backward_write_offset.data(), 0,
+//           sizeof(VertexId) * socket_backward_write_offset.size());
+//#pragma omp parallel
+//    {
+//      int thread_id = omp_get_thread_num();
+//      int s_i = graph_->get_socket_id(thread_id);
+//      VertexId begin_p_v_i =
+//          graph_->tuned_chunks_dense_backward[i][thread_id].curr;
+//      VertexId final_p_v_i =
+//          graph_->tuned_chunks_dense_backward[i][thread_id].end;
+//      // for every vertex, we calc the message_index. This is used in backward
+//      // propagation in lockfree style and every vertex has chance to gain
+//      // gradient from every socket in local partition so we need to calculate
+//      // write index for every socket
+//      for (VertexId p_v_i = begin_p_v_i; p_v_i < final_p_v_i; p_v_i++) {
+//        VertexId v_i =
+//            graph_->compressed_incoming_adj_index_backward[s_i][p_v_i].vertex;
+//        VertexId v_trans = v_i - graph_chunks[i]->src_range[0];
+//        if (graph_chunks[i]->src_get_active(v_i)) {
+//          int position =
+//              __sync_fetch_and_add(&socket_backward_write_offset[s_i], 1);
+//          graph_chunks[i]
+//              ->backward_multisocket_message_index[v_trans]
+//              .vertexSocketPosition[s_i] = position;
+//        }
+//      }
+//    }
+//
+//    std::vector<VertexId> socket_forward_write_offset;
+//    socket_forward_write_offset.resize(numa_num_configured_nodes());
+//    memset(socket_forward_write_offset.data(), 0,
+//           sizeof(VertexId) * socket_forward_write_offset.size());
+//#pragma omp parallel for schedule(static, basic_chunk)
+//    // pragma omp parallel for
+//    for (VertexId begin_v_i = graph_chunks[i]->dst_range[0];
+//         begin_v_i < graph_chunks[i]->dst_range[1]; begin_v_i++) {
+//      int thread_id = omp_get_thread_num();
+//      int s_i = graph_->get_socket_id(thread_id);
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_chunks[i]->dst_range[0];
+//      // if v_trans has contribution to partition i
+//      // then we calculate the write_index for it
+//      // Looks like vertex id will bind to the socket id
+//      // i.e. the same vertex will always be processed by the same thread
+//      if (graph_chunks[i]->get_forward_active(v_trans)) {
+//        int position =
+//            __sync_fetch_and_add(&socket_forward_write_offset[s_i], 1);
+//        graph_chunks[i]->forward_multisocket_message_index[v_trans] =
+//            position;
+//      }
+//    }
+//    // printf("forward_write_offset %d\n",forward_write_offset);
+//  }
+//  if (graph_->partition_id == 0)
+//    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+//}
+//
+//void GenerateMessageBitmap() { // local partition offset
+//  int feature_size = 1;
+//  graph_->process_edges_backward<int, VertexId>( // For EACH Vertex Processing
+//      [&](VertexId src, VertexAdjList<Empty> outgoing_adj, VertexId thread_id,
+//          VertexId recv_id) { // pull
+//        VertexId src_trans = src - graph_->partition_offset[recv_id];
+//        if (graph_chunks[recv_id]->source_active->get_bit(src_trans)) {
+//          VertexId part = (VertexId)graph_->partition_id;
+//          graph_->emit_buffer(src, &part, feature_size);
+//        }
+//      },
+//      [&](VertexId master, VertexId *msg) {
+//        VertexId part = *msg;
+//        graph_chunks[part]->set_forward_active(
+//            master -
+//            graph_->gnnctx
+//                ->p_v_s); // destination_mirror_active->set_bit(master-start_);
+//        return 0;
+//      },
+//      feature_size, active_);
+//
+//  size_t basic_chunk = 64;
+//  for (int i = 0; i < graph_chunks.size(); i++) {
+//    graph_chunks[i]->backward_message_index =
+//        new VertexId[graph_chunks[i]->batch_size_backward];
+//    graph_chunks[i]->forward_message_index =
+//        new VertexId[graph_chunks[i]->batch_size_forward];
+//    memset(graph_chunks[i]->backward_message_index, 0,
+//           sizeof(VertexId) * graph_chunks[i]->batch_size_backward);
+//    memset(graph_chunks[i]->forward_message_index, 0,
+//           sizeof(VertexId) * graph_chunks[i]->batch_size_forward);
+//    int backward_write_offset = 0;
+//
+//    for (VertexId begin_v_i = graph_chunks[i]->src_range[0];
+//         begin_v_i < graph_chunks[i]->src_range[1]; begin_v_i += 1) {
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_chunks[i]->src_range[0];
+//      if (graph_chunks[i]->src_get_active(v_i))
+//        graph_chunks[i]->backward_message_index[v_trans] =
+//            backward_write_offset++;
+//    }
+//
+//    int forward_write_offset = 0;
+//    for (VertexId begin_v_i = graph_chunks[i]->dst_range[0];
+//         begin_v_i < graph_chunks[i]->dst_range[1]; begin_v_i += 1) {
+//      VertexId v_i = begin_v_i;
+//      VertexId v_trans = v_i - graph_chunks[i]->dst_range[0];
+//      if (graph_chunks[i]->get_forward_active(v_trans))
+//        graph_chunks[i]->forward_message_index[v_trans] =
+//            forward_write_offset++;
+//    }
+//    // printf("forward_write_offset %d\n",forward_write_offset);
+//  }
+//  if (graph_->partition_id == 0)
+//    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
+//}
 
 void TestGeneratedBitmap() {
   for (int i = 0; i < graph_chunks.size(); i++) {
@@ -395,11 +509,6 @@ void GenerateTmpMsg(DeviceLocation dt_){
   }
 #endif 
 }
-
-  
-//  //global message Index;
-//  Bitmap *mirror_bitmap;
-//  VertexId *mirror_index;
  
 };
 

@@ -362,8 +362,9 @@ public:
             VertexId src_trans = src - graph_->gnnctx->p_v_s;
             // check whether this vertex is necessary to send to
             // current_send_partition
-            if (subgraphs[current_send_partition]->get_forward_active(
-                    src_trans)) {
+            if (partitioned_graph_->has_mirror_at(current_send_partition,src)
+//              subgraphs[current_send_partition]->get_forward_active(src_trans)
+                ) {
               // get the index where we shall place the data
               // and invoke emit_buffer_lock_free to send messages
               VertexId write_index =
@@ -451,7 +452,7 @@ public:
                feature_size);
         }
         if (graph_->rtminfo->lock_free) {
-          if (subgraphs[recv_id]->source_active->get_bit(src_trans)) {
+          if (subgraphs[recv_id]->src_get_active(src)) {
             VertexId write_index =
                 subgraphs[recv_id]
                     ->backward_multisocket_message_index[src_trans]
@@ -498,8 +499,9 @@ public:
       [&](VertexId src, int current_send_partition) {
         if (graph_->rtminfo->lock_free) {
             VertexId src_trans = src - graph_->gnnctx->p_v_s;
-            if (subgraphs[current_send_partition]->get_forward_active(
-                    src_trans)) {
+            if (partitioned_graph_->has_mirror_at(current_send_partition,src)
+//          subgraphs[current_send_partition]->get_forward_active(src_trans)
+                ) {
               VertexId write_index = subgraphs[current_send_partition]
                       ->forward_multisocket_message_index[src_trans];
               graph_->NtsComm->emit_buffer_lock_free(
@@ -546,7 +548,7 @@ public:
         ValueType *local_output_buffer =//new ValueType[2048];
             f_output_grad_buffer + partitioned_graph_->MirrorIndex[src] * feature_size;
         if (graph_->rtminfo->lock_free) {
-          if (subgraphs[recv_id]->source_active->get_bit(src_trans)) {
+          if (subgraphs[recv_id]->src_get_active(src)) {
             VertexId write_index =
                 subgraphs[recv_id]
                     ->backward_multisocket_message_index[src_trans]
