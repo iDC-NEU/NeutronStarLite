@@ -2,6 +2,7 @@
 #define NTSBASEOP_HPP
 #include "graph.hpp"
 #include "PartitionedGraph.hpp"
+#include <immintrin.h>
 namespace nts {
 namespace op {
 
@@ -20,12 +21,31 @@ public:
   virtual NtsVar backward(NtsVar &output_grad)=0;
 };
 
-void nts_comp(ValueType *output, ValueType *input, ValueType weight,
+
+inline void nts_comp_non_avx256(ValueType *output, ValueType *input, ValueType weight,
           int feat_size) {
   for (int i = 0; i < feat_size; i++) {
     output[i] += input[i] * weight;
   }
 }
+
+//avx256
+inline void nts_comp(ValueType *output, ValueType *input, ValueType weight,
+          int feat_size) { 
+    const int LEN=8;
+  int loop=feat_size/LEN;
+  int res=feat_size%LEN;
+  __m256 w=_mm256_broadcast_ss(reinterpret_cast<float const *>(&weight));
+  for(int i=0;i<loop;i++){
+    __m256 source= *reinterpret_cast<__m256 *>(&(input[i*LEN]));
+    __m256 destination= _mm256_loadu_ps(reinterpret_cast<float const *>(&(output[i*LEN])));
+    _mm256_storeu_ps(&(output[i*LEN]),_mm256_add_ps(_mm256_mul_ps(source,w),destination));
+  }
+  for (int i = LEN*loop; i < feat_size; i++) {
+    output[i] += input[i] * weight;
+  }
+}
+
 
 /**
  * @brief
@@ -34,7 +54,7 @@ void nts_comp(ValueType *output, ValueType *input, ValueType weight,
  * @param output output feature
  * @param feat_size feature size
  */
-void nts_acc(ValueType *output, ValueType *input, int feat_size) {
+inline void nts_acc(ValueType *output, ValueType *input, int feat_size) {
   for (int i = 0; i < feat_size; i++) {
     // atomic add
     write_add(&output[i], input[i]);
@@ -51,7 +71,7 @@ void nts_acc(ValueType *output, ValueType *input, int feat_size) {
  * @param s_offset src offset, should be a vertex id
  * @param feat_size feature size that every vertex have
  */
-void nts_copy(ValueType *b_dst, long d_offset, ValueType *b_src, VertexId s_offset,
+inline void nts_copy(ValueType *b_dst, long d_offset, ValueType *b_src, VertexId s_offset,
           int feat_size, int counts) {
   // length is the byte level space cost for a vertex feature data
   VertexId length = sizeof(ValueType) * feat_size;
@@ -69,7 +89,7 @@ void nts_copy(ValueType *b_dst, long d_offset, ValueType *b_src, VertexId s_offs
  * @param dst dst id
  * @return ValueType
  */
-ValueType nts_norm_degree(Graph<Empty> *graph_, VertexId src, VertexId dst) {
+inline ValueType nts_norm_degree(Graph<Empty> *graph_, VertexId src, VertexId dst) {
   return 1 / ((ValueType)std::sqrt(graph_->out_degree_for_backward[src]) *
               (ValueType)std::sqrt(graph_->in_degree_for_backward[dst]));
 }
@@ -80,7 +100,7 @@ ValueType nts_norm_degree(Graph<Empty> *graph_, VertexId src, VertexId dst) {
  * @param v vertex id
  * @return ValueType
  */
-ValueType nts_out_degree(Graph<Empty> *graph_, VertexId v) {
+inline ValueType nts_out_degree(Graph<Empty> *graph_, VertexId v) {
   return (ValueType)(graph_->out_degree_for_backward[v]);
 }
 
@@ -90,7 +110,7 @@ ValueType nts_out_degree(Graph<Empty> *graph_, VertexId v) {
  * @param v vertex id
  * @return ValueType
  */
-ValueType nts_in_degree(Graph<Empty> *graph_, VertexId v) {
+inline ValueType nts_in_degree(Graph<Empty> *graph_, VertexId v) {
   return (ValueType)(graph_->in_degree_for_backward[v]);
 }
 
