@@ -57,11 +57,10 @@ void CSC_segment_pinned::allocVertexAssociateData() {
 
   source_active = new Bitmap(batch_size_backward);
   destination_active = new Bitmap(batch_size_forward);
-  forward_active = new Bitmap(batch_size_forward);
 
   source_active->clear();
   destination_active->clear();
-  forward_active->clear();
+  
 #if CUDA_ENABLE
   if (dt == GPU_T) {
     column_offset = (VertexId *)cudaMallocPinned((batch_size_forward + 1) *

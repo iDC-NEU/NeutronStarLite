@@ -63,8 +63,8 @@ public:
   ValueType *edge_weight_forward; // edge_size
   ValueType *edge_weight_backward;
 
-  VertexId *backward_message_index;
-  VertexId *forward_message_index;
+//  VertexId *backward_message_index;
+//  VertexId *forward_message_index;
   VertexId *forward_multisocket_message_index;
   BackVertexIndex *backward_multisocket_message_index;
 
@@ -90,9 +90,7 @@ public:
   int src_range[2];
   int dst_range[2];
   Bitmap *source_active;
-  VertexId *source_index;
   Bitmap *destination_active;
-  Bitmap *forward_active;
   //std::vector<Bitmap *> VertexToComm;
 
   DeviceLocation dt;
