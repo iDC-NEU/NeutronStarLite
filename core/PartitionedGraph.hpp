@@ -31,8 +31,11 @@ public:
   //communication
   std::vector<Bitmap*>hasMirrorAtPartition;
   
-  
-  
+  //global graph;
+  VertexId* column_offset;
+  VertexId* row_indices;
+  VertexId* row_offset;
+  VertexId* column_indices;
   
   
   //graph segment;
@@ -59,17 +62,20 @@ public:
                             DeviceLocation dt_,bool dist=false){
       generatePartitionedSubgraph();
       PartitionToChunks(weight_compute, dt_);
-      if(dt_==CPU_T)
+      if(dt_==CPU_T){
+        DetermineMirror();
         GenerateMessageBitmap_multisokects();
-      else{
+      }else{
 //        GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
       if(dist)
         generateMirrorIndex();
   }
-  void GenerateMessageBitmap_multisokects(){
-      for(int i=0;i<this->partitions;i++){
+  
+  void DetermineMirror_(){// this codes is rely on Gemini engine
+      //and will not be used in the future version
+            for(int i=0;i<this->partitions;i++){
           hasMirrorAtPartition.push_back(new Bitmap(owned_vertices));
       }
       int feature_size = 1;
@@ -94,7 +100,47 @@ public:
         return 0;
       },
       feature_size, active_);
-        size_t basic_chunk = 64;
+      
+  }
+    void DetermineMirror(){
+      //the sec_active of each chunk definitely indicate the active mirrors on 
+      //the its master node. so we synchronize them through a ring based mpi 
+      //allreduce.  
+      for(int i=0;i<this->partitions;i++){
+          hasMirrorAtPartition.push_back(new Bitmap(owned_vertices));
+      }
+      int feature_size = 1;
+      std::thread send_thread([&]() {
+          for (int step = 1; step < partitions; step++) {
+            int recipient_id = (partition_id + step) % partitions;
+            MPI_Send(graph_chunks[recipient_id]->source_active->data,
+                     WORD_OFFSET(graph_chunks[recipient_id]->source_active->size)+1,
+                    MPI_UNSIGNED_LONG, recipient_id,
+                     PassMessage, MPI_COMM_WORLD);
+          }
+        });
+        std::thread recv_thread([&]() {
+          for (int step = 1; step < partitions; step++) {
+            int sender_id = (partition_id - step + partitions) % partitions;
+            MPI_Recv(this->hasMirrorAtPartition[sender_id]->data,
+                     WORD_OFFSET(this->owned_vertices)+1,
+                     MPI_UNSIGNED_LONG, sender_id, PassMessage, MPI_COMM_WORLD,
+                     MPI_STATUS_IGNORE);
+          }
+        });
+        send_thread.join();
+        recv_thread.join();
+        MPI_Barrier(MPI_COMM_WORLD); // denseselect fill the bitmap array
+        memcpy(this->hasMirrorAtPartition[partition_id]->data,
+                graph_chunks[partition_id]->source_active->data,
+                 sizeof(unsigned long)*(WORD_OFFSET(this->owned_vertices)+1));
+      //if (graph_->partition_id == 0)
+        printf("GNNmini::Preprocessing[Determine Mirrors on Partition[%d]]\n",partition_id);
+      
+  }
+  
+  void GenerateMessageBitmap_multisokects(){      
+  size_t basic_chunk = 64;
   // for every partition
   for (int i = 0; i < graph_chunks.size(); i++) {
     // allocate the data structure
@@ -307,6 +353,82 @@ public:
     if (graph_->partition_id == 0)
         printf("GNNmini::Preprocessing[Generate Chunks]\n");
   }
+  void DistSchedulingWholePartition(
+      std::function<void(VertexId, PartitionedGraph*)> sparse_slot) {
+    omp_set_num_threads(graph_->threads);
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    
+    size_t basic_chunk = 64;
+    {
+      // since we have only one partition. i think this loop should be discarded
+#pragma omp parallel for
+        for (VertexId begin_v_i = partition_offset[partition_id];
+             begin_v_i < partition_offset[partition_id + 1];
+             begin_v_i += basic_chunk) {
+          // for every vertex, apply the sparse_slot at the partition
+          // corresponding to the step
+          VertexId v_i = begin_v_i;
+          unsigned long word = active_->data[WORD_OFFSET(v_i)];
+          while (word != 0) {
+            if (word & 1) {
+              sparse_slot(v_i,this);
+            }
+            v_i++;
+            word = word >> 1;
+          }
+        }
+      //      NtsComm->release_communicator();
+    }
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+  }
+  
+
+void TestGeneratedBitmap() {
+  for (int i = 0; i < graph_chunks.size(); i++) {
+    int count_act_src = 0;
+    int count_act_dst = 0;
+    int count_act_master = 0;
+    for (int j = graph_chunks[i]->dst_range[0]; j < graph_chunks[i]->dst_range[1];
+         j++) {
+      if (graph_chunks[i]->dst_get_active(j)) {
+        count_act_dst++;
+      }
+    }
+    for (int j = graph_chunks[i]->src_range[0]; j < graph_chunks[i]->src_range[1];
+         j++) {
+      if (graph_chunks[i]->src_get_active(j)) {
+        count_act_src++;
+      }
+    }
+    printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR "
+           "%d\n",
+           graph_->partition_id, i, count_act_src, count_act_dst,
+           count_act_master);
+  }
+}
+
+void GenerateTmpMsg(DeviceLocation dt_){
+#if CUDA_ENABLE
+  if (GPU_T == dt_) {
+    int max_batch_size = 0;
+    for (int i = 0; i < graph_chunks.size(); i++) {
+      max_batch_size =
+          std::max(max_batch_size, graph_chunks[i]->batch_size_backward);
+    }
+    graph_->output_gpu_buffered = graph_->Nts->NewLeafTensor(
+        {max_batch_size, graph_->gnnctx->max_layer}, torch::DeviceType::CUDA);
+  }
+#endif 
+}
+ 
+};
+
   /**
  * @brief
  * preprocess bitmap, used in CPU based forward and backward propagation
@@ -471,47 +593,19 @@ public:
 //  if (graph_->partition_id == 0)
 //    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
 //}
-
-void TestGeneratedBitmap() {
-  for (int i = 0; i < graph_chunks.size(); i++) {
-    int count_act_src = 0;
-    int count_act_dst = 0;
-    int count_act_master = 0;
-    for (int j = graph_chunks[i]->dst_range[0]; j < graph_chunks[i]->dst_range[1];
-         j++) {
-      if (graph_chunks[i]->dst_get_active(j)) {
-        count_act_dst++;
-      }
-    }
-    for (int j = graph_chunks[i]->src_range[0]; j < graph_chunks[i]->src_range[1];
-         j++) {
-      if (graph_chunks[i]->src_get_active(j)) {
-        count_act_src++;
-      }
-    }
-    printf("PARTITION:%d CHUNK %d ACTIVE_SRC %d ACTIVE_DST %d ACTIVE_MIRROR "
-           "%d\n",
-           graph_->partition_id, i, count_act_src, count_act_dst,
-           count_act_master);
-  }
-}
-
-void GenerateTmpMsg(DeviceLocation dt_){
-#if CUDA_ENABLE
-  if (GPU_T == dt_) {
-    int max_batch_size = 0;
-    for (int i = 0; i < graph_chunks.size(); i++) {
-      max_batch_size =
-          std::max(max_batch_size, graph_chunks[i]->batch_size_backward);
-    }
-    graph_->output_gpu_buffered = graph_->Nts->NewLeafTensor(
-        {max_batch_size, graph_->gnnctx->max_layer}, torch::DeviceType::CUDA);
-  }
-#endif 
-}
- 
-};
-
-
+  /**
+   * @brief
+   * apply sparse_slot to every local vertex. Only used in single node scenario.
+   * i.e. don't used it for distributed training
+   * @tparam R
+   * @tparam M data type for message buffer
+   * @param sparse_slot function that we want to applied
+   * @param graph_partitions vector contains the representation of every
+   * subgraph
+   * @param feature_size feature size at this layer
+   * @param active active vertex subset
+   * @param dense_selective not used
+   * @return R
+   */
 
 #endif
