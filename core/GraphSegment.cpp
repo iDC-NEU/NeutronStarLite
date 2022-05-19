@@ -299,7 +299,7 @@ void RuntimeInfo::init_rtminfo() {
 
 #if CUDA_ENABLE
   cuda_stream_public = new Cuda_Stream();
-  printf("cuda stream avaliable\n");
+//  printf("cuda stream avaliable\n");
 #endif
 }
 
