@@ -85,7 +85,7 @@ public:
     partitioned_graph=new PartitionedGraph(graph, active);
     partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
       return nts::op::nts_norm_degree(graph,src, dst);
-    },CPU_T);
+    },CPU_T,(graph->partitions)>1);
     graph->init_communicatior();
     //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
     ctx=new nts::ctx::NtsContext();

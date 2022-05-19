@@ -284,6 +284,7 @@ void InputInfo::print() {
   std::cout << "decay_rate\t:\t" << decay_rate << std::endl;
   std::cout << "decay_epoch\t:\t" << decay_epoch << std::endl;
   std::cout << "drop_rate\t:\t" << drop_rate << std::endl;
+  std::cout <<"------------------input info--------------"<<std::endl;
 }
 
 void RuntimeInfo::init_rtminfo() {
@@ -298,7 +299,7 @@ void RuntimeInfo::init_rtminfo() {
 
 #if CUDA_ENABLE
   cuda_stream_public = new Cuda_Stream();
-  printf("called CUDA_STREAM\n");
+  printf("cuda stream avaliable\n");
 #endif
 }
 

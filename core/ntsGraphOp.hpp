@@ -28,6 +28,8 @@ namespace op {
 //  virtual NtsVar &forward(NtsVar &input) = 0;
 //  virtual NtsVar backward(NtsVar &output_grad) = 0;
 //};
+    
+#if CUDA_ENABLE    
 class ForwardGPUfuseOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
@@ -97,7 +99,7 @@ public:
   }    
 
 };
-
+#endif
 class SingleCPUSrcDstScatterOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;

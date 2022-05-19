@@ -34,7 +34,7 @@ public:
   //global graph;
   VertexId* column_offset;
   VertexId* row_indices;
-  VertexId* row_offset;
+  VertexId* compressed_row_offset;
   VertexId* column_indices;
   
   
@@ -42,7 +42,6 @@ public:
   std::vector<CSC_segment_pinned*>graph_chunks;
   PartitionedGraph(){
   }
-  
   PartitionedGraph(Graph<Empty> *graph, VertexSubset *active){
         global_vertices=graph->vertices;
         global_edges=graph->edges;
@@ -55,25 +54,90 @@ public:
         graph_chunks.clear();
         hasMirrorAtPartition.clear();
   }
+  void SyncAndLog(const char* data){
+      MPI_Barrier(MPI_COMM_WORLD);
+      if(partition_id==0)
+      std::cout<<data<<std::endl;
+  }
   inline bool has_mirror_at(VertexId p_i,VertexId v_i){
       return hasMirrorAtPartition[p_i]->get_bit(v_i-graph_->gnnctx->p_v_s);
   }
   void GenerateAll(std::function<ValueType(VertexId, VertexId)> weight_compute,
                             DeviceLocation dt_,bool dist=false){
       generatePartitionedSubgraph();
+      SyncAndLog("NeutronStar::Preprocessing[Generate Partitioned Subgraph]");
       PartitionToChunks(weight_compute, dt_);
+      SyncAndLog("NeutronStar::Preprocessing[Generate Graph Chunks]");
       if(dt_==CPU_T){
         DetermineMirror();
+        SyncAndLog("NeutronStar::Preprocessing[Determine Mirrors]");
         GenerateMessageBitmap_multisokects();
+        SyncAndLog("NeutronStar::Preprocessing[Compressed Message Prepared]");
       }else{
 //        GenerateMessageBitmap();  
         GenerateTmpMsg(dt_);
       }
-      if(dist)
+      if(dist){
         generateMirrorIndex();
+        SyncAndLog("NeutronStar::Preprocessing[Generate Mirror Indices]");
+        GenerateWholeGraphTopo();
+        SyncAndLog("NeutronStar::Preprocessing[Generate Full Graph Topo]");
+      }
+     SyncAndLog("------------------finish graph preprocessing--------------\n");
   }
-  
-  void DetermineMirror_(){// this codes is rely on Gemini engine
+  void GenerateWholeGraphTopo(){
+      column_offset=new VertexId[owned_vertices+1];
+      compressed_row_offset=new VertexId[owned_mirrors+1];
+      column_indices=new VertexId[owned_edges];
+      row_indices=new VertexId[owned_edges];
+      memset(column_offset,0,(owned_vertices+1)*sizeof(VertexId));
+      memset(compressed_row_offset,0,(owned_mirrors+1)*sizeof(VertexId));
+      memset(column_indices,0,owned_edges*sizeof(VertexId));
+      memset(row_indices,0,owned_edges*sizeof(VertexId));
+      VertexId* tmp_column_offset=new VertexId[owned_vertices+1]; 
+      VertexId* tmp_row_offset=new VertexId[owned_mirrors+1];
+      memset(tmp_column_offset,0,(owned_vertices+1)*sizeof(VertexId));
+      memset(tmp_row_offset,0,(owned_mirrors+1)*sizeof(VertexId));
+      for(VertexId i=0;i<this->owned_edges;i++){
+          VertexId src_trans=this->MirrorIndex[this->srcList[i]];
+          VertexId dst_trans=this->dstList[i]-graph_->gnnctx->p_v_s;
+          tmp_column_offset[dst_trans+1]++;
+          tmp_row_offset[src_trans+1]++;
+      }
+      for(int i=0;i<owned_vertices;i++){
+          tmp_column_offset[i+1]+=tmp_column_offset[i];
+      }
+      for(int i=0;i<owned_mirrors;i++){
+          tmp_row_offset[i+1]+=tmp_row_offset[i];
+      }
+      memcpy(column_offset,tmp_column_offset,sizeof(VertexId)*(owned_vertices+1));
+      memcpy(compressed_row_offset,tmp_row_offset,sizeof(VertexId)*(owned_mirrors+1));
+      for(VertexId i=0;i<this->owned_edges;i++){
+          VertexId src=this->srcList[i];
+          VertexId dst=this->dstList[i];
+          VertexId src_trans=this->MirrorIndex[src];
+          VertexId dst_trans=dst-graph_->gnnctx->p_v_s;
+         row_indices[tmp_column_offset[dst_trans]++]=src;
+         column_indices[tmp_row_offset[src_trans]++]=dst;
+      }
+//      printf("column_offset DEBUG:\n");
+//      for(int i=0;i<owned_vertices;i++){
+//          if (!(tmp_column_offset[i]==column_offset[i+1])){
+//              printf("%d %d %d\n",i,tmp_column_offset[i],column_offset[i+1]);
+//          }
+//      }
+//      printf("\nrow_offset DEBUG:\n");
+//      for(int i=0;i<owned_mirrors;i++){
+//          if (!(tmp_row_offset[i]==compressed_row_offset[i+1])){
+//              printf("%d %d %d\n",i,tmp_row_offset[i],compressed_row_offset[i+1]);
+//          }
+//      }printf("\n");
+      delete []tmp_column_offset;
+      delete []tmp_row_offset;
+
+  }
+  void DetermineMirror_(){
+      // this codes is rely on Gemini engine
       //and will not be used in the future version
             for(int i=0;i<this->partitions;i++){
           hasMirrorAtPartition.push_back(new Bitmap(owned_vertices));
@@ -102,10 +166,10 @@ public:
       feature_size, active_);
       
   }
-    void DetermineMirror(){
+  void DetermineMirror(){
       //the sec_active of each chunk definitely indicate the active mirrors on 
       //the its master node. so we synchronize them through a ring based mpi 
-      //allreduce.  
+      //allreduce.   
       for(int i=0;i<this->partitions;i++){
           hasMirrorAtPartition.push_back(new Bitmap(owned_vertices));
       }
@@ -134,11 +198,10 @@ public:
         memcpy(this->hasMirrorAtPartition[partition_id]->data,
                 graph_chunks[partition_id]->source_active->data,
                  sizeof(unsigned long)*(WORD_OFFSET(this->owned_vertices)+1));
-      //if (graph_->partition_id == 0)
-        printf("GNNmini::Preprocessing[Determine Mirrors on Partition[%d]]\n",partition_id);
+//      if (graph_->partition_id == 0)
+
       
   }
-  
   void GenerateMessageBitmap_multisokects(){      
   size_t basic_chunk = 64;
   // for every partition
@@ -213,13 +276,11 @@ public:
     }
     // printf("forward_write_offset %d\n",forward_write_offset);
   }
-  if (graph_->partition_id == 0)
-    printf("GNNmini::Preprocessing[Compressed Message Prepared]\n");
       
   }
   void generateMirrorIndex(){
       MirrorIndex=new VertexId[global_vertices+1];
-      memset(MirrorIndex,0,sizeof(VertexId)*global_vertices+1);
+      memset(MirrorIndex,0,sizeof(VertexId)*(global_vertices+1));
       for(VertexId i=0;i<this->owned_edges;i++){
           MirrorIndex[srcList[i]+1]=1;
       }
@@ -227,8 +288,6 @@ public:
           MirrorIndex[i+1]+=MirrorIndex[i];
       }
       owned_mirrors=MirrorIndex[global_vertices];
-      if (partition_id == 0)
-      printf("NeutronStar::Preprocessing[Generate Mirror Indices]\n");
   }
   void generatePartitionedSubgraph(){
       owned_edges=0;
@@ -247,11 +306,7 @@ public:
             }
         }
       }
-      if (partition_id == 0)
-      printf("NeutronStar::Preprocessing[Generate Partitioned Subgraph]\n");
   }
- 
-  
   void PartitionToChunks(std::function<ValueType(VertexId, VertexId)> weight_compute,
                             DeviceLocation dt_){
       graph_chunks.clear();
@@ -289,7 +344,6 @@ public:
       for (VertexId i = 0; i <partitions; i++) {
         memset(tmp_column_offset, 0, sizeof(VertexId) * (global_vertices+ 1));
         memset(tmp_row_offset, 0, sizeof(VertexId) * (global_vertices + 1));
-
         for (VertexId j = 0; j < graph_chunks[i]->edge_size; j++) {
             // note that the vertex in the same partition has the contiguous vertexID
             // so we can minus the start index to get the offset
@@ -317,7 +371,6 @@ public:
             tmp_row_offset[j + 1] += tmp_row_offset[j];
             graph_chunks[i]->row_offset[j + 1] = tmp_row_offset[j + 1];
         }
-
         // after calc the offset, we should place those edges now
         for (VertexId j = 0; j < graph_chunks[i]->edge_size; j++) {
             // if(graph->partition_id==0)std::cout<<"After j edges: "<<j<<std::endl;
@@ -339,19 +392,17 @@ public:
         }
         for (VertexId j = 0; j < graph_chunks[i]->batch_size_forward; j++) {        
             // save the src and dst in the column format
-            VertexId v_dst_m = j+ graph_chunks[i]->source[j];
-            for(VertexId e_idx=graph_chunks[i]->column_indices[j];e_idx<graph_chunks[i]->column_indices[j+1];e_idx++){
+            VertexId v_dst_m = j+ graph_chunks[i]->dst_range[0];
+            for(VertexId e_idx=graph_chunks[i]->column_offset[j];e_idx<graph_chunks[i]->column_offset[j+1];e_idx++){
                 VertexId v_src_m = graph_chunks[i]->row_indices[e_idx];
                  graph_chunks[i]->source[e_idx] = (long)(v_src_m);
                  graph_chunks[i]->destination[e_idx]=(long)(v_dst_m);
             }
         }
         graph_chunks[i]->CopyGraphToDevice();
-    }     
+    }
   delete[] tmp_column_offset;
-  delete[] tmp_row_offset;      
-    if (graph_->partition_id == 0)
-        printf("GNNmini::Preprocessing[Generate Chunks]\n");
+  delete[] tmp_row_offset;
   }
   void DistSchedulingWholePartition(
       std::function<void(VertexId, PartitionedGraph*)> sparse_slot) {
