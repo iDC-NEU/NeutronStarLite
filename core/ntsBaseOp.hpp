@@ -15,8 +15,8 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 */
 #ifndef NTSBASEOP_HPP
 #define NTSBASEOP_HPP
-#include "graph.hpp"
-#include "PartitionedGraph.hpp"
+#include "core/graph.hpp"
+#include "core/PartitionedGraph.hpp"
 #include <immintrin.h>
 namespace nts {
 namespace op {

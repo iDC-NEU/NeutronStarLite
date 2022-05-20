@@ -34,16 +34,16 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include <unistd.h>
 #include <vector>
 
-#include "core/atomic.hpp"
-#include "core/bitmap.h"
-#include "core/constants.hpp"
-#include "core/filesystem.hpp"
-#include "core/mpi.hpp"
-#include "core/time.hpp"
-#include "core/type.hpp"
+#include "dep/gemini/atomic.hpp"
+#include "dep/gemini/bitmap.hpp"
+#include "dep/gemini/constants.hpp"
+#include "dep/gemini/filesystem.hpp"
+#include "dep/gemini/mpi.hpp"
+#include "dep/gemini/time.hpp"
+#include "dep/gemini/type.hpp"
 
 #include "ATen/ATen.h"
-#include "GraphSegment.h"
+#include "core/GraphSegment.h"
 #include "comm/network.h"
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"

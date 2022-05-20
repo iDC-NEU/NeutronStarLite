@@ -21,11 +21,11 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include <omp.h>
 #include <stdio.h>
 
-#include "network.h"
-#include "core/mpi.hpp"
-#include "core/type.hpp"
+#include "comm/network.h"
+#include "dep/gemini/mpi.hpp"
+#include "dep/gemini/type.hpp"
 #if CUDA_ENABLE
-#include "cuda/test.hpp"
+#include "cuda/ntsCUDA.hpp"
 #endif
 
 const int DEFAULT_MESSAGEBUFFER_CAPACITY = 4096;

@@ -24,9 +24,9 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include <unistd.h>
 #include <vector>
 
-#include "graph.hpp"
-#include "ntsBaseOp.hpp"
-#include "PartitionedGraph.hpp"
+#include "core/graph.hpp"
+#include "core/ntsBaseOp.hpp"
+#include "core/PartitionedGraph.hpp"
 
 namespace nts {
 namespace op {

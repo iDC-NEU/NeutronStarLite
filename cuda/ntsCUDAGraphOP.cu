@@ -1,9 +1,10 @@
 
 #include"cuda_type.h"
-#include "test.hpp"
+#include "ntsCUDA.hpp"
 
 #if CUDA_ENABLE
-#include "propagate.cuh"
+#include "ntsCUDAGraphKernel.cuh"
+
 #endif
 
 #if CUDA_ENABLE
@@ -165,9 +166,10 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
 	const int BLOCK_SIZE=32;
         if(with_weight){
             if(tensor_weight){
-		aggregate_kernel_from_src_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_indices, column_offset, input, output, weight_forward, 
-				src_start, dst_start, batch_size, feature_size);
+//		aggregate_kernel_from_src_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+//			row_indices, column_offset, input, output, weight_forward, 
+//				src_start, dst_start, batch_size, feature_size);
+                printf("aggregate_kernel_from_src_tensor_weight_optim_nts");
             }else{
                 aggregate_kernel_from_src_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
 			row_indices, column_offset, input, output, weight_forward, 
@@ -197,7 +199,8 @@ void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float*
 //		aggregate_kernel_from_src_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 //			row_indices, column_offset, input, output, weight_forward, 
 //				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
-                printf("DEBUGGING \n");
+                printf("aggregate_kernel_from_src_tensor_weight_optim_nts is a legacy implementation\n");
+                exit(0);  
             }else{
                 aggregate_kernel_from_src_with_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_indices, column_offset, input, output, weight_forward, 
@@ -226,9 +229,11 @@ void Cuda_Stream::Gather_By_Src_From_Dst_Optim(float* input,float* output,float*
 #if CUDA_ENABLE
         if(with_weight){
             if(tensor_weight){
-		aggregate_kernel_from_dst_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
-			row_offset, column_indices, input, output, weight_forward, 
-				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
+//		aggregate_kernel_from_dst_tensor_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+//			row_offset, column_indices, input, output, weight_forward, 
+//				src_start,src_end, dst_start,dst_end,edges, batch_size, feature_size);
+                printf("aggregate_kernel_from_dst_tensor_weight_optim_nts is a legacy implementation\n");
+                exit(0);  
             }else{
                 aggregate_kernel_from_dst_with_weight_optim_nts<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_offset, column_indices, input, output, weight_forward, 
@@ -259,9 +264,11 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
         if(with_weight){
             if(tensor_weight){
-                aggregate_kernel_from_dst_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_offset, column_indices, input, output, weight_forward, 
-				src_start, dst_start, batch_size, feature_size);   
+//                aggregate_kernel_from_dst_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+//			row_offset, column_indices, input, output, weight_forward, 
+//				src_start, dst_start, batch_size, feature_size);
+             printf("aggregate_kernel_from_dst_tensor_weight is a legacy implementation\n");
+                exit(0);   
             }else{
                 
 		aggregate_kernel_from_dst_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(

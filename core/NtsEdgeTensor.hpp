@@ -16,8 +16,8 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
 #ifndef NTSTENSOR_HPP
 #define NTSTENSOR_HPP
-#include "GraphSegment.h"
-#include "NtsScheduler.hpp"
+#include "core/GraphSegment.h"
+#include "core/NtsScheduler.hpp"
 
 namespace nts {
 struct ntsEdgeTensor {

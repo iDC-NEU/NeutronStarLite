@@ -19,8 +19,8 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
 #define BIG_MESSAGE 1 // untested
 
-#include "core/mpi.hpp"
-#include "core/type.hpp"
+#include "dep/gemini/mpi.hpp"
+#include "dep/gemini/type.hpp"
 
 #include <functional>
 #include <malloc.h>

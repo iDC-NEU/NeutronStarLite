@@ -24,7 +24,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include <unistd.h>
 #include <vector>
 
-#include "graph.hpp"
+#include "core/graph.hpp"
 
 class GNNDatum {
 public:

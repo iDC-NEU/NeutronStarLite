@@ -273,60 +273,6 @@ __global__ void aggregate_kernel_from_src_without_weight_optim_nts(const VertexI
     }
 }
 
-__global__ void aggregate_kernel_from_src_tensor_weight_optim_nts(const VertexId_CUDA *row_indices,
-                    const  VertexId_CUDA *column_offset, long *destination,
- 		const float* old_feature, float* new_feature,const float* weight,
- 		VertexId_CUDA src_s_,VertexId_CUDA src_e_,
-                VertexId_CUDA dst_s_,VertexId_CUDA dst_e_,
-                VertexId_CUDA edges,
- 		VertexId_CUDA batch_size_, VertexId_CUDA feature_size_){
-        int VtxPerBlock=CUDA_NUM_THREADS/feature_size_;
-        typedef cub::BlockScan<VertexId_CUDA,CUDA_NUM_THREADS> BlockScan;
-        __shared__ BlockScan::TempStorage temp_storage;
-        __shared__ VertexId_CUDA blkRowStart;
-        __shared__ VertexId_CUDA blkRowEnd;
-        __shared__ float acc_h[CUDA_NUM_THREADS];
-        int tidDiv=threadIdx.x/feature_size_;
-        int tidMod=threadIdx.x%feature_size_;
-        //block level iteration determnes
-        
-        for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
-            VertexId_CUDA myNumEdges=0,scratchOffset,totalNumEdges=0;
-            if(threadIdx.x+blkColStart<batch_size_&&threadIdx.x<VtxPerBlock){
-                VertexId_CUDA curVtx_trans=blkColStart+threadIdx.x;
-                VertexId_CUDA rowIdxStart=column_offset[curVtx_trans];
-                VertexId_CUDA rowIdxEnd=column_offset[curVtx_trans+1];
-                assert(rowIdxStart>=0&&rowIdxEnd<=edges);
-                if(threadIdx.x==0)
-                    blkRowStart=rowIdxStart;
-                if((threadIdx.x+blkColStart)==(batch_size_-1)||threadIdx.x==(VtxPerBlock)-1)
-                    blkRowEnd=rowIdxEnd;
-            }
-        acc_h[threadIdx.x]=0.0f;
-        __syncthreads();
-        totalNumEdges=blkRowEnd-blkRowStart;
-        VertexId_CUDA done=0;
-        while(totalNumEdges>0){
-            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
-                VertexId_CUDA src_trans= row_indices[blkRowStart+done+tidDiv]-src_s_;//different with threads num
-                VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
-                float w=weight[(blkRowStart+done+tidDiv)*feature_size_+tidMod];
-                float val=old_feature[src_trans*feature_size_+tidMod]*w;
-                assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
-                int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
-                atomicAdd(&acc_h[offset],val);
-            }
-            done+=VtxPerBlock;
-           totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
-        }
-        __syncthreads();
-        if(tidDiv<VtxPerBlock&&tidDiv+blkColStart<=batch_size_){
-            new_feature[(blkColStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
-        
-        }
-    }
-}
-
 //for dimension larger than 512
 template <typename T_v,typename T_l>
 __global__ void aggregate_kernel_from_src_with_weight(const T_l *row_indices,const  T_l *column_offset,
@@ -343,26 +289,6 @@ __global__ void aggregate_kernel_from_src_with_weight(const T_l *row_indices,con
 			int local_src=row_indices[i_i]-src_s_;
 			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
 			 	old_feature[feature_size_*local_src+rank]*weight[i_i]);
-	 	}
-		
-	}
-}
-
-template <typename T_v,typename T_l>
-__global__ void aggregate_kernel_from_src_tensor_weight(const T_l *row_indices,const  T_l *column_offset,
- 		const T_v* old_feature, T_v* new_feature,const T_v* weight,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int large_size=blockDim.x;
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_dst=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(int i_i=column_offset[local_dst];i_i<column_offset[local_dst+1];i_i++){
-			int local_src=row_indices[i_i]-src_s_;
-			 atomicAdd(&new_feature[feature_size_*local_dst+rank],
-			 	old_feature[feature_size_*local_src+rank]*weight[i_i*feature_size_+rank]);
 	 	}
 		
 	}
@@ -464,68 +390,6 @@ __global__ void aggregate_kernel_from_dst_with_weight_optim_nts(const VertexId_C
     }
 }
 
-__global__ void aggregate_kernel_from_dst_tensor_weight_optim_nts(const VertexId_CUDA *row_offset,
-                    const  VertexId_CUDA *column_indices,
- 		const float* old_feature, float* new_feature,const float* weight,
- 		VertexId_CUDA src_s_,VertexId_CUDA src_e_,
-                VertexId_CUDA dst_s_,VertexId_CUDA dst_e_,
-                VertexId_CUDA edges,
- 		VertexId_CUDA batch_size_, VertexId_CUDA feature_size_){
-       int VtxPerBlock=CUDA_NUM_THREADS/feature_size_;
-        __shared__ VertexId_CUDA blkColStart;
-        __shared__ VertexId_CUDA blkColEnd;
-        __shared__ float acc_h[CUDA_NUM_THREADS];
-        int tidDiv=threadIdx.x/feature_size_;
-        int tidMod=threadIdx.x%feature_size_;
-        //block level iteration determnes
-        
-        for(VertexId_CUDA blkRowStart=blockIdx.x*VtxPerBlock;blkRowStart<batch_size_;blkRowStart+=VtxPerBlock*gridDim.x){
-            VertexId_CUDA totalNumEdges=0;
-            if(threadIdx.x+blkRowStart<batch_size_&&threadIdx.x<VtxPerBlock){
-                VertexId_CUDA curVtx_trans=blkRowStart+threadIdx.x;
-                VertexId_CUDA colIdxStart=row_offset[curVtx_trans];
-                VertexId_CUDA colIdxEnd=row_offset[curVtx_trans+1];
-                assert(colIdxStart>=0&&colIdxEnd<=edges);
-                if(threadIdx.x==0)
-                    blkColStart=colIdxStart;
-                if((threadIdx.x+blkRowStart)==(batch_size_-1)||threadIdx.x==(VtxPerBlock)-1)
-                    blkColEnd=colIdxEnd;
-            }
-        acc_h[threadIdx.x]=0.0f;
-        __syncthreads();
-        totalNumEdges=blkColEnd-blkColStart;
-        VertexId_CUDA done=0;
-        VertexId_CUDA curr_src_offset=0;
-        VertexId_CUDA curr_src_edges=row_offset[blkRowStart+1]-row_offset[blkRowStart];
-        while(totalNumEdges>0){
-            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
-                VertexId_CUDA e_offset=done+tidDiv;
-                
-                // COMPUTING source ID rather than loading the large source array in.
-                while(e_offset>=curr_src_edges){
-                    curr_src_offset++;
-                    curr_src_edges+=row_offset[blkRowStart+1+curr_src_offset]-row_offset[blkRowStart+curr_src_offset];
-                }
-                VertexId_CUDA src_trans= blkRowStart+curr_src_offset;
-                VertexId_CUDA dst_trans= column_indices[blkColStart+e_offset]-dst_s_;
-                //float w=weight[blkColStart+e_offset];
-                float w=weight[(blkColStart+done+tidDiv)*tidDiv+tidMod];
-                float val=old_feature[dst_trans*feature_size_+tidMod]*w;
-//                assert(src_trans>=blkRowStart&&src_trans<blkRowStart+VtxPerBlock);
-                int offset=(src_trans-blkRowStart)*feature_size_+tidMod;
-                atomicAdd(&acc_h[offset],val);
-            }
-            done+=VtxPerBlock;
-           totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
-        }
-        __syncthreads();
-        if(tidDiv<VtxPerBlock&&tidDiv+blkRowStart<=batch_size_){
-             new_feature[(blkRowStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
-        
-        }
-    }
-}
-//float w=weight[(blkColStart+done+tidDiv)*tidDiv+tidMod];
 __global__ void aggregate_kernel_from_dst_without_weight_optim_nts(const VertexId_CUDA *row_offset,
                     const  VertexId_CUDA *column_indices,
  		const float* old_feature, float* new_feature,const float* weight,
@@ -623,25 +487,6 @@ __global__ void aggregate_kernel_from_dst_without_weight(const T_l *row_offset,c
 			int local_dst=column_indices[i_i]-dst_s_;
                          atomicAdd(&new_feature[feature_size_*local_src+rank],
 			 	old_feature[feature_size_*local_dst+rank]);
-	 	}
-	}
-}
-
-template <typename T_v,typename T_l>
-__global__ void aggregate_kernel_from_dst_tensor_weight(const T_l *row_offset,const  T_l *column_indices,
- 		const T_v* old_feature, T_v* new_feature,const T_v* weight,
- 		T_l src_s_,T_l dst_s_,
- 		T_l batch_size_, T_l feature_size_){
-	int large_size=blockDim.x;
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-        
-	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-		T_l local_src=i/feature_size_;
-		T_l rank=i%feature_size_;
-		for(int i_i=row_offset[local_src];i_i<row_offset[local_src+1];i_i++){
-			int local_dst=column_indices[i_i]-dst_s_;
-                         atomicAdd(&new_feature[feature_size_*local_src+rank],
-			 	old_feature[feature_size_*local_dst+rank]*weight[i_i*feature_size_+rank]);
 	 	}
 	}
 }

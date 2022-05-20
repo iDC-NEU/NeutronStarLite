@@ -36,15 +36,15 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include <thread>
 #include <vector>
 
-#include "core/atomic.hpp"
-#include "core/bitmap.h"
-#include "core/constants.hpp"
-#include "core/filesystem.hpp"
-#include "core/time.hpp"
-#include "core/type.hpp"
+#include "dep/gemini/atomic.hpp"
+#include "dep/gemini/bitmap.hpp"
+#include "dep/gemini/constants.hpp"
+#include "dep/gemini/filesystem.hpp"
+#include "dep/gemini/time.hpp"
+#include "dep/gemini/type.hpp"
 #include "cuda/cuda_type.h"
 #if CUDA_ENABLE
-#include "cuda/test.hpp"
+#include "cuda/ntsCUDA.hpp"
 #endif
 
 const bool NOT_SUPPORT_DEVICE_TYPE = false;
