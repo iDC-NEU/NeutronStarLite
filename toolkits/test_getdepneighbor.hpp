@@ -1,6 +1,5 @@
 #include "core/neutronstar.hpp"
-
-class GCN_CPU_impl {
+class test_get_neighbor {
 public:
   int iterations;
   ValueType learn_rate;
@@ -46,7 +45,7 @@ public:
   double graph_time = 0;
   double all_graph_time = 0;
 
-  GCN_CPU_impl(Graph<Empty> *graph_, int iterations_,
+  test_get_neighbor(Graph<Empty> *graph_, int iterations_,
                bool process_local = false, bool process_overlap = false) {
     graph = graph_;
     iterations = iterations_;
@@ -85,7 +84,7 @@ public:
     partitioned_graph=new PartitionedGraph(graph, active);
     partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
       return nts::op::nts_norm_degree(graph,src, dst);
-    },CPU_T);
+    },CPU_T,true);
     graph->init_communicatior();
     //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
     ctx=new nts::ctx::NtsContext();
@@ -144,7 +143,7 @@ public:
     }
     // X[0] is the initial vertex representation. We created it from
     // local_feature
-    X[0] = F.set_requires_grad(true);
+    X[0] = F;
   }
 
   void Test(long s) { // 0 train, //1 eval //2 test
@@ -215,16 +214,94 @@ public:
     graph->rtminfo->forward = true;
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
-      if (i != 0) {
-        X[i] = drpmodel(X[i]);
-      }
+      if(i==0){
+//          int testid=2707;
+        for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
+            X[i][val-graph->partition_offset[graph->partition_id]][0]=(float)1;
+//         LOG_INFO("X_i[0][10](%f, %f)",X[i][testid][0]);
 
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,X[i]);      
-        X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
-            return vertexForward(n_i, v_i);
-        },
-        Y_i,
-        X[i]);
+//test mirror        
+        NtsVar mirror= ctx->runGraphOp<nts::op::DistGetDepNbrOp>(partitioned_graph,active,X[i]);
+//        NtsVar mirror_s=torch::ones_like(mirror);
+//        NtsVar X_i= ctx->ntsOp.top().op->backward(mirror_s);
+//        ctx->pop_one_op();
+//        NtsVar X_i= ctx->ntsOp.top().op->backward(X_i);
+                
+//        for(int i=0;i<partitioned_graph->owned_vertices;i++){
+//            std::cout<<X_i[i][0]<<std::endl;
+//        }
+        
+//test DistScatterSrc        
+        NtsVar edge_src= ctx->runGraphOp<nts::op::DistScatterSrc>(partitioned_graph,active,mirror);
+//        NtsVar edge_src_i=torch::ones_like(edge_src);
+//        NtsVar mirror_s= ctx->ntsOp.top().op->backward(edge_src_i);
+//         for(int i=0;i<partitioned_graph->global_vertices;i++){
+//            if((partitioned_graph->MirrorIndex[i+1]-partitioned_graph->MirrorIndex[i])>0){
+//                VertexId tmp_s=partitioned_graph->MirrorIndex[i];
+//                std::cout<<i<<" "<<partitioned_graph->compressed_row_offset[tmp_s+1]-partitioned_graph->compressed_row_offset[tmp_s]<<" "<<mirror_s[tmp_s][0]<<std::endl;
+//            }
+//        }       
+//        std::cout<<edge.slice(1,0,1,1);
+//        for(int i=0;i<partitioned_graph->owned_edges;i++){
+//           std::cout<<partitioned_graph->row_indices[i]<<" "<<edge_src[i][0]<<std::endl;
+//        }
+
+//test  DistScatterSrc and mirror        
+//        NtsVar edge_src_i=torch::ones_like(edge_src);
+//        NtsVar mirror_s= ctx->ntsOp.top().op->backward(edge_src_i);
+//        ctx->pop_one_op();
+//        NtsVar X_s=ctx->ntsOp.top().op->backward(mirror_s);
+//        //LOG_INFO("X_s %d %d",X_s.size(0),X_s.size(1));
+//        for(int i=0;i<partitioned_graph->owned_vertices;i++){
+//              std::cout<<graph->out_degree_for_backward[i+graph->gnnctx->p_v_s]<<" "<<X_s[i][0]<<std::endl;
+//        }         
+        
+        
+//test DistScatterDst             
+//        NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
+//        for(int i=0;i<partitioned_graph->owned_vertices;i++){
+//           for(int j=partitioned_graph->column_offset[i];
+//                   j<partitioned_graph->column_offset[i+1];j++){
+//              std::cout<<i+graph->gnnctx->p_v_s<<" "<<edge_dst[j][0]<<std::endl;
+//           }
+//        }        
+//        LOG_INFO("y_i size(%d %d)",Y_i.size(0),Y_i.size(1));
+//        if(graph->partition_id==1)
+//        for(VertexId i=0;i<graph->vertices;i++){
+//            if((partitioned_graph->MirrorIndex[i+1]-partitioned_graph->MirrorIndex[i])>0)
+//            std::cout<<i<<" "<<Y_i[partitioned_graph->MirrorIndex[i]][0]<<std::endl;
+//        }
+//        NtsVar X_i=ctx->ntsOp.top().op->backward(Y_i);
+ //       if(graph->partition_id==0){
+ //       for(VertexId i=0;i<X_i.size(0);i++){
+           // if((partitioned_graph->MirrorIndex[i+1]-partitioned_graph->MirrorIndex[i])>0)
+//        if(graph->partition_id==0){
+//            int i=1020;
+//            std::cout<<i+graph->partition_offset[graph->partition_id]<<"t "<<X_i[i][0]<<std::endl;
+ //       }
+ //       }
+        
+//test Aggregate
+    NtsVar Y= ctx->runGraphOp<nts::op::DistAggregateDst>(partitioned_graph,active,edge_src); 
+//        for(VertexId i=0;i<graph->owned_vertices;i++){
+//            std::cout<<graph->in_degree_for_backward[i+graph->gnnctx->p_v_s]<<" "<<Y[i][0]<<std::endl;
+//        }
+//    NtsVar edge_src_backward= ctx->ntsOp.top().op->backward(Y);
+//    if(graph->partition_id==0){
+//        for(int i=0;i<partitioned_graph->owned_vertices;i++){
+//           for(int j=partitioned_graph->column_offset[i];
+//                   j<partitioned_graph->column_offset[i+1];j++){
+//              std::cout<<graph->in_degree_for_backward[i+graph->gnnctx->p_v_s]<<" "<<edge_src_backward[j][0]<<std::endl;
+//           }
+//        }
+//    }  
+      }        
+//       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,X[i]);      
+//        X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
+//            return vertexForward(n_i, v_i);
+//        },
+//        Y_i,
+//        X[i]);
     }
   }
 
@@ -244,18 +321,33 @@ public:
       }
       
       Forward();
-      Test(0);
-      Test(1);
-      Test(2);
-      Loss();
-      ctx->self_backward();
-      Update();
+      
+  //      printf("sizeof %d",sizeof(__m256i));
+//      printf("sizeof %d",sizeof(int));
+//      Test(0);
+//      Test(1);
+//      Test(2);
+//      Loss();
+      //ctx->self_backward();
+      //Update();
 //       ctx->debug();
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
-    exec_time += get_time();
+//      int length=68;
+//      float* s=new float[length];
+//      float* d=new float[length];
+//      for (int i=0;i<length;i++){
+//          s[i]=(float)i;
+//          d[i]=i;
+//      } 
+//      float weight=2.0;
+//      nts::op::nts_comp(d,s,weight,length);
+//       for (int i=0;i<length;i++){
+//           printf("%f\t",d[i]);
+//      }printf("\n");
+//    exec_time += get_time();
 
     delete active;
   }

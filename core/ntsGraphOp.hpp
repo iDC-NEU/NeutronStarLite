@@ -604,7 +604,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                 VertexId src=pg->row_indices[eid];
                 VertexId src_pos=pg->MirrorIndex[src];
                 nts_copy(f_output_buffer,eid,f_input_buffer,
@@ -617,7 +617,7 @@ public:
   
   NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
     int feature_size=f_output_grad.size(1);
-    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({partitioned_graph_->owned_mirrors, 
                 feature_size},torch::DeviceType::CPU);
     ValueType *f_input_grad_buffer =
       graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
@@ -627,7 +627,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                 VertexId src=pg->row_indices[eid];
                 VertexId src_pos=pg->MirrorIndex[src];
                 nts_acc(f_input_grad_buffer+src_pos*feature_size,
@@ -640,6 +640,7 @@ public:
       return f_input_grad;
   }
 };
+
 class DistScatterDst : public ntsGraphOp{
 public:
   //std::vector<CSC_segment_pinned *> subgraphs;
@@ -663,7 +664,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                 nts_copy(f_output_buffer,eid,f_input_buffer,
                         dst_trans,feature_size,1);    
             }     
@@ -684,7 +685,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                 VertexId src=pg->row_indices[eid];
                 VertexId src_pos=pg->MirrorIndex[src];
                 nts_acc(f_input_grad_buffer+dst_trans*feature_size,
@@ -708,7 +709,7 @@ public:
   NtsVar forward(NtsVar &f_input){// input edge  output vertex
     int feature_size = f_input.size(1);
     //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
-    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_edges, 
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_vertices, 
                 feature_size},torch::DeviceType::CPU);
     ValueType *f_input_buffer =
       graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
@@ -720,7 +721,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                     nts_acc(f_output_buffer+dst_trans*feature_size,
                             f_input_buffer+eid*feature_size,
                                 feature_size);    
@@ -734,7 +735,7 @@ public:
   
   NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
     int feature_size=f_output_grad.size(1);
-    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({partitioned_graph_->owned_edges, 
                 feature_size},torch::DeviceType::CPU);
     ValueType *f_input_grad_buffer =
       graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
@@ -744,7 +745,7 @@ public:
         [&](VertexId dst,PartitionedGraph* pg){
             VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
             for(int eid=pg->column_offset[dst_trans];
-                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    eid<pg->column_offset[dst_trans+1];eid++){
                 VertexId src=pg->row_indices[eid];
                 VertexId src_pos=pg->MirrorIndex[src];
 //                nts_acc(f_input_grad_buffer+dst_trans*feature_size,
