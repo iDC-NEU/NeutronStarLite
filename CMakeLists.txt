@@ -60,12 +60,14 @@ file(GLOB_RECURSE NEUTRONSTAR_LINT_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.h,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.hpp,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.cpp,"
+        "${CMAKE_CURRENT_SOURCE_DIR}/dep/gemini/*.hpp,"
         )
 
 # set format dirs
 string(CONCAT NEUTRONSTAR_FORMAT_DIRS
         "${CMAKE_CURRENT_SOURCE_DIR}/src,"
         "${CMAKE_CURRENT_SOURCE_DIR}/core,"
+	"${CMAKE_CURRENT_SOURCE_DIR}/dep/gemini,"
         "${CMAKE_CURRENT_SOURCE_DIR}/comm,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda,"
         "${CMAKE_CURRENT_SOURCE_DIR}/toolkits,"
@@ -91,6 +93,7 @@ ${CMAKE_CURRENT_SOURCE_DIR}
 ./core
 ./comm
 ./cuda
+./dep/gemini
 ${MPI_INCLUDE_PATH}
 )
 
@@ -103,9 +106,8 @@ message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 
 set(NEUTRONSTAR_SRC_FILES
         "toolkits/main.cpp"
-        "comm/network.cpp"
-        "core/bitmap.cpp"
-        "core/GraphSegment.cpp"
+	"core/GraphSegment.cpp"
+	"comm/network.cpp"
 )
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
