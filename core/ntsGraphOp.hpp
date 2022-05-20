@@ -286,7 +286,6 @@ public:
   }    
 
 };
-
 class SingleEdgeSoftMax : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
@@ -316,13 +315,11 @@ public:
           ValueType *d_buffer =
           graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);      
           nts_copy(f_output_buffer, eid_start, d_buffer, 
-                  0, feature_size,(eid_end-eid_start));
-          IntermediateResult=f_output;
-          
+                  0, feature_size,(eid_end-eid_start));   
         },
         subgraphs, f_input_.size(1), this->active_);
     
-    
+    IntermediateResult=f_output;
           
     return f_output;
   }
@@ -491,8 +488,6 @@ public:
   }
 };
 
-
-
 class DistGetDepNbrOp : public ntsGraphOp{
 public:
   std::vector<CSC_segment_pinned *> subgraphs;
@@ -586,7 +581,237 @@ public:
   }    
 
 };
+class DistScatterSrc : public ntsGraphOp{
+public:
+  //std::vector<CSC_segment_pinned *> subgraphs;
+  
+  DistScatterSrc(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    //subgraphs = partitioned_graph->graph_chunks;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_edges, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    
+      partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+                nts_copy(f_output_buffer,eid,f_input_buffer,
+                        src_pos,feature_size,1);    
+            }     
+        
+        });    
+      return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+     partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+                nts_acc(f_input_grad_buffer+src_pos*feature_size,
+                            f_output_grad_buffer+eid*feature_size,
+                                feature_size);    
+            }     
+        
+        });    
+      
+      return f_input_grad;
+  }
+};
+class DistScatterDst : public ntsGraphOp{
+public:
+  //std::vector<CSC_segment_pinned *> subgraphs;
+  
+  DistScatterDst(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    //subgraphs = partitioned_graph->graph_chunks;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_edges, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    
+      partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                nts_copy(f_output_buffer,eid,f_input_buffer,
+                        dst_trans,feature_size,1);    
+            }     
+        
+        });    
+      return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+     partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+                nts_acc(f_input_grad_buffer+dst_trans*feature_size,
+                            f_output_grad_buffer+eid*feature_size,
+                                feature_size);    
+            }     
+        
+        });    
+      
+      return f_input_grad;
+  }    
+};
+class DistAggregateDst : public ntsGraphOp{
+public:
+  //std::vector<CSC_segment_pinned *> subgraphs;
+  
+  DistAggregateDst(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    //subgraphs = partitioned_graph->graph_chunks;
+  }
+  NtsVar forward(NtsVar &f_input){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_edges, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    
+      partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                    nts_acc(f_output_buffer+dst_trans*feature_size,
+                            f_input_buffer+eid*feature_size,
+                                feature_size);    
+//                nts_copy(f_output_buffer,eid,f_input_buffer,
+//                        dst_trans,feature_size,1);    
+            }     
+        
+        });    
+      return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({graph_->gnnctx->l_v_num, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+     partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans]+1;eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+//                nts_acc(f_input_grad_buffer+dst_trans*feature_size,
+//                            f_output_grad_buffer+eid*feature_size,
+//                                feature_size);
+                nts_copy(f_input_grad_buffer,eid,f_output_grad_buffer,
+                        dst_trans,feature_size,1);                   
+            }     
+        
+        });    
+      
+      return f_input_grad;
+  }    
+};
+class DistEdgeSoftMax : public ntsGraphOp{
+public:
+  NtsVar IntermediateResult;
+  
+  DistEdgeSoftMax(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+  }
+  NtsVar forward(NtsVar &f_input_){// input i_msg  output o_msg
+     //NtsVar f_input_=f_input.detach();
+    int feature_size = f_input_.size(1);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_edges, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input_, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);
+    partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+          long eid_start = pg->column_offset[dst];
+          long eid_end = pg->column_offset[dst + 1];
+          NtsVar d = f_input_.slice(0, eid_start, eid_end, 1).softmax(0);
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+          ValueType *d_buffer =
+          graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);    
+          nts_copy(f_output_buffer, eid_start, d_buffer, 
+                  0, feature_size,(eid_end-eid_start));
+        });
+    IntermediateResult=f_output;        
+    return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({partitioned_graph_->owned_edges, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+          long eid_start = pg->column_offset[dst];
+          long eid_end = pg->column_offset[dst + 1];
+          NtsVar d   = f_output_grad.slice(0, eid_start, eid_end, 1);
+          NtsVar imr =IntermediateResult.slice(0, eid_start, eid_end, 1);
+          NtsVar d_o =(imr*d)-imr*(d.t().mm(imr)); 
+          ValueType *d_o_buffer =
+          graph_->Nts->getWritableBuffer(d_o, torch::DeviceType::CPU);
+          nts_copy(f_input_grad_buffer, eid_start, d_o_buffer, 
+                  0, feature_size,(eid_end-eid_start));
+        
+        });
+  }    
 
+};
 
 } // namespace graphop
 } // namespace nts

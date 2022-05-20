@@ -419,7 +419,7 @@ public:
   delete[] tmp_column_offset;
   delete[] tmp_row_offset;
   }
-  void DistSchedulingWholePartition(
+  void DistSchedulingMaster(
       std::function<void(VertexId, PartitionedGraph*)> sparse_slot) {
     omp_set_num_threads(graph_->threads);
     double stream_time = 0;
@@ -454,6 +454,40 @@ public:
 #endif
   }
   
+void DistSchedulingMirror(
+      std::function<void(VertexId, PartitionedGraph*)> sparse_slot) {
+    omp_set_num_threads(graph_->threads);
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+    
+    size_t basic_chunk = 64;
+    {
+      // since we have only one partition. i think this loop should be discarded
+#pragma omp parallel for
+        for (VertexId begin_v_i = 0;
+             begin_v_i < global_vertices;
+             begin_v_i += basic_chunk) {
+          // for every vertex, apply the sparse_slot at the partition
+          // corresponding to the step
+          VertexId v_i = begin_v_i;
+          unsigned long word = 0xffffffff;
+          while (word != 0) {
+            if (this->MirrorIndex[v_i+1]!=this->MirrorIndex[v_i]) {
+              sparse_slot(v_i,this);
+            }
+            v_i++;
+            word = word >> 1;
+          }
+        }
+      //      NtsComm->release_communicator();
+    }
+    stream_time += MPI_Wtime();
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+  }  
 
 void TestGeneratedBitmap() {
   for (int i = 0; i < graph_chunks.size(); i++) {
