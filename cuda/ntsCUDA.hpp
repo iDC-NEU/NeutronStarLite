@@ -49,7 +49,7 @@ public:
                                    VertexId_CUDA feature_size,
                                    VertexId_CUDA partition_start,
                                    VertexId_CUDA partition_end, bool sync);
-
+//for fused op
   void Gather_By_Dst_From_Src(
       float *input, float *output, float *weight_forward,       // data
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset, // graph
@@ -78,6 +78,8 @@ public:
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
+  
+  
   void Gather_By_Dst_From_Message(
       float *input, float *output,            // data
       VertexId_CUDA *src, VertexId_CUDA *dst, // graph
@@ -85,77 +87,56 @@ public:
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
-  void Gather_By_Dst_From_Src_Para(
-      float *input, float *output, float *para_forward, // data
-      VertexId_CUDA *src, VertexId_CUDA *dst,           // graph
-      VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
-      VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
-      VertexId_CUDA feature_size, bool sync = true);
-  void Scatter_Grad_Back_To_Weight(
-      float *input, float *output_grad, float *weight_grad, // data
-      long *src, long *dst,                                 // graph
-      VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
-      VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
-      VertexId_CUDA feature_size, bool tensor_weight = true);
   void Scatter_Grad_Back_To_Message(
       float *input, float *message_grad, // data
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset,
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = true);
-  //	void Gather_By_Dst_From_Src_shrink(float *input, float *output, float
-  //*weight_forward, //data
-  // VertexId_CUDA *src, VertexId_CUDA *dst,
-  ////graph VertexId_CUDA *index_gpu_buffer, VertexId_CUDA *vertex_gpu_buffer,
-  //								   VertexId_CUDA
-  // src_start, VertexId_CUDA src_end,
-  // VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-  // VertexId_CUDA actual_dst_start, VertexId_CUDA batch_size,
-  // VertexId_CUDA feature_size, bool sync = true);
-  void process_local(float *local_buffer, float *input_tensor,
-                     VertexId_CUDA *src, VertexId_CUDA *dst,
-                     VertexId_CUDA *src_index, float *weight_buffer,
-                     int dst_offset, int dst_offset_end, int feature_size,
-                     int edge_size, bool sync = true);
-  void process_local_inter(float *local_buffer, float *input_tensor,
-                           VertexId_CUDA *src, VertexId_CUDA *dst,
-                           VertexId_CUDA *src_index, VertexId_CUDA *dst_index,
-                           float *weight_buffer, int dst_offset,
-                           int dst_offset_end, int feature_size, int edge_size,
-                           int out_put_buffer_size, bool sync = true);
-  void process_local_inter_para(float *local_buffer, float *input_tensor,
-                                VertexId_CUDA *src, VertexId_CUDA *dst,
-                                VertexId_CUDA *src_index,
-                                VertexId_CUDA *dst_index, float *para,
-                                int dst_offset, int dst_offset_end,
-                                int feature_size, int edge_size,
-                                int out_put_buffer_size, bool sync = true);
+//  void process_local(float *local_buffer, float *input_tensor,
+//                     VertexId_CUDA *src, VertexId_CUDA *dst,
+//                     VertexId_CUDA *src_index, float *weight_buffer,
+//                     int dst_offset, int dst_offset_end, int feature_size,
+//                     int edge_size, bool sync = true);
+//  void process_local_inter(float *local_buffer, float *input_tensor,
+//                           VertexId_CUDA *src, VertexId_CUDA *dst,
+//                           VertexId_CUDA *src_index, VertexId_CUDA *dst_index,
+//                           float *weight_buffer, int dst_offset,
+//                           int dst_offset_end, int feature_size, int edge_size,
+//                           int out_put_buffer_size, bool sync = true);
+//  void process_local_inter_para(float *local_buffer, float *input_tensor,
+//                                VertexId_CUDA *src, VertexId_CUDA *dst,
+//                                VertexId_CUDA *src_index,
+//                                VertexId_CUDA *dst_index, float *para,
+//                                int dst_offset, int dst_offset_end,
+//                                int feature_size, int edge_size,
+//                                int out_put_buffer_size, bool sync = true);
 };
 
 void *cudaMallocPinned(long size_of_bytes);
 void *getDevicePointer(void *host_data_to_device);
 void *cudaMallocGPU(long size_of_bytes);
 
-void forward_on_GPU(float *input, float *output, float *weight_forward, // data
-                    VertexId_CUDA *src, VertexId_CUDA *dst,             // graph
-                    VertexId_CUDA src_start, VertexId_CUDA src_end,
-                    VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-                    VertexId_CUDA edges, VertexId_CUDA batch_size,
-                    VertexId_CUDA feature_size);
-void Gather_By_Dst_From_Src(float *input, float *output,
-                            float *weight_forward,                  // data
-                            VertexId_CUDA *src, VertexId_CUDA *dst, // graph
-                            VertexId_CUDA src_start, VertexId_CUDA src_end,
-                            VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-                            VertexId_CUDA edges, VertexId_CUDA batch_size,
-                            VertexId_CUDA feature_size, bool sync = true);
+//void forward_on_GPU(float *input, float *output, float *weight_forward, // data
+//                    VertexId_CUDA *src, VertexId_CUDA *dst,             // graph
+//                    VertexId_CUDA src_start, VertexId_CUDA src_end,
+//                    VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//                    VertexId_CUDA edges, VertexId_CUDA batch_size,
+//                    VertexId_CUDA feature_size);
+//void Gather_By_Dst_From_Src(float *input, float *output,
+//                            float *weight_forward,                  // data
+//                            VertexId_CUDA *src, VertexId_CUDA *dst, // graph
+//                            VertexId_CUDA src_start, VertexId_CUDA src_end,
+//                            VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//                            VertexId_CUDA edges, VertexId_CUDA batch_size,
+//                            VertexId_CUDA feature_size, bool sync = true);
 
-void backward_on_GPU(float *input, float *output, float *weight_forward, // data
-                     VertexId_CUDA *src, VertexId_CUDA *dst, // graph
-                     VertexId_CUDA src_start, VertexId_CUDA src_end,
-                     VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-                     VertexId_CUDA edges, VertexId_CUDA batch_size,
-                     VertexId_CUDA feature_size);
+//void backward_on_GPU(float *input, float *output, float *weight_forward, // data
+//                     VertexId_CUDA *src, VertexId_CUDA *dst, // graph
+//                     VertexId_CUDA src_start, VertexId_CUDA src_end,
+//                     VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//                     VertexId_CUDA edges, VertexId_CUDA batch_size,
+//                     VertexId_CUDA feature_size);
 
 void move_result_out(float *output, float *input, int src, int dst,
                      int feature_size, bool sync = true);

@@ -288,32 +288,32 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 
 }
 
-void Cuda_Stream::Scatter_Grad_Back_To_Weight(float* input,float* output_grad,float* weight_grad,//data 
-        long* src,long *dst,//graph
-        VertexId_CUDA src_start, VertexId_CUDA src_end,
-        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-	VertexId_CUDA edges,VertexId_CUDA batch_size,
-        VertexId_CUDA feature_size,bool tensor_weight){
-#if CUDA_ENABLE
-        const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
-	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
-        if(tensor_weight){
-            scatter_grad_back_to_tensor_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			src, dst, input, output_grad, weight_grad, 
-				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
-        }else{
-            scatter_grad_back_to_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			src, dst, input, output_grad, weight_grad, 
-				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
-        }
-#else
-       printf("CUDA DISABLED Cuda_Stream::Scatter_Grad_Back_To_Weight\n");
-       exit(0);   
-#endif 
-
-
-}
+//void Cuda_Stream::Scatter_Grad_Back_To_Weight(float* input,float* output_grad,float* weight_grad,//data 
+//        long* src,long *dst,//graph
+//        VertexId_CUDA src_start, VertexId_CUDA src_end,
+//        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+//	VertexId_CUDA edges,VertexId_CUDA batch_size,
+//        VertexId_CUDA feature_size,bool tensor_weight){
+//#if CUDA_ENABLE
+//        const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+//	const int BLOCK_SIZE=32;
+//	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
+//        if(tensor_weight){
+//            scatter_grad_back_to_tensor_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+//			src, dst, input, output_grad, weight_grad, 
+//				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
+//        }else{
+//            scatter_grad_back_to_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+//			src, dst, input, output_grad, weight_grad, 
+//				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
+//        }
+//#else
+//       printf("CUDA DISABLED Cuda_Stream::Scatter_Grad_Back_To_Weight\n");
+//       exit(0);   
+//#endif 
+//
+//
+//}
                                                                 //not used
 void Cuda_Stream::Scatter_Grad_Back_To_Message(float* input,float* message_grad,//data 
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,

@@ -492,44 +492,44 @@ __global__ void aggregate_kernel_from_dst_without_weight(const T_l *row_offset,c
 }
 
 
-////larger than 512 
-//template <typename T_v,typename T_l>
-//__global__ void scatter_grad_back_to_weight(const T_l *src, const T_l *dst,
-// 		const T_v* input, const T_v* output_grad, T_v* weight_grad,
-// 		T_l src_s_,T_l dst_s_,
-// 		T_l batch_size_, T_l feature_size_){
-//       int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-//       for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-//            T_l edge_id=i%batch_size_;
-//            T_l local_src=src[edge_id]-src_s_;
-//            T_l local_dst=dst[edge_id]-dst_s_;
-////            if(local_src<0||local_dst<0)
-////                printf("ERROR\n");
-//            T_l column_id=i%feature_size_;
-//            atomicAdd(&weight_grad[edge_id],
-//	        input[local_src*feature_size_+column_id]*
-//                    output_grad[local_dst*feature_size_+column_id]);
-//	}
-//}
-//
-//template <typename T_v,typename T_l>
-//__global__ void scatter_grad_back_to_tensor_weight(const T_l *src, const T_l *dst,
-// 		const T_v* input, const T_v* output_grad, T_v* weight_grad,
-// 		T_l src_s_,T_l dst_s_,
-// 		T_l batch_size_, T_l feature_size_){
-//       int threadId = blockIdx.x *blockDim.x + threadIdx.x;
-//       for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
-//            T_l edge_id=i%batch_size_;
-//            T_l local_src=src[edge_id]-src_s_;
-//            T_l local_dst=dst[edge_id]-dst_s_;
-////            if(local_src<0||local_dst<0)
-////                printf("ERROR\n");
-//            T_l column_id=i%feature_size_;
-//            atomicAdd(&weight_grad[edge_id*feature_size_+column_id],
-//	        input[local_src*feature_size_+column_id]*
-//                    output_grad[local_dst*feature_size_+column_id]);
-//	}
-//}
+//larger than 512 
+template <typename T_v,typename T_l>
+__global__ void scatter_grad_back_to_weight(const T_l *src, const T_l *dst,
+ 		const T_v* input, const T_v* output_grad, T_v* weight_grad,
+ 		T_l src_s_,T_l dst_s_,
+ 		T_l batch_size_, T_l feature_size_){
+       int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+       for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+            T_l edge_id=i%batch_size_;
+            T_l local_src=src[edge_id]-src_s_;
+            T_l local_dst=dst[edge_id]-dst_s_;
+//            if(local_src<0||local_dst<0)
+//                printf("ERROR\n");
+            T_l column_id=i%feature_size_;
+            atomicAdd(&weight_grad[edge_id],
+	        input[local_src*feature_size_+column_id]*
+                    output_grad[local_dst*feature_size_+column_id]);
+	}
+}
+
+template <typename T_v,typename T_l>
+__global__ void scatter_grad_back_to_tensor_weight(const T_l *src, const T_l *dst,
+ 		const T_v* input, const T_v* output_grad, T_v* weight_grad,
+ 		T_l src_s_,T_l dst_s_,
+ 		T_l batch_size_, T_l feature_size_){
+       int threadId = blockIdx.x *blockDim.x + threadIdx.x;
+       for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
+            T_l edge_id=i%batch_size_;
+            T_l local_src=src[edge_id]-src_s_;
+            T_l local_dst=dst[edge_id]-dst_s_;
+//            if(local_src<0||local_dst<0)
+//                printf("ERROR\n");
+            T_l column_id=i%feature_size_;
+            atomicAdd(&weight_grad[edge_id*feature_size_+column_id],
+	        input[local_src*feature_size_+column_id]*
+                    output_grad[local_dst*feature_size_+column_id]);
+	}
+}
 
 
 template <typename T_v,typename T_l>
@@ -547,8 +547,6 @@ __global__ void scatter_grad_back_to_messaage(const T_l *row_indices, const T_l 
 	 	}	
 	}
 }
-
-
 
 
 __global__ void scatter_grad_back_to_messaage_nts(const VertexId_CUDA *row_indices,
@@ -600,6 +598,59 @@ __global__ void scatter_grad_back_to_messaage_nts(const VertexId_CUDA *row_indic
     }
 }
 
+//smaller than 512
+
+__global__ void aggregate_kernel_from_src_tensor_weight_optim_nts(const VertexId_CUDA *row_indices,
+                    const  VertexId_CUDA *column_offset,long*destination,
+ 		const float* message, float* new_feature,
+ 		VertexId_CUDA src_s_,VertexId_CUDA src_e_,
+                VertexId_CUDA dst_s_,VertexId_CUDA dst_e_,
+                VertexId_CUDA edges,
+ 		VertexId_CUDA batch_size_, VertexId_CUDA feature_size_){
+        int VtxPerBlock=CUDA_NUM_THREADS/feature_size_;
+        typedef cub::BlockScan<VertexId_CUDA,CUDA_NUM_THREADS> BlockScan;
+        __shared__ BlockScan::TempStorage temp_storage;
+        __shared__ VertexId_CUDA blkRowStart;
+        __shared__ VertexId_CUDA blkRowEnd;
+        __shared__ float acc_h[CUDA_NUM_THREADS];
+        int tidDiv=threadIdx.x/feature_size_;
+        int tidMod=threadIdx.x%feature_size_;
+        //block level iteration determnes
+        
+        for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
+            VertexId_CUDA totalNumEdges=0;
+            if(threadIdx.x+blkColStart<batch_size_&&threadIdx.x<VtxPerBlock){
+                VertexId_CUDA curVtx_trans=blkColStart+threadIdx.x;
+                VertexId_CUDA rowIdxStart=column_offset[curVtx_trans];
+                VertexId_CUDA rowIdxEnd=column_offset[curVtx_trans+1];
+                assert(rowIdxStart>=0&&rowIdxEnd<=edges);
+                if(threadIdx.x==0)
+                    blkRowStart=rowIdxStart;
+                if((threadIdx.x+blkColStart)==(batch_size_-1)||threadIdx.x==(VtxPerBlock)-1)
+                    blkRowEnd=rowIdxEnd;
+            }
+        acc_h[threadIdx.x]=0.0f;
+        __syncthreads();
+        totalNumEdges=blkRowEnd-blkRowStart;
+        VertexId_CUDA done=0;
+        while(totalNumEdges>0){
+            if(tidDiv<totalNumEdges&&tidDiv<VtxPerBlock){
+                VertexId_CUDA dst_trans= (VertexId_CUDA)destination[blkRowStart+done+tidDiv]-dst_s_;//different with threads num
+                float val=message[(blkRowStart+done+tidDiv)*feature_size_+tidMod];
+                assert(dst_trans>=blkColStart&&dst_trans<blkColStart+VtxPerBlock);
+                int offset=(dst_trans-blkColStart)*feature_size_+tidMod;
+                atomicAdd(&acc_h[offset],val);
+            }
+            done+=VtxPerBlock;
+           totalNumEdges-=(totalNumEdges>VtxPerBlock) ? VtxPerBlock : totalNumEdges;
+        }
+        __syncthreads();
+        if(tidDiv<VtxPerBlock&&tidDiv+blkColStart<=batch_size_){
+            new_feature[(blkColStart)*feature_size_+threadIdx.x]=acc_h[threadIdx.x];
+        
+        }
+    }
+}
 
 //larger than 512
 template <typename T_v,typename T_l>
@@ -619,13 +670,6 @@ __global__ void aggregate_kernel_from_message_without_weight_sum(const T_l *row_
 	}
 }
 
-
-
-
-
-
-
-//util for fused graph op
 __global__ void aggregate_data_buffer(float *result_buffer,float *comm_buffer,
  		size_t data_size,int feature_size,int partition_offset,bool debug=false){
 			
