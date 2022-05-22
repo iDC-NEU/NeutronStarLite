@@ -21,20 +21,24 @@
 
 
 template <typename T_v,typename T_l>
-__global__ void scatter_src_mirror_to_msg( T_v* message, T_v* src_mirror_feature, 
+__global__ void scatter_src_mirror_to_msg( T_v* message,const T_v* src_mirror_feature, 
                 const T_l *row_indices, const  T_l *column_offset,
  		const T_l* mirror_index,
 // 		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
-	int threadId = blockIdx.x *blockDim.x + threadIdx.x;        
+	long threadId = blockIdx.x *blockDim.x + threadIdx.x;
+//        if(threadId<2708&&threadId>2700)
+//        printf("%d\n",mirror_index[threadId]);
 	for(long i=threadId;i<feature_size_*batch_size_;i+=blockDim.x*gridDim.x){
 		T_l local_dst=i/feature_size_;
 		T_l rank=i%feature_size_;
-		for(int i_i=column_offset[local_dst];i_i<column_offset[local_dst+1];i_i++){
+		for(VertexId_CUDA i_i=column_offset[local_dst];i_i<column_offset[local_dst+1];i_i++){
                     T_l src=row_indices[i_i];
                     T_l src_index=mirror_index[src];
+//                    if(rank==0)
+//                       printf("%f\n", src_mirror_feature[feature_size_*src_index+rank]);
                     message[feature_size_*i_i+rank]=
-                            src_mirror_feature[feature_size_*src_index+rank];
+                      src_mirror_feature[feature_size_*src_index+rank];
 	 	}	
 	}
 }

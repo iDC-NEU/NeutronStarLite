@@ -47,7 +47,8 @@ void* cudaMallocPinned(long size_of_bytes){
 void* cudaMallocGPU(long size_of_bytes){
 #if CUDA_ENABLE
        void *data=NULL;
-       cudaMalloc(&data,size_of_bytes);
+       CHECK_CUDA_RESULT(cudaMalloc(&data,size_of_bytes));
+       printf("malloc finished\n");
        return data;
 #else
        printf("CUDA DISABLED cudaMallocGPU\n");
@@ -352,6 +353,7 @@ void Cuda_Stream::Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_fea
 #if CUDA_ENABLE
     const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
 	const int BLOCK_SIZE=32;
+        printf("finished+++++++++++++++++++++++++++++++++++++++++%d\n",feature_size);
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
         scatter_src_mirror_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
             message, src_mirror_feature, row_indices, column_offset, mirror_index,
@@ -501,7 +503,7 @@ void move_edge_in(VertexId_CUDA * d_pointer,VertexId_CUDA* h_pointer, VertexId_C
 }
 void move_bytes_in(void * d_pointer,void* h_pointer, long bytes, bool sync){
 #if CUDA_ENABLE
-    cudaMemcpy(d_pointer,h_pointer,bytes, cudaMemcpyHostToDevice);
+    CHECK_CUDA_RESULT(cudaMemcpy(d_pointer,h_pointer,bytes, cudaMemcpyHostToDevice));
     if(sync)
     cudaDeviceSynchronize();
 #else

@@ -78,6 +78,7 @@ public:
     cuda_stream->Scatter_Src_Mirror_to_Msg(f_output_buffer,f_input_buffer,
             device_csc->row_indices,device_csc->column_offset,
             device_csc->mirror_index,device_csc->v_size,feature_size); 
+    cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
       return f_output;
   }
   

@@ -74,13 +74,14 @@ void init(VertexId_CUDA v_size_, VertexId_CUDA e_size_,
 }
 void load_from_host(VertexId_CUDA* h_column_offset,VertexId_CUDA* h_row_indices,
             VertexId_CUDA* h_mirror_index){
+    printf("%d %d %d \n",v_size,e_size,mirror_size);
     move_bytes_in(column_offset,h_column_offset,(v_size+1)*sizeof(VertexId_CUDA));
-    move_bytes_in(row_indices,h_row_indices,(e_size+1)*sizeof(VertexId_CUDA));
-    move_bytes_in(mirror_index,h_mirror_index,(mirror_size+1)*sizeof(VertexId_CUDA));
+    move_bytes_in(row_indices,h_row_indices,(e_size)*sizeof(VertexId_CUDA));
+    move_bytes_in(mirror_index,h_mirror_index,(mirror_size)*sizeof(VertexId_CUDA));
 }
 void load_from_host(VertexId_CUDA* h_column_offset,VertexId_CUDA* h_row_indices){
     move_bytes_in(column_offset,h_column_offset,(v_size+1)*sizeof(VertexId_CUDA));
-    move_bytes_in(row_indices,h_row_indices,(e_size+1)*sizeof(VertexId_CUDA));
+    move_bytes_in(row_indices,h_row_indices,(e_size)*sizeof(VertexId_CUDA));
 }
 void release(){
     FreeEdge(column_offset);
