@@ -11,7 +11,7 @@
 
 #if CUDA_ENABLE
 #define CHECK_CUDA_RESULT(N) {											\
-	CUresult result = N;												\
+	cudaError_t result = N;												\
 	if (result != 0) {													\
 		printf("CUDA call on line %d returned error %d\n", __LINE__,	\
 			result);													\
@@ -102,7 +102,7 @@ void Cuda_Stream::CUDA_DEVICE_SYNCHRONIZE(){
 
 void Cuda_Stream::move_result_out(float* output,float* input, VertexId_CUDA src,VertexId_CUDA dst, int feature_size,bool sync){
 #if CUDA_ENABLE
-    cudaMemcpyAsync(output,input,((long)(dst-src))*feature_size*(sizeof(int)), cudaMemcpyDeviceToHost,stream);
+    CHECK_CUDA_RESULT(cudaMemcpyAsync(output,input,((long)(dst-src))*feature_size*(sizeof(int)), cudaMemcpyDeviceToHost,stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::move_result_out\n");
        exit(0);   
@@ -343,35 +343,123 @@ void Cuda_Stream::Scatter_Grad_Back_To_Message(float* input,float* message_grad,
 
 }
 
-void Cuda_Stream::Gather_By_Dst_From_Message(float* input,float* output,//data 
+void Cuda_Stream::Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_feature,//data 
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
-        VertexId_CUDA src_start, VertexId_CUDA src_end,
-        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-	VertexId_CUDA edges,VertexId_CUDA batch_size,
-        VertexId_CUDA feature_size,bool with_weight,bool tensor_weight){
+        VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size){
 #if CUDA_ENABLE
     const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
 	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        if(with_weight){
-            if(tensor_weight){
-                printf("tensor weight not implemented\n");
-                exit(0);
-            }else{
-		printf("scalar weight not implemented\n");
-                exit(0);
-            } 
-        }else{
-                aggregate_kernel_from_message_without_weight_sum<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-			row_indices, column_offset, input, output, 
-				src_start, dst_start, batch_size, feature_size); 
-        }
+        scatter_src_mirror_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            message, src_mirror_feature, row_indices, column_offset, mirror_index,
+                batch_size, feature_size); 
 #else
-       printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Message\n");
+       printf("CUDA DISABLED Cuda_Stream::Scatter_Src_Mirror_to_Msg\n");
        exit(0);   
 #endif
         
 }
+
+void Cuda_Stream::Gather_Msg_To_Src_Mirror(float* src_mirror_feature,float* message,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+        VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size){
+#if CUDA_ENABLE
+    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+        gather_msg_to_src_mirror<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            src_mirror_feature, message, row_indices, column_offset, mirror_index,
+                batch_size, feature_size); 
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_Msg_To_Src_Mirror\n");
+       exit(0);   
+#endif
+        
+}
+
+void Cuda_Stream::Scatter_Dst_to_Msg(float* message,float* dst_feature,//data 
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size){
+#if CUDA_ENABLE
+    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+        scatter_dst_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            message, dst_feature, row_indices, column_offset,
+            batch_size, feature_size); 
+#else
+       printf("CUDA DISABLED Cuda_Stream::Scatter_Dst_to_Msg\n");
+       exit(0);   
+#endif      
+}
+
+void Cuda_Stream::Gather_Msg_to_Dst(float* dst_feature,float* message,//data 
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size){
+#if CUDA_ENABLE
+    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+        gather_msg_to_dst<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            dst_feature, message, row_indices, column_offset,
+            batch_size, feature_size); 
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_Msg_to_Dst\n");
+       exit(0);   
+#endif      
+}
+
+void Cuda_Stream::Edge_Softmax_Forward_Block(float* msg_output,float* msg_input,//data 
+        float* msg_cached,
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size){
+#if CUDA_ENABLE
+    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+        edge_softmax_forward_block<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            msg_output, msg_input, msg_cached, row_indices, column_offset,
+            batch_size, feature_size); 
+#else
+       printf("CUDA DISABLED Cuda_Stream::Edge_Softmax_Forward_Block\n");
+       exit(0);   
+#endif      
+}
+
+void Cuda_Stream::Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_output_grad,//data 
+        float* msg_cached,
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size){
+#if CUDA_ENABLE
+    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+	const int BLOCK_SIZE=32;
+	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
+        edge_softmax_backward_block<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            msg_input_grad, msg_output_grad, msg_cached, row_indices, column_offset,
+            batch_size, feature_size); 
+#else
+       printf("CUDA DISABLED Cuda_Stream::Edge_Softmax_Backward_Block\n");
+       exit(0);   
+#endif      
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -421,19 +509,19 @@ void move_bytes_in(void * d_pointer,void* h_pointer, long bytes, bool sync){
 }
 
 
-void aggregate_comm_result(float* aggregate_buffer,float *input_buffer,int data_size,int feature_size,int partition_offset,bool sync){
-#if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-    const int BLOCK_SIZE=32;
-    aggregate_data_buffer<<<THREAD_SIZE,BLOCK_SIZE>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_offset,sync);
-    if(sync)
-    	cudaDeviceSynchronize();
-#else
-       printf("CUDA DISABLED aggregate_comm_result\n");
-       exit(0);   
-#endif 
-
-}
+//void aggregate_comm_result(float* aggregate_buffer,float *input_buffer,int data_size,int feature_size,int partition_offset,bool sync){
+//#if CUDA_ENABLE
+//    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
+//    const int BLOCK_SIZE=32;
+//    aggregate_data_buffer<<<THREAD_SIZE,BLOCK_SIZE>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_offset,sync);
+//    if(sync)
+//    	cudaDeviceSynchronize();
+//#else
+//       printf("CUDA DISABLED aggregate_comm_result\n");
+//       exit(0);   
+//#endif 
+//
+//}
 
 void FreeBuffer(float *buffer){
 #if CUDA_ENABLE    

@@ -49,7 +49,8 @@ public:
                                    VertexId_CUDA feature_size,
                                    VertexId_CUDA partition_start,
                                    VertexId_CUDA partition_end, bool sync);
-//for fused op
+  
+//fused op
   void Gather_By_Dst_From_Src(
       float *input, float *output, float *weight_forward,       // data
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset, // graph
@@ -78,6 +79,37 @@ public:
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
+  
+  void Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_feature,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+        VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size);
+
+  void Gather_Msg_To_Src_Mirror(float* src_mirror_feature,float* message,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+        VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
+        VertexId_CUDA feature_size);
+
+  void Scatter_Dst_to_Msg(float* message,float* dst_feature,//data 
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size);
+
+  void Gather_Msg_to_Dst(float* dst_feature,float* message,//data 
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size);
+
+  void Edge_Softmax_Forward_Block(float* msg_output,float* msg_input,//data 
+        float* msg_cached,
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size);
+
+  void Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_output_grad,//data 
+        float* msg_cached,
+        VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size);
+
+  
+  
   
   
   void Gather_By_Dst_From_Message(
@@ -112,6 +144,8 @@ public:
 //                                int feature_size, int edge_size,
 //                                int out_put_buffer_size, bool sync = true);
 };
+
+
 
 void *cudaMallocPinned(long size_of_bytes);
 void *getDevicePointer(void *host_data_to_device);

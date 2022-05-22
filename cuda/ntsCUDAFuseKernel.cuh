@@ -576,19 +576,4 @@ __global__ void aggregate_kernel_from_message_without_weight_sum(const T_l *row_
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #endif /* PROPAGATE_H_ */

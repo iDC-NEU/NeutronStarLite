@@ -21,7 +21,7 @@
 
 
 template <typename T_v,typename T_l>
-__global__ void scatter_src_mirror_to_msg(const T_v* message, T_v* src_mirror_feature, 
+__global__ void scatter_src_mirror_to_msg( T_v* message, T_v* src_mirror_feature, 
                 const T_l *row_indices, const  T_l *column_offset,
  		const T_l* mirror_index,
 // 		T_l src_s_,T_l dst_s_,
@@ -40,7 +40,7 @@ __global__ void scatter_src_mirror_to_msg(const T_v* message, T_v* src_mirror_fe
 }
 
 template <typename T_v,typename T_l>
-__global__ void gather_msg_to_src_mirror(const T_v* src_mirror_feature, T_v* message,
+__global__ void gather_msg_to_src_mirror( T_v* src_mirror_feature, T_v* message,
                 const T_l *row_indices,const  T_l *column_offset,
  		const T_l* mirror_index,
 // 		T_l src_s_,T_l dst_s_,
@@ -59,7 +59,7 @@ __global__ void gather_msg_to_src_mirror(const T_v* src_mirror_feature, T_v* mes
 }
 
 template <typename T_v,typename T_l>
-__global__ void scatter_dst_to_msg(const T_v* message, T_v* dst_feature,
+__global__ void scatter_dst_to_msg( T_v* message, T_v* dst_feature,
                 const T_l *row_indices,const  T_l *column_offset,
 // 		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
@@ -75,9 +75,8 @@ __global__ void scatter_dst_to_msg(const T_v* message, T_v* dst_feature,
 }
 
 template <typename T_v,typename T_l>
-__global__ void gather_msg_to_dst(const T_v* dst_feature, T_v* message,
+__global__ void gather_msg_to_dst( T_v* dst_feature, T_v* message,
                 const T_l *row_indices,const  T_l *column_offset,
- 		const T_l* mirror_index,
 // 		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
 	int threadId = blockIdx.x *blockDim.x + threadIdx.x;        
@@ -95,9 +94,8 @@ __global__ void gather_msg_to_dst(const T_v* dst_feature, T_v* message,
 
 
 template <typename T_v,typename T_l>
-__global__ void edge_softmax_forward_block(const T_v* msg_output, const T_v* msg_input,
-                const T_v* msg_cached, const T_l *row_indices,const  T_l *column_offset,
- 		const T_l* mirror_index,
+__global__ void edge_softmax_forward_block( T_v* msg_output,  T_v* msg_input,
+                 T_v* msg_cached, const T_l *row_indices,const  T_l *column_offset,
 // 		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
         int VtxPerBlock=1;
@@ -133,16 +131,15 @@ __global__ void edge_softmax_forward_block(const T_v* msg_output, const T_v* msg
             __syncthreads();
             for(VertexId_CUDA eid=rowIdxStart+threadIdx.x;eid<rowIdxEnd;eid+=CUDA_NUM_THREADS){       
                 msg_output[eid]=exp(msg_input[eid])/aggregate;
-                msg_cached[eid]=msg_output;
+                msg_cached[eid]=msg_output[eid];
             }
     }      
 }
 
 
 template <typename T_v,typename T_l>
-__global__ void edge_softmax_backward_block(const T_v* msg_input_grad, const T_v* msg_output_grad,
-                const T_v* msg_cached, const T_l *row_indices,const  T_l *column_offset,
- 		const T_l* mirror_index,
+__global__ void edge_softmax_backward_block( T_v* msg_input_grad, T_v* msg_output_grad,
+                 T_v* msg_cached, const T_l *row_indices,const  T_l *column_offset,
 // 		T_l src_s_,T_l dst_s_,
  		T_l batch_size_, T_l feature_size_){
         int VtxPerBlock=1;
