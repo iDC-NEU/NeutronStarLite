@@ -21,7 +21,76 @@
 
 enum graph_type { CSR, CSC, PAIR };
 enum weight_type { NULL_TYPE, SCALA_TYPE, TENSOR_TYPE };
+
+void *cudaMallocPinned(long size_of_bytes);
+void *getDevicePointer(void *host_data_to_device);
+void *cudaMallocGPU(long size_of_bytes);
+void move_result_out(float *output, float *input, int src, int dst,
+                     int feature_size, bool sync = true);
+void move_data_in(float *d_pointer, float *h_pointer, int start, int end,
+                  int feature_size, bool sync = true);
+void move_edge_in(VertexId_CUDA *d_pointer, VertexId_CUDA *h_pointer,
+                  VertexId_CUDA start, VertexId_CUDA end, int feature_size,
+                  bool sync = true);
+void move_bytes_in(void *d_pointer, void *h_pointer, long bytes,
+                   bool sync = true);
+void allocate_gpu_buffer(float **input, int size);
+void allocate_gpu_edge(VertexId_CUDA **input, int size);
+void aggregate_comm_result(float *aggregate_buffer, float *input_buffer,
+                           int data_size, int feature_size,
+                           int partition_offset, bool sync = true);
+void FreeBuffer(float *buffer);
+void FreeEdge(VertexId_CUDA *buffer);
+void zero_buffer(float *buffer, int size);
+void CUDA_DEVICE_SYNCHRONIZE();
 void ResetDevice();
+
+class deviceCSC{
+public:
+VertexId_CUDA* column_offset;
+VertexId_CUDA* row_indices;
+VertexId_CUDA* mirror_index;
+VertexId_CUDA v_size;
+VertexId_CUDA e_size;
+VertexId_CUDA mirror_size;
+bool require_mirror=false;
+
+deviceCSC(){
+    column_offset=NULL;
+    row_indices=NULL;
+}
+void init(VertexId_CUDA v_size_, VertexId_CUDA e_size_,
+        bool require_mirror_=false,VertexId_CUDA mirror_size_=0){
+    v_size=v_size_;
+    e_size=e_size_;
+    require_mirror=false;
+    column_offset=(VertexId_CUDA*)cudaMallocGPU((v_size_+1)*sizeof(VertexId_CUDA));
+    row_indices=(VertexId_CUDA*)cudaMallocGPU((e_size_)*sizeof(VertexId_CUDA));
+    if(require_mirror_){
+        require_mirror=require_mirror_;
+        mirror_size=mirror_size_;
+        mirror_index=(VertexId_CUDA*)cudaMallocGPU((mirror_size_)*sizeof(VertexId_CUDA));
+    }
+}
+void load_from_host(VertexId_CUDA* h_column_offset,VertexId_CUDA* h_row_indices,
+            VertexId_CUDA* h_mirror_index){
+    move_bytes_in(column_offset,h_column_offset,(v_size+1)*sizeof(VertexId_CUDA));
+    move_bytes_in(row_indices,h_row_indices,(e_size+1)*sizeof(VertexId_CUDA));
+    move_bytes_in(mirror_index,h_mirror_index,(mirror_size+1)*sizeof(VertexId_CUDA));
+}
+void load_from_host(VertexId_CUDA* h_column_offset,VertexId_CUDA* h_row_indices){
+    move_bytes_in(column_offset,h_column_offset,(v_size+1)*sizeof(VertexId_CUDA));
+    move_bytes_in(row_indices,h_row_indices,(e_size+1)*sizeof(VertexId_CUDA));
+}
+void release(){
+    FreeEdge(column_offset);
+    FreeEdge(row_indices);
+    if(require_mirror)
+        FreeEdge(mirror_index);
+}
+~deviceCSC(){
+}
+};
 
 class Cuda_Stream {
 public:
@@ -145,54 +214,5 @@ public:
 //                                int out_put_buffer_size, bool sync = true);
 };
 
-
-
-void *cudaMallocPinned(long size_of_bytes);
-void *getDevicePointer(void *host_data_to_device);
-void *cudaMallocGPU(long size_of_bytes);
-
-//void forward_on_GPU(float *input, float *output, float *weight_forward, // data
-//                    VertexId_CUDA *src, VertexId_CUDA *dst,             // graph
-//                    VertexId_CUDA src_start, VertexId_CUDA src_end,
-//                    VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-//                    VertexId_CUDA edges, VertexId_CUDA batch_size,
-//                    VertexId_CUDA feature_size);
-//void Gather_By_Dst_From_Src(float *input, float *output,
-//                            float *weight_forward,                  // data
-//                            VertexId_CUDA *src, VertexId_CUDA *dst, // graph
-//                            VertexId_CUDA src_start, VertexId_CUDA src_end,
-//                            VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-//                            VertexId_CUDA edges, VertexId_CUDA batch_size,
-//                            VertexId_CUDA feature_size, bool sync = true);
-
-//void backward_on_GPU(float *input, float *output, float *weight_forward, // data
-//                     VertexId_CUDA *src, VertexId_CUDA *dst, // graph
-//                     VertexId_CUDA src_start, VertexId_CUDA src_end,
-//                     VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-//                     VertexId_CUDA edges, VertexId_CUDA batch_size,
-//                     VertexId_CUDA feature_size);
-
-void move_result_out(float *output, float *input, int src, int dst,
-                     int feature_size, bool sync = true);
-
-void move_data_in(float *d_pointer, float *h_pointer, int start, int end,
-                  int feature_size, bool sync = true);
-
-void move_edge_in(VertexId_CUDA *d_pointer, VertexId_CUDA *h_pointer,
-                  VertexId_CUDA start, VertexId_CUDA end, int feature_size,
-                  bool sync = true);
-
-void move_bytes_in(void *d_pointer, void *h_pointer, long bytes,
-                   bool sync = true);
-
-void allocate_gpu_buffer(float **input, int size);
-void allocate_gpu_edge(VertexId_CUDA **input, int size);
-void aggregate_comm_result(float *aggregate_buffer, float *input_buffer,
-                           int data_size, int feature_size,
-                           int partition_offset, bool sync = true);
-void FreeBuffer(float *buffer);
-void FreeEdge(VertexId_CUDA *buffer);
-void zero_buffer(float *buffer, int size);
-void CUDA_DEVICE_SYNCHRONIZE();
 // int test();
 #endif /* TEST_H_ */

@@ -54,6 +54,8 @@ void* cudaMallocGPU(long size_of_bytes){
        exit(0);   
 #endif  
 }
+
+
 Cuda_Stream::Cuda_Stream(){
 #if CUDA_ENABLE
        cudaStreamCreate(&stream);

@@ -17,6 +17,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #define NTSOPS_HPP
 #include <stack>
 #include "core/ntsGraphOp.hpp"
+#include "core/ntsGPUGraphOp.hpp"
 #include<type_traits>
 namespace nts {
 
