@@ -93,7 +93,7 @@ public:
     cuda_stream->Gather_Msg_To_Src_Mirror(f_input_grad_buffer,f_output_grad_buffer,
             device_csc->row_indices,device_csc->column_offset,
             device_csc->mirror_index,device_csc->v_size,feature_size);     
-      
+       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();  
       return f_input_grad;
   }
 };
@@ -129,7 +129,8 @@ public:
     //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
     cuda_stream->Scatter_Dst_to_Msg(f_output_buffer,f_input_buffer,
             device_csc->row_indices,device_csc->column_offset,
-            device_csc->v_size,feature_size); 
+            device_csc->v_size,feature_size);
+       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
       return f_output;
   }
   
@@ -144,7 +145,7 @@ public:
     cuda_stream->Gather_Msg_to_Dst(f_input_grad_buffer,f_output_grad_buffer,
             device_csc->row_indices,device_csc->column_offset,
             device_csc->v_size,feature_size);     
-      
+        cuda_stream->CUDA_DEVICE_SYNCHRONIZE(); 
       return f_input_grad;
   }
 };
@@ -180,7 +181,8 @@ public:
     //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
     cuda_stream->Gather_Msg_to_Dst(f_output_buffer,f_input_buffer,
             device_csc->row_indices,device_csc->column_offset,
-            device_csc->v_size,feature_size); 
+            device_csc->v_size,feature_size);
+       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
       return f_output;
   }
   
@@ -195,7 +197,7 @@ public:
     cuda_stream->Scatter_Dst_to_Msg(f_input_grad_buffer,f_output_grad_buffer,
             device_csc->row_indices,device_csc->column_offset,
             device_csc->v_size,feature_size);     
-      
+         cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
       return f_input_grad;
   }
 };
@@ -237,7 +239,8 @@ public:
     cuda_stream->Edge_Softmax_Forward_Block(f_output_buffer,f_input_buffer,
             f_cache_buffer,
             device_csc->row_indices,device_csc->column_offset,
-            device_csc->v_size,feature_size); 
+            device_csc->v_size,feature_size);
+       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();
       return f_output;
   }
   
@@ -255,7 +258,7 @@ public:
             f_cache_buffer,
             device_csc->row_indices,device_csc->column_offset,
             device_csc->v_size,feature_size);     
-      
+       cuda_stream->CUDA_DEVICE_SYNCHRONIZE();  
       return f_input_grad;
   }
 };
