@@ -3,7 +3,9 @@
 #include "ntsCUDA.hpp"
 
 #if CUDA_ENABLE
-#include "ntsCUDAGraphKernel.cuh"
+#include "ntsCUDAFuseKernel.cuh"
+#include "ntsCUDADistKernel.cuh"
+#include "ntsCUDATransferKernel.cuh"
 
 #endif
 
