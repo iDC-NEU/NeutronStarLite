@@ -42,6 +42,15 @@ template <class T> inline bool write_min(T *ptr, T val) {
   return done;
 }
 
+template <class T> inline bool write_max(T *ptr, T val) {
+  volatile T curr_val;
+  bool done = false;
+  do {
+    curr_val = *ptr;
+  } while (curr_val < val && !(done = cas(ptr, curr_val, val)));
+  return done;
+}
+
 template <class T> inline void write_add(T *ptr, T val) {
   volatile T new_val, old_val;
   do {
