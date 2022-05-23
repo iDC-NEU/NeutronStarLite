@@ -78,6 +78,44 @@ inline void nts_acc(ValueType *output, ValueType *input, int feat_size) {
 
 /**
  * @brief
+ * do output += input at feature(array) level
+ * @param input input feature
+ * @param output output feature
+ * @param feat_size feature size
+ */
+inline void nts_min(ValueType *output, ValueType *input, VertexId *record, int feat_size, VertexId e_index) {
+  for (int i = 0; i < feat_size; i++) {
+    // atomic add
+    if(write_min(&output[i], input[i])){
+        record[i]=e_index;
+    }
+  }
+}
+
+/**
+ * @brief
+ * do output += input at feature(array) level
+ * @param input input feature
+ * @param output output feature
+ * @param feat_size feature size
+ */
+inline void nts_max(ValueType *output, ValueType *input, VertexId *record, int feat_size, VertexId e_index) {
+  for (int i = 0; i < feat_size; i++) {
+    // atomic add
+    if(write_max(&output[i], input[i])){
+        record[i]=e_index;
+    }
+  }
+}
+
+inline void nts_assign(ValueType *message, ValueType *feature, VertexId* record,
+          int feat_size) {
+    for(int i=0;i<feat_size;i++){
+        message[(record[i]*feat_size)+i]=feature[i];
+    }
+}
+/**
+ * @brief
  * copy feature_size elements from b_src[d_offset * feature_size]
  * to d_dst[s_offset * feature_size]
  * @param b_dst dst buffer
