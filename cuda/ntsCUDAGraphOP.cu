@@ -23,7 +23,7 @@
 void* getDevicePointer(void* host_data_to_device){
 #if CUDA_ENABLE
     void* dev_host_data_to_device;
-    cudaHostGetDevicePointer(&dev_host_data_to_device,host_data_to_device,0);
+    CHECK_CUDA_RESULT(cudaHostGetDevicePointer(&dev_host_data_to_device,host_data_to_device,0));
     return dev_host_data_to_device;
 #else
     printf("CUDA DISABLED getDevicePointer\n");
@@ -36,7 +36,7 @@ void* cudaMallocPinned(long size_of_bytes){
 
 #if CUDA_ENABLE       
     void *data=NULL;
-   cudaHostAlloc(&data,size_of_bytes, cudaHostAllocMapped);
+   CHECK_CUDA_RESULT(cudaHostAlloc(&data,size_of_bytes, cudaHostAllocMapped));
     return data;
 #else
     printf("CUDA DISABLED cudaMallocPinned\n");
@@ -48,7 +48,7 @@ void* cudaMallocGPU(long size_of_bytes){
 #if CUDA_ENABLE
        void *data=NULL;
        CHECK_CUDA_RESULT(cudaMalloc(&data,size_of_bytes));
-       printf("malloc finished\n");
+//       printf("malloc finished\n");
        return data;
 #else
        printf("CUDA DISABLED cudaMallocGPU\n");
@@ -59,7 +59,7 @@ void* cudaMallocGPU(long size_of_bytes){
 
 Cuda_Stream::Cuda_Stream(){
 #if CUDA_ENABLE
-       cudaStreamCreate(&stream);
+       CHECK_CUDA_RESULT(cudaStreamCreate(&stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::Cuda_Stream\n");
        exit(0);  
@@ -68,7 +68,7 @@ Cuda_Stream::Cuda_Stream(){
 
 void Cuda_Stream::destory_Stream(){
 #if CUDA_ENABLE
-    cudaStreamDestroy(stream);
+    CHECK_CUDA_RESULT(cudaStreamDestroy(stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::Cuda_Stream\n");
        exit(0);   
@@ -113,7 +113,7 @@ void Cuda_Stream::move_result_out(float* output,float* input, VertexId_CUDA src,
 }
 void Cuda_Stream::move_data_in(float* d_pointer,float* h_pointer, VertexId_CUDA start, VertexId_CUDA end, int feature_size,bool sync){
 #if CUDA_ENABLE
-    cudaMemcpyAsync(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(float)), cudaMemcpyHostToDevice,stream);
+    CHECK_CUDA_RESULT(cudaMemcpyAsync(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(float)), cudaMemcpyHostToDevice,stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::move_data_in\n");
        exit(0);   
@@ -122,7 +122,7 @@ void Cuda_Stream::move_data_in(float* d_pointer,float* h_pointer, VertexId_CUDA 
 }
 void Cuda_Stream::move_edge_in(VertexId_CUDA* d_pointer,VertexId_CUDA* h_pointer, VertexId_CUDA start, VertexId_CUDA end, int feature_size,bool sync){
 #if CUDA_ENABLE
-    cudaMemcpyAsync(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice,stream);
+    CHECK_CUDA_RESULT(cudaMemcpyAsync(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice,stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::move_edge_in\n");
        exit(0);   
@@ -469,7 +469,7 @@ void Cuda_Stream::Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_o
 
 void move_result_out(float* output,float* input, int src,int dst, int feature_size, bool sync){
 #if CUDA_ENABLE
-    cudaMemcpy(output,input,((long)(dst-src))*feature_size*(sizeof(int)), cudaMemcpyDeviceToHost);
+    CHECK_CUDA_RESULT(cudaMemcpy(output,input,((long)(dst-src))*feature_size*(sizeof(int)), cudaMemcpyDeviceToHost));
     if(sync)
     cudaDeviceSynchronize();
 #else
@@ -482,7 +482,7 @@ void move_result_out(float* output,float* input, int src,int dst, int feature_si
 
 void move_data_in(float* d_pointer,float* h_pointer, int start, int end, int feature_size, bool sync){
 #if CUDA_ENABLE    
-    cudaMemcpy(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(float)), cudaMemcpyHostToDevice);
+    CHECK_CUDA_RESULT(cudaMemcpy(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(float)), cudaMemcpyHostToDevice));
     if(sync)
     cudaDeviceSynchronize();
 #else
@@ -493,7 +493,7 @@ void move_data_in(float* d_pointer,float* h_pointer, int start, int end, int fea
 
 void move_edge_in(VertexId_CUDA * d_pointer,VertexId_CUDA* h_pointer, VertexId_CUDA start, VertexId_CUDA end, int feature_size, bool sync){
 #if CUDA_ENABLE    
-    cudaMemcpy(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice);
+    CHECK_CUDA_RESULT(cudaMemcpy(d_pointer,h_pointer,((long)(end-start))*feature_size*(sizeof(VertexId_CUDA)), cudaMemcpyHostToDevice));
     if(sync)
     cudaDeviceSynchronize();
 #else
@@ -546,7 +546,7 @@ void FreeEdge(VertexId_CUDA *buffer){
 }
 void zero_buffer(float* buffer,int size){
 #if CUDA_ENABLE
-    cudaMemset(buffer,0,sizeof(float)*size);
+    CHECK_CUDA_RESULT(cudaMemset(buffer,0,sizeof(float)*size));
     cudaDeviceSynchronize();
 #else
        printf("CUDA DISABLED zero_buffer\n");
@@ -557,7 +557,7 @@ void zero_buffer(float* buffer,int size){
 
 void allocate_gpu_buffer(float** input, int size){
 #if CUDA_ENABLE
-        cudaMalloc(input,sizeof(float)*(size));
+        CHECK_CUDA_RESULT(cudaMalloc(input,sizeof(float)*(size)));
 #else
        printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Message\n");
        exit(0);   
@@ -566,7 +566,7 @@ void allocate_gpu_buffer(float** input, int size){
 }
 void allocate_gpu_edge(VertexId_CUDA** input, int size){
 #if CUDA_ENABLE
-     cudaMalloc(input,sizeof(VertexId_CUDA)*(size));
+     CHECK_CUDA_RESULT(cudaMalloc(input,sizeof(VertexId_CUDA)*(size)));
 #else 
      printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Message\n");
      exit(0);   
