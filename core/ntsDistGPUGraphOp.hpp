@@ -13,8 +13,8 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#ifndef NTSGPUGRAPHOP_HPP
-#define NTSGPUGRAPHOP_HPP
+#ifndef NTSDISTGPUGRAPHOP_HPP
+#define NTSDISTGPUGRAPHOP_HPP
 #include <assert.h>
 #include <map>
 #include <math.h>
