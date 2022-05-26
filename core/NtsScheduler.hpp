@@ -583,8 +583,11 @@ public:
   void push_mirror(NtsVar &mirrors){
       cached_feature_for_mirrors=mirrors;
   }
-  char* get_chunk(VertexId partition_id){
+  char* get_chunk_data(VertexId partition_id){
       return cached_feature_for_chunks[partition_id];
+  }
+  VertexId get_chunk_count(VertexId partition_id){
+      return cached_count[partition_id];
   }
   NtsVar get_mirror(){
       return cached_feature_for_mirrors;
