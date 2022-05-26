@@ -563,24 +563,35 @@ public:
       partitions=partitions_;
       if(policy_number==0){
           cached_feature_for_chunks.resize(partitions,nullptr);
+          cached_count.resize(partitions,0);
       }else if(policy_number==1){
           ;
       }
   }
-  void push_chunk(VertexId partition_id, MessageBuffer *message_ptr){
-      cached_feature_for_chunks[partition_id]=message_ptr;
+#if CUDA_ENABLE
+  void push_chunk_for_cuda(VertexId partition_id, VertexId count,VertexId f_size, char *message_ptr){
+      cached_count[partition_id]=count;
+      cached_feature_for_chunks[partition_id]=(char*)cudaMallocPinned(count*(f_size*sizeof(ValueType)+sizeof(VertexId)));
+      memcpy(cached_feature_for_chunks[partition_id],message_ptr,count*(f_size*sizeof(ValueType)+sizeof(VertexId)));
+  }
+#endif
+  void push_chunk(VertexId partition_id, VertexId count,VertexId f_size, char *message_ptr){
+      cached_count[partition_id]=count;
+      cached_feature_for_chunks[partition_id]=(char*)malloc(count*(f_size*sizeof(ValueType)+sizeof(VertexId)));
+      memcpy(cached_feature_for_chunks[partition_id],message_ptr,count*(f_size*sizeof(ValueType)+sizeof(VertexId)));
   }
   void push_mirror(NtsVar &mirrors){
       cached_feature_for_mirrors=mirrors;
   }
-  MessageBuffer* get_chunk(VertexId partition_id){
+  char* get_chunk(VertexId partition_id){
       return cached_feature_for_chunks[partition_id];
   }
   NtsVar get_mirror(){
       return cached_feature_for_mirrors;
   }
   //for chunk-based processing
-      std::vector<MessageBuffer*>cached_feature_for_chunks;
+      std::vector<char*>cached_feature_for_chunks;
+      std::vector<VertexId>cached_count;
   VertexId partitions;
   
   //for whole graph processing
