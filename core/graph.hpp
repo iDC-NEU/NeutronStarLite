@@ -174,6 +174,7 @@ public:
   GraphStorage *NtsGraphStore;
 
   CachedData *cachedData;
+  FeatureCache *feature_cache;
   // replication
   int replication_threshold;
 //
@@ -318,6 +319,9 @@ public:
 //      message_amount[i] = new VertexId[partitions];
 //      memset(message_write_offset[i], 0, sizeof(VertexId) * vertices);
 //      memset(message_amount[i], 0, sizeof(VertexId) * partitions);
+    if(rtminfo->process_local){
+        feature_cache=new FeatureCache(0,this->partitions);
+    }
 //    }
   }
 
@@ -3683,6 +3687,7 @@ public:
           // deserialize the received message to mirror node data
           Nts->DeserializeMsgToMirror(mirror_input, used_buffer[s_i]->data,
                                       used_buffer[s_i]->count);
+          
           // gather them to generate aggregated representation for fulture use.
           // i.e. generate the intermediate result in GPU
           Nts->GatherByDstFromSrc(Y, mirror_input, mirror_input);
@@ -3703,6 +3708,90 @@ public:
     return global_reducer;
   }
 
+  
+  template <typename R, typename M>
+  R sync_compute_decoupled_from_cached(NtsVar &input_gpu_or_cpu,
+                           std::vector<CSC_segment_pinned *> &graph_partitions,
+                           std::function<void(VertexId)> sparse_signal,
+                           NtsVar &Y, int feature_size) {
+    // int feature_size = gnnctx->layer_size[rtminfo->curr_layer];
+    bool process_local = rtminfo->process_local;
+    int layer_ = rtminfo->curr_layer;
+    bool process_overlap = rtminfo->process_overlap;
+
+    //    if (partition_id == 0)
+    //    {
+    //      printf("SyncComputeDecoupled:layer(%d).process_local(%d).dimension(%d).reduce_comm(%d).overlap(%d)\n",
+    //      layer_, process_local ? replication_threshold : -1, feature_size,
+    //      process_local, process_overlap);
+    //    }
+    double stream_time = 0;
+    stream_time -= MPI_Wtime();
+
+    // initialize the communicator
+    NtsComm->init_layer_all(feature_size, Master2Mirror, GPU_T);
+    NtsComm->run_all_master_to_mirror_no_wait();
+
+    NtsVar mirror_input =
+        Nts->NewLeafTensor({get_max_partition_size(), (feature_size + 1)});
+    Nts->ZeroVarMem(Y);
+
+    { // 1-stage
+      // putting data into send buffer. And background thread will start to send
+      // messages
+      current_send_part_id = partition_id;
+      NtsComm->set_current_send_partition(current_send_part_id);
+#pragma omp parallel for
+      for (VertexId begin_v_i = partition_offset[partition_id];
+           begin_v_i < partition_offset[partition_id + 1]; begin_v_i += 1) {
+        VertexId v_i = begin_v_i;
+        // emit the buffer
+        sparse_signal(v_i);
+      }
+      for (int step = 0; step < partitions; step++) {
+        int trigger_partition = (partition_id - step + partitions) % partitions;
+        // send to message to "trigger_partition"
+        NtsComm->trigger_one_partition(
+            trigger_partition, trigger_partition == current_send_part_id);
+      }
+      // 2-stage
+      int current_recv_part_id = 0;
+      for (int step = 0; step < partitions; step++) {
+        int i = -1;
+        MessageBuffer **used_buffer;
+        // receive mirror node data from one partition
+        used_buffer = NtsComm->recv_one_partition(i, step);
+        Nts->InitBlockSimple(graph_partitions[i], rtminfo, feature_size,
+                             feature_size, i, layer_);
+        //         printf("SyncComputeDecoupled\n");
+        // gather those data locally
+        for (int s_i = 0; s_i < sockets; s_i++) {
+          int current_recv_part_id = i;
+          // deserialize the received message to mirror node data
+          Nts->DeserializeMsgToMirror(mirror_input, used_buffer[s_i]->data,
+                                      used_buffer[s_i]->count);
+          // gather them to generate aggregated representation for fulture use.
+          // i.e. generate the intermediate result in GPU
+          Nts->GatherByDstFromSrc(Y, mirror_input, mirror_input);
+        }
+      }
+
+      // synchronize the computation
+      rtminfo->device_sync();
+      NtsComm->release_communicator();
+    }
+    stream_time += MPI_Wtime();
+    R global_reducer;
+#ifdef PRINT_DEBUG_MESSAGES
+    if (partition_id == 0) {
+      printf("process_edges took %lf (s)\n", stream_time);
+    }
+#endif
+    return global_reducer;
+  }
+
+
+  
   template <typename R, typename M>
   R forward_single(NtsVar &input_gpu_or_cpu,
                    std::vector<CSC_segment_pinned *> &graph_partitions,
@@ -4301,92 +4390,6 @@ public:
         out_degree_for_backward[vtx] = 1; // local
     }
   }
-
-//  // Coordinate list, for more information, please refer to this
-//  // https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_(COO)
-//  void generate_COO() {
-//    _graph_cpu_in = new COOChunk();
-//
-//    // count the edge num, because last element in the array has the total
-//    // number of edges so just count the number in every socket
-//    VertexId edge_size_in = 0;
-//    for (int i = 0; i < sockets; i++) {
-//      edge_size_in += (VertexId)outgoing_adj_index[i][vertices];
-//    }
-//
-//    // allocate space for saving src and dst for every edges
-//    _graph_cpu_in->dstList = new VertexId[edge_size_in];
-//    _graph_cpu_in->srcList = new VertexId[edge_size_in];
-//    _graph_cpu_in->numofedges = edge_size_in;
-//
-//    // outgoing_adj_list saves the edge data, and outgoing_adj_index saves the
-//    // index to those edges calc all of the src and dst with respect to local
-//    // vertices
-//    int write_position_in = 0;
-//    for (int k = 0; k < sockets; k++) {
-//      for (VertexId vtx = 0; vtx < vertices; vtx++) {
-//        for (int i = outgoing_adj_index[k][vtx];
-//             i < outgoing_adj_index[k][vtx + 1]; i++) {
-//          _graph_cpu_in->srcList[write_position_in] = vtx;
-//          _graph_cpu_in->dstList[write_position_in++] =
-//              outgoing_adj_list[k][i].neighbour;
-//        }
-//      }
-//    }
-//    if (partition_id == 0)
-//      printf("GNNmini::Preprocessing[Generate Edges]\n");
-//  }
-//
-//  // process cross partition edges from partition info
-//  // for every partition, we need to know the vertices that related to local
-//  // partition
-//  void reorder_COO_W2W() { // replication
-//    graph_shard_in.clear();
-//    VertexId edge_size_out = 0;
-//    //(VertexId)incoming_adj_index[sockets-1][vertices];
-//    VertexId edge_size_in = 0;
-//    // count edge num, same as above
-//    for (int i = 0; i < sockets; i++) {
-//      //edge_size_out += (VertexId)incoming_adj_index[i][vertices];
-//      edge_size_in += (VertexId)incoming_adj_index_backward[i][vertices];
-//    }
-//
-//    int src_blocks = partitions;
-//    for (int i = 0; i < src_blocks; i++) {
-//      graph_shard_in.push_back(new COOChunk());
-//      graph_shard_in[i]->dst_range[0] = partition_offset[partition_id];
-//      graph_shard_in[i]->dst_range[1] = partition_offset[partition_id + 1];
-//      graph_shard_in[i]->src_range[0] = partition_offset[i];
-//      graph_shard_in[i]->src_range[1] = partition_offset[i + 1];
-//    }
-//    // for every partition
-//    // calc the number of edges which dst is local partition
-//    for (int i = 0; i < edge_size_in; i++) {
-//      int src_bucket = this->get_partition_id(_graph_cpu_in->srcList[i]);
-//      graph_shard_in[src_bucket]->numofedges += 1;
-//    }
-//    for (int i = 0; i < src_blocks; i++) {
-//      graph_shard_in[i]->src_delta =
-//          new VertexId[graph_shard_in[i]->numofedges];
-//      graph_shard_in[i]->dst_delta =
-//          new VertexId[graph_shard_in[i]->numofedges];
-//      graph_shard_in[i]->counter = 0;
-//    }
-//    // then process the vertex id
-//    // so graph_shard_in[p] will save all edges [src, dst] where src belongs to
-//    // p and dst belongs to local partition
-//    for (int i = 0; i < edge_size_in; i++) {
-//      int source = _graph_cpu_in->src()[i];
-//      int destination = _graph_cpu_in->dst()[i];
-//      int bucket_s = this->get_partition_id(source);
-//      int offset = graph_shard_in[bucket_s]->counter++;
-//      graph_shard_in[bucket_s]->src_delta[offset] = source;
-//      graph_shard_in[bucket_s]->dst_delta[offset] = destination;
-//    }
-//
-//    if (partition_id == 0)
-//      printf("GNNmini::Preprocessing[Reorganize Edges]\n");
-//  }
 
   
   template <typename R, typename M>

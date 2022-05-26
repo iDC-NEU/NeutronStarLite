@@ -549,6 +549,44 @@ public:
   AGGTYPE aggtype;
   // src_input.cpu() dst_input.cpu()
 };
+class FeatureCache{
+public:
+  
+  //std::string caching_policy;
+  VertexId policy_number;
+  //0 simple_chunk
+  //1 simple_full
+  //2 standard_chunk
+  //3 standard_chunk
+  FeatureCache(VertexId policy,VertexId partitions_){
+      policy_number=policy;
+      partitions=partitions_;
+      if(policy_number==0){
+          cached_feature_for_chunks.resize(partitions,nullptr);
+      }else if(policy_number==1){
+          ;
+      }
+  }
+  void push_chunk(VertexId partition_id, MessageBuffer *message_ptr){
+      cached_feature_for_chunks[partition_id]=message_ptr;
+  }
+  void push_mirror(NtsVar &mirrors){
+      cached_feature_for_mirrors=mirrors;
+  }
+  MessageBuffer* get_chunk(VertexId partition_id){
+      return cached_feature_for_chunks[partition_id];
+  }
+  NtsVar get_mirror(){
+      return cached_feature_for_mirrors;
+  }
+  //for chunk-based processing
+      std::vector<MessageBuffer*>cached_feature_for_chunks;
+  VertexId partitions;
+  
+  //for whole graph processing
+  NtsVar cached_feature_for_mirrors;
+};
+
 struct CachedData {
 public:
   CachedData() { ; }
