@@ -28,6 +28,24 @@ const OpType NNOP = 0;
 const OpType GRAPHOP = 1;
 const OpType SEGMENTOP = 2;
 
+class IOTensorId{
+public:
+    IOTensorId(long o_id_,long i_id1_,long i_id2_){
+        o_id=o_id_;
+        i_id1=i_id1_;
+        i_id2=i_id2_;
+    }
+    IOTensorId(long o_id_,long i_id1_){
+        o_id=o_id_;
+        i_id1=i_id1_;
+    }
+    void updateOutput(long o_id_){
+       o_id=o_id_; 
+    }
+    long o_id;
+    long i_id1;
+    long i_id2;
+};
 class ntsOperator{
 public:
     ntsOperator(){
@@ -42,6 +60,10 @@ public:
         assert(NNOP==op_t_);
         op_t=op_t_;
     }
+//    ntsOperator(OpType op_t_){
+//        assert(CATOP==op_t_);
+//        op_t=op_t_;
+//    }
     nts::op::ntsGraphOp* op;
     OpType op_t;
 };
@@ -63,6 +85,7 @@ public:
   std::stack<NtsVar>().swap(input);
   std::stack<ntsOperator>().swap(ntsOp);
   output_grad.clear();
+  iot_id.clear();
   count = 0;
 }
   template <typename GOPT>
@@ -73,55 +96,31 @@ public:
                 "template must be a type of graph op!");
     
     nts::op::ntsGraphOp * curr=new GOPT(partitioned_graph,active);
-    NtsVar f_output=curr->forward(f_input); 
+    NtsVar f_output=curr->forward(f_input);
     NtsVar ig;
     op.push(GRAPHOP);
     output.push(f_output);
     input.push(f_input);
     ntsOp.push(ntsOperator(curr,GRAPHOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
     // pre-alloc space to save graident
     output_grad.push_back(ig);
     count++;
     return f_output;
-} 
+}
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &, NtsVar &)> vertexforward,
             NtsVar &nbr_input,NtsVar &vtx_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=vertexforward(nbr_input,vtx_input); 
-    NtsVar ig;
-    if (count > 0 && op.top() == NNOP) {
-        output.pop();
-        output.push(f_output);
-        //     LOG_INFO("TRIG");
-    }else{
-        op.push(NNOP);
-        output.push(f_output);
-        input.push(nbr_input);
-        ntsOp.push(ntsOperator(NNOP));
-        // pre-alloc space to save graident
-        output_grad.push_back(ig);
-        count++;
-    }
+    appendNNOp(nbr_input, f_output);
+//    printf("tese %ld\n",(long)(&f_output));
     return f_output;
 }
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &)> vertexforward,
             NtsVar &nbr_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=vertexforward(nbr_input); 
-    NtsVar ig;
-    if (count > 0 && op.top() == NNOP) {
-        output.pop();
-        output.push(f_output);
-        //     LOG_INFO("TRIG");
-    }else{
-        op.push(NNOP);
-        output.push(f_output);
-        input.push(nbr_input);
-        ntsOp.push(ntsOperator(NNOP));
-        // pre-alloc space to save graident
-        output_grad.push_back(ig);
-        count++;
-    }
+    appendNNOp(nbr_input, f_output);
     return f_output;
 }
  
@@ -129,20 +128,7 @@ public:
             NtsVar &edge_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=edgeforward(edge_input); 
-    NtsVar ig;
-    if (count > 0 && op.top() == NNOP) {
-        output.pop();
-        output.push(f_output);
-        //     LOG_INFO("TRIG");
-    }else{
-        op.push(NNOP);
-        output.push(f_output);
-        input.push(edge_input);
-        ntsOp.push(ntsOperator(NNOP));
-        // pre-alloc space to save graident
-        output_grad.push_back(ig);
-        count++;
-    }
+    appendNNOp(edge_input, f_output);
     return f_output;
 } 
   
@@ -154,15 +140,17 @@ public:
     if (count > 0 && op.top() == NNOP) {
         output.pop();
         output.push(output_t);
+        iot_id[iot_id.size()-1].updateOutput((long)(output_t.data_ptr()));
         //     LOG_INFO("TRIG");
     } else {
-        count++;
         op.push(NNOP);
         output.push(output_t);
         input.push(input_t);
         ntsOp.push(ntsOperator(NNOP));
+        iot_id.push_back(IOTensorId((long)(output_t.data_ptr()),(long)(input_t.data_ptr())));
         // pre-alloc space to save graident
         output_grad.push_back(ig);
+        count++;
     }
   }
  
@@ -177,6 +165,7 @@ public:
     std::stack<NtsVar>().swap(input);
     std::stack<ntsOperator>().swap(ntsOp);
     output_grad.clear();
+    iot_id.clear();
 }
   void pop_one_op(){
     if(ntsOp.top().op_t==GRAPHOP){
@@ -198,17 +187,40 @@ public:
     // thus we can use auto diff framework in libtorch
          
     if (GRAPHOP == op.top()) { // test
-//         LOG_INFO("START GRAPH op%d",op.top());
-      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
+        
+// test        
+      int preop_id=top_idx(); 
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
+
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+
+      output_grad[preop_id]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      
+//stable      
+//      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
 
     } else if (NNOP == op.top()) {// directly use pytorch
 //        LOG_INFO("START nn op%d",op.top());
-      assert(output_grad[top_idx()].size(1)==output.top().size(1));
-      assert(output_grad[top_idx()].size(0)==output.top().size(0));  
+
+        
+//test        
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
       output.top().backward(output_grad[top_idx()], retain_graph);
-      if(count>1)
-          output_grad[top_idx()-1] = input.top().grad();
+
+//stable        
+//      assert(output_grad[top_idx()].size(1)==output.top().size(1));
+//      assert(output_grad[top_idx()].size(0)==output.top().size(0));  
+//      output.top().backward(output_grad[top_idx()], retain_graph);
+//      if(count>1)
+//          output_grad[top_idx()-1] = input.top().grad();
       pop_one_op();
 
     } else {
@@ -222,6 +234,9 @@ public:
     printf("ADDEBUG input.size()%d\n", input.size());
     // for(int i=0;i<count;i++){
     int i=0;
+     for(int k=0;k<iot_id.size();k++){
+        LOG_INFO("IOT %ld %ld",iot_id[k].i_id1,iot_id[k].o_id);
+    }
     while (!input.empty()) {
         if(i==0){
           LOG_INFO("input dim %d %d\t output dim %d \t OP type %d", input.top().size(0),input.top().size(1),output.top().dim(),op.top());
@@ -239,6 +254,7 @@ public:
     count=0;
   }
   
+  
   int top_idx(){
     return count - 1;
   }
@@ -249,6 +265,7 @@ private:
   std::stack<NtsVar> input;
   std::stack<ntsOperator> ntsOp;
   std::vector<NtsVar> output_grad;
+  std::vector<IOTensorId> iot_id;
   int count;
 //  GraphOperation *gt;
 //  std::vector<CSC_segment_pinned *> subgraphs;
