@@ -457,10 +457,10 @@ public:
       graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);
     partitioned_graph_->DistSchedulingMaster(
         [&](VertexId dst,PartitionedGraph* pg){
-          long eid_start = pg->column_offset[dst];
-          long eid_end = pg->column_offset[dst + 1];
+          VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+          long eid_start = pg->column_offset[dst_trans];
+          long eid_end = pg->column_offset[dst_trans + 1];
           NtsVar d = f_input_.slice(0, eid_start, eid_end, 1).softmax(0);
-            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
           ValueType *d_buffer =
           graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);    
           nts_copy(f_output_buffer, eid_start, d_buffer, 
@@ -478,8 +478,9 @@ public:
       graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
     partitioned_graph_->DistSchedulingMaster(
         [&](VertexId dst,PartitionedGraph* pg){
-          long eid_start = pg->column_offset[dst];
-          long eid_end = pg->column_offset[dst + 1];
+          VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+          long eid_start = pg->column_offset[dst_trans];
+          long eid_end = pg->column_offset[dst_trans + 1];
           NtsVar d   = f_output_grad.slice(0, eid_start, eid_end, 1);
           NtsVar imr =IntermediateResult.slice(0, eid_start, eid_end, 1);
           NtsVar d_o =(imr*d)-imr*(d.t().mm(imr)); 
@@ -489,6 +490,7 @@ public:
                   0, feature_size,(eid_end-eid_start));
         
         });
+        return f_input_grad;
   }    
 
 };
