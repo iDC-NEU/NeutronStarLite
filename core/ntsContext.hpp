@@ -181,7 +181,7 @@ public:
     output.top().backward(torch::ones_like(output.top()), retain_graph);
     output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
-//    LOG_INFO("FINISH LOSS");
+    //LOG_INFO("FINISH LOSS");
       while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
@@ -198,21 +198,27 @@ public:
           if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
               break;
       }// where to write i grad
-
-      output_grad[preop_id]=ntsOp.top().op->backward(output_grad[top_idx()]);
       
+      output_grad[preop_id]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      //LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
 //stable      
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
+      
+        //LOG_INFO("FINISH GraphOP");
 
     } else if (NNOP == op.top()) {// directly use pytorch
 //        LOG_INFO("START nn op%d",op.top());
 
         
 //test        
+        //LOG_INFO("Start NN OP %d %d",output_grad[top_idx()].dim(),top_idx());
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
       }//determine o grad
+        //LOG_INFO("Medium NN OP %d ",output_grad[top_idx()].dim());
+      assert(output_grad[top_idx()].size(1)==output.top().size(1));
+      assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
       output.top().backward(output_grad[top_idx()], retain_graph);
 
 //stable        
@@ -222,7 +228,7 @@ public:
 //      if(count>1)
 //          output_grad[top_idx()-1] = input.top().grad();
       pop_one_op();
-
+    //LOG_INFO("FINISH NN OP");
     } else {
       LOG_INFO("NOT SUPPORT OP");
       assert(true);

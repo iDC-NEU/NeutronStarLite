@@ -203,7 +203,7 @@ public:
       
       NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
             int layer = graph->rtminfo->curr_layer;
-            return torch::leaky_relu(P[2 * layer + 1]->forward(E_msg),0.2);
+            return torch::leaky_relu(P[2 * layer + 1]->forward(e_msg),0.2);
         },
       E_msg);//edge NN
         
