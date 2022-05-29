@@ -130,9 +130,7 @@ void Cuda_Stream::move_edge_in(VertexId_CUDA* d_pointer,VertexId_CUDA* h_pointer
 }
 void Cuda_Stream::aggregate_comm_result(float* aggregate_buffer,float *input_buffer,VertexId_CUDA data_size,int feature_size,int partition_offset, bool sync){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-    const int BLOCK_SIZE=32;
-    aggregate_data_buffer<<<THREAD_SIZE,BLOCK_SIZE,0,stream>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_offset,sync);
+    aggregate_data_buffer<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_offset,sync);
 #else
        printf("CUDA DISABLED Cuda_Stream::aggregate_comm_result\n");
        exit(0);   
@@ -141,9 +139,7 @@ void Cuda_Stream::aggregate_comm_result(float* aggregate_buffer,float *input_buf
 
 void Cuda_Stream::aggregate_comm_result_debug(float* aggregate_buffer,float *input_buffer,VertexId_CUDA data_size,VertexId_CUDA feature_size,VertexId_CUDA partition_start,VertexId_CUDA partition_end, bool sync){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-    const int BLOCK_SIZE=32;
-    aggregate_data_buffer_debug<<<THREAD_SIZE,BLOCK_SIZE,0,stream>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_start,partition_end,sync);
+    aggregate_data_buffer_debug<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(aggregate_buffer,input_buffer,data_size,feature_size,partition_start,partition_end,sync);
 #else
        printf("CUDA DISABLED Cuda_Stream::aggregate_comm_result_debug\n");
        exit(0);   
@@ -152,9 +148,7 @@ void Cuda_Stream::aggregate_comm_result_debug(float* aggregate_buffer,float *inp
 
 void Cuda_Stream::deSerializeToGPU(float* input_gpu_buffer,float *input_buffer,VertexId_CUDA data_size,VertexId_CUDA feature_size,VertexId_CUDA partition_start,VertexId_CUDA partition_end, bool sync){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-    const int BLOCK_SIZE=32;
-    deSerializeToGPUkernel<<<THREAD_SIZE,BLOCK_SIZE,0,stream>>>(input_gpu_buffer,input_buffer,data_size,feature_size,partition_start,partition_end,sync);
+    deSerializeToGPUkernel<<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(input_gpu_buffer,input_buffer,data_size,feature_size,partition_start,partition_end,sync);
 #else
        printf("CUDA DISABLED Cuda_Stream::deSerializeToGPU\n");
        exit(0);   
@@ -167,8 +161,6 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
 	VertexId_CUDA edges,VertexId_CUDA batch_size,
         VertexId_CUDA feature_size,bool with_weight,bool tensor_weight){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
         if(with_weight){
             if(tensor_weight){
 //		aggregate_kernel_from_src_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
@@ -176,13 +168,13 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
 //				src_start, dst_start, batch_size, feature_size);
                 printf("aggregate_kernel_from_src_tensor_weight_optim_nts");
             }else{
-                aggregate_kernel_from_src_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+                aggregate_kernel_from_src_with_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_indices, column_offset, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size);
             }
         }
         else{
-                aggregate_kernel_from_src_without_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+                aggregate_kernel_from_src_without_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
                         row_indices, column_offset, input, output, weight_forward, 
                                 src_start, dst_start, batch_size, feature_size);
         }
@@ -264,25 +256,20 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 	VertexId_CUDA edges,VertexId_CUDA batch_size,
         VertexId_CUDA feature_size,bool with_weight,bool tensor_weight){
 #if CUDA_ENABLE
-            const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
         if(with_weight){
             if(tensor_weight){
-//                aggregate_kernel_from_dst_tensor_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-//			row_offset, column_indices, input, output, weight_forward, 
-//				src_start, dst_start, batch_size, feature_size);
              printf("aggregate_kernel_from_dst_tensor_weight is a legacy implementation\n");
                 exit(0);   
             }else{
                 
-		aggregate_kernel_from_dst_with_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+		aggregate_kernel_from_dst_with_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_offset, column_indices, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size);   
             }
         }
         else{
-                aggregate_kernel_from_dst_without_weight<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+                aggregate_kernel_from_dst_without_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_offset, column_indices, input, output, weight_forward, 
 				src_start, dst_start, batch_size, feature_size);
         }
@@ -293,33 +280,6 @@ void Cuda_Stream::Gather_By_Src_From_Dst(float* input,float* output,float* weigh
 
 }
 
-//void Cuda_Stream::Scatter_Grad_Back_To_Weight(float* input,float* output_grad,float* weight_grad,//data 
-//        long* src,long *dst,//graph
-//        VertexId_CUDA src_start, VertexId_CUDA src_end,
-//        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
-//	VertexId_CUDA edges,VertexId_CUDA batch_size,
-//        VertexId_CUDA feature_size,bool tensor_weight){
-//#if CUDA_ENABLE
-//        const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-//	const int BLOCK_SIZE=32;
-//	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
-//        if(tensor_weight){
-//            scatter_grad_back_to_tensor_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-//			src, dst, input, output_grad, weight_grad, 
-//				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
-//        }else{
-//            scatter_grad_back_to_weight<float,long><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
-//			src, dst, input, output_grad, weight_grad, 
-//				(long)src_start, (long)dst_start, (long)edges, (long)feature_size);
-//        }
-//#else
-//       printf("CUDA DISABLED Cuda_Stream::Scatter_Grad_Back_To_Weight\n");
-//       exit(0);   
-//#endif 
-//
-//
-//}
-                                                                //not used
 void Cuda_Stream::Scatter_Grad_Back_To_Message(float* input,float* message_grad,//data 
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA src_start, VertexId_CUDA src_end,
@@ -327,14 +287,12 @@ void Cuda_Stream::Scatter_Grad_Back_To_Message(float* input,float* message_grad,
 	VertexId_CUDA edges,VertexId_CUDA batch_size,
         VertexId_CUDA feature_size,bool with_weight){
 #if CUDA_ENABLE
-        const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tTHREAD_SIZE:%d\n",BLOCK_SIZE,THREAD_SIZE); 
         if(with_weight){
             printf("tensor_weight Scatter_Grad_Back_To_Weight not implemented\n");
             exit(0);
         }else{
-            scatter_grad_back_to_messaage<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+            scatter_grad_back_to_messaage<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
 			row_indices, column_offset, input, message_grad, 
 				src_start, dst_start, batch_size, feature_size);
         }
@@ -351,11 +309,7 @@ void Cuda_Stream::Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_fea
         VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
         VertexId_CUDA feature_size){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
-//        printf("finished+++++++++++++++++++++++++++++++++++++++++%d\n",feature_size);
-	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        scatter_src_mirror_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+        scatter_src_mirror_to_msg<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
             message, src_mirror_feature, row_indices, column_offset, mirror_index,
                 batch_size, feature_size); 
 #else
@@ -370,10 +324,8 @@ void Cuda_Stream::Gather_Msg_To_Src_Mirror(float* src_mirror_feature,float* mess
         VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
         VertexId_CUDA feature_size){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        gather_msg_to_src_mirror<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+        gather_msg_to_src_mirror<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
             src_mirror_feature, message, row_indices, column_offset, mirror_index,
                 batch_size, feature_size); 
 #else
@@ -387,10 +339,8 @@ void Cuda_Stream::Scatter_Dst_to_Msg(float* message,float* dst_feature,//data
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        scatter_dst_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+        scatter_dst_to_msg<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
             message, dst_feature, row_indices, column_offset,
             batch_size, feature_size); 
 #else
@@ -403,10 +353,8 @@ void Cuda_Stream::Gather_Msg_to_Dst(float* dst_feature,float* message,//data
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        gather_msg_to_dst<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+        gather_msg_to_dst<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
             dst_feature, message, row_indices, column_offset,
             batch_size, feature_size); 
 #else
