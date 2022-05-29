@@ -113,7 +113,6 @@ void CSC_segment_pinned::allocEdgeAssociateData() {
 
     destination = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
     source = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
-//    source_backward = (long *)cudaMallocPinned((edge_size + 1) * sizeof(long));
   } else
 #endif
       if (dt == CPU_T) {
@@ -136,6 +135,19 @@ void CSC_segment_pinned::allocEdgeAssociateData() {
   } else {
     assert(NOT_SUPPORT_DEVICE_TYPE);
   }
+}
+
+void CSC_segment_pinned::freeAdditional(){
+    #if CUDA_ENABLE
+    if (dt == GPU_T) {
+        ntsFreeHost(destination);
+        ntsFreeHost(source);
+    }
+    #endif
+    if (dt == CPU_T) {
+        free(destination);
+        free(source);
+    }
 }
 
 void CSC_segment_pinned::getDevicePointerAll() {

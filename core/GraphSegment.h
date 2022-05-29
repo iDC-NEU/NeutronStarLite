@@ -107,6 +107,7 @@ public:
   void allocEdgeAssociateData();
   void getDevicePointerAll();
   void CopyGraphToDevice();
+  void freeAdditional();
 
   inline bool src_get_active(VertexId v_i) {
       return this->source_active->get_bit(v_i - src_range[0]);
@@ -135,6 +136,13 @@ public:
   inline void dst_set_active(VertexId v_i) {
       this->destination_active->set_bit(v_i - dst_range[0]);
   }
+};
+
+class SampleGraph{
+    VertexId* source;
+    VertexId* destination;
+    VertexId* column_offset;
+    VertexId* row_indices;
 };
 
 class InputInfo {

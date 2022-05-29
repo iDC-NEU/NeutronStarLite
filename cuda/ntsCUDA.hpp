@@ -22,6 +22,7 @@
 enum graph_type { CSR, CSC, PAIR };
 enum weight_type { NULL_TYPE, SCALA_TYPE, TENSOR_TYPE };
 
+void ntsFreeHost(void *buffer);
 void *cudaMallocPinned(long size_of_bytes);
 void *getDevicePointer(void *host_data_to_device);
 void *cudaMallocGPU(long size_of_bytes);

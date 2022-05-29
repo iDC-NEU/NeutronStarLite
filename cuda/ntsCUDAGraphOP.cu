@@ -470,6 +470,16 @@ void move_bytes_in(void * d_pointer,void* h_pointer, long bytes, bool sync){
 //
 //}
 
+void ntsFreeHost(void *buffer){
+#if CUDA_ENABLE    
+    cudaFreeHost(buffer);
+#else
+       printf("CUDA DISABLED FreeBuffer\n");
+       exit(0);   
+#endif 
+}
+
+
 void FreeBuffer(float *buffer){
 #if CUDA_ENABLE    
     cudaFree(buffer);
