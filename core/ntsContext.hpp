@@ -265,7 +265,7 @@ public:
     return count - 1;
   }
 
-private:
+//private:
   std::stack<OpType> op;
   std::stack<NtsVar> output;
   std::stack<NtsVar> input;

@@ -21,6 +21,8 @@ extern "C" {
 typedef uint32_t VertexId_CUDA;
 const int CUDA_NUM_THREADS = 512;
 const int CUDA_NUM_BLOCKS = 512;
+const int CUDA_NUM_THREADS_SOFTMAX = 32;
+const int CUDA_NUM_BLOCKS_SOFTMAX = 512;
 }
 #ifdef __cplusplus
 

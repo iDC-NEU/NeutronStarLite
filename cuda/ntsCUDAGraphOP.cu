@@ -353,7 +353,7 @@ void Cuda_Stream::Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_fea
 #if CUDA_ENABLE
     const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
 	const int BLOCK_SIZE=32;
-        printf("finished+++++++++++++++++++++++++++++++++++++++++%d\n",feature_size);
+//        printf("finished+++++++++++++++++++++++++++++++++++++++++%d\n",feature_size);
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
         scatter_src_mirror_to_msg<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
             message, src_mirror_feature, row_indices, column_offset, mirror_index,
@@ -419,11 +419,8 @@ void Cuda_Stream::Edge_Softmax_Forward_Block(float* msg_output,float* msg_input,
         float* msg_cached,
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size){
-#if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
-	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        edge_softmax_forward_block<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+#if CUDA_ENABLE 
+        edge_softmax_forward_block<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS_SOFTMAX,CUDA_NUM_THREADS_SOFTMAX,0,stream>>>(
             msg_output, msg_input, msg_cached, row_indices, column_offset,
             batch_size, feature_size); 
 #else
@@ -437,10 +434,8 @@ void Cuda_Stream::Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_o
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size){
 #if CUDA_ENABLE
-    const int THREAD_SIZE=512;//getThreadNum(_meta->get_feature_size());
-	const int BLOCK_SIZE=32;
 	//printf("CUDA_DEBUGE_INFO:FORWARD RUN_SYNC with \t BLOCK_SIZE:%d\tfeature_size:%d\n",BLOCK_SIZE,feature_size); 
-        edge_softmax_backward_block<float,VertexId_CUDA><<<BLOCK_SIZE,THREAD_SIZE,0,stream>>>(
+        edge_softmax_backward_block<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS_SOFTMAX,CUDA_NUM_THREADS_SOFTMAX,0,stream>>>(
             msg_input_grad, msg_output_grad, msg_cached, row_indices, column_offset,
             batch_size, feature_size); 
 #else

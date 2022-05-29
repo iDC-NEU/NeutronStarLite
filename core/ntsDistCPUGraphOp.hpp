@@ -461,6 +461,7 @@ public:
           long eid_start = pg->column_offset[dst_trans];
           long eid_end = pg->column_offset[dst_trans + 1];
           NtsVar d = f_input_.slice(0, eid_start, eid_end, 1).softmax(0);
+          //NtsVar d= f_input_.slice(0, eid_start, eid_end, 1)*torch::exp(f_input_.slice(0, eid_start, eid_end, 1)).sum(0);/// torch::exp(f_input_.slice(0, eid_start, eid_end, 1)).sum(0);
           ValueType *d_buffer =
           graph_->Nts->getWritableBuffer(d, torch::DeviceType::CPU);    
           nts_copy(f_output_buffer, eid_start, d_buffer, 
