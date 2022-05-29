@@ -196,11 +196,13 @@ public:
         NtsVar mirror_gpu= ctx->runGraphOp<nts::op::DistGPUGetDepNbrOp>(partitioned_graph,active,x_trans);
         //NtsVar test_mirror_forward=torch::cat({mirror.slice(1,10,11,1),mirror_gpu.cpu().slice(1,10,11,1)},1);
        // NtsVar mirror.slice(1,10,11,1).eq(mirror_gpu.cpu().slice(1,10,11,1)).sum(0);
-        std::cout<<mirror.size(0)<<" "<<mirror.slice(1,10,11,1).eq(mirror_gpu.cpu().slice(1,10,11,1)).sum(0)<<std::endl;     
+        partitioned_graph->SyncAndLog("sync test DistGPUGetDepNbrOp forward: 1 is passed");
+        std::cout<<mirror.slice(1,10,11,1).eq(mirror_gpu.cpu().slice(1,10,11,1)).sum(0).eq(mirror.size(0))<<std::endl;     
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(mirror_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(mirror);
-        std::cout<<x_back.size(0)<<" "<<x_back.slice(1,10,11,1).eq(x_back_cuda.cpu().slice(1,10,11,1)).sum(0)<<std::endl; 
+        partitioned_graph->SyncAndLog("sync test DistGPUGetDepNbrOp backward: 1 is passed");
+        std::cout<<x_back.slice(1,10,11,1).eq(x_back_cuda.cpu().slice(1,10,11,1)).sum(0).eq(x_back.size(0))<<std::endl; 
       }        
     }
   }
@@ -217,12 +219,13 @@ public:
         NtsVar mirror_gpu=mirror.cuda();
         NtsVar edge_src=ctx->runGraphOp<nts::op::DistScatterSrc>(partitioned_graph,active,mirror);
         NtsVar edge_src_gpu= ctx->runGraphOp<nts::op::DistGPUScatterSrc>(partitioned_graph,active,mirror_gpu);
-
-        std::cout<<edge_src.size(0)<<" "<<edge_src.slice(1,10,11,1).eq(edge_src_gpu.cpu().slice(1,10,11,1)).sum(0)<<std::endl;
+        partitioned_graph->SyncAndLog("sync test DistGPUScatterSrc forward: 1 is passed");
+        std::cout<<edge_src.slice(1,10,11,1).eq(edge_src_gpu.cpu().slice(1,10,11,1)).sum(0).eq(edge_src.size(0))<<std::endl;
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(edge_src_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(edge_src);
-        std::cout<<x_back.size(0)<<" "<<x_back.slice(1,10,11,1).eq(x_back_cuda.cpu().slice(1,10,11,1)).sum(0)<<std::endl; 
+        partitioned_graph->SyncAndLog("sync test DistGPUScatterSrc backward: 1 is passed");
+        std::cout<<x_back.slice(1,10,11,1).eq(x_back_cuda.cpu().slice(1,10,11,1)).sum(0).eq(x_back.size(0))<<std::endl; 
       }        
     }
   }
@@ -242,14 +245,14 @@ public:
         
         NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
         NtsVar edge_dst_gpu= ctx->runGraphOp<nts::op::DistGPUScatterDst>(partitioned_graph,active,X_i_gpu);
-        partitioned_graph->SyncAndLog("sync");
-        std::cout<<edge_dst.size(0)*edge_dst.size(1)<<" "<<edge_dst.eq(edge_dst_gpu.cpu()).sum(0).sum(0)<<std::endl;
+        partitioned_graph->SyncAndLog("sync test DistGPUScatterDst forward: 1 is passed");
+        std::cout<<edge_dst.eq(edge_dst_gpu.cpu()).sum(0).sum(0).eq(edge_dst.size(0)*edge_dst.size(1))<<std::endl;
         
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(edge_dst_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(edge_dst);
-        partitioned_graph->SyncAndLog("sync");
-        std::cout<<x_back.size(0)*x_back.size(1)<<" "<<x_back.eq(x_back_cuda.cpu()).sum(0).sum(0)<<std::endl; 
+         partitioned_graph->SyncAndLog("sync test DistGPUScatterDst backward: 1 is passed");
+        std::cout<<x_back.eq(x_back_cuda.cpu()).sum(0).sum(0).eq(x_back.size(0)*x_back.size(1))<<std::endl; 
 
       }        
     }
@@ -264,7 +267,6 @@ public:
             for(VertexId j=0;j<X[i].size(1);j++)
             X[i][val-graph->partition_offset[graph->partition_id]][j]=(float)(val);             
         
-        partitioned_graph->SyncAndLog("sync");
 //test DistScatterDst      
        NtsVar X_i_gpu=X[i].cuda();
         
@@ -274,14 +276,14 @@ public:
         NtsVar dst_y=  ctx->runGraphOp<nts::op::DistAggregateDst>(partitioned_graph,active,edge_dst);
         NtsVar dst_y_gpu=  ctx->runGraphOp<nts::op::DistGPUAggregateDst>(partitioned_graph,active,edge_dst_gpu);
         
-        partitioned_graph->SyncAndLog("sync");
-        std::cout<<dst_y.size(0)*dst_y.size(1)<<" "<<dst_y.eq(dst_y_gpu.cpu()).sum(0).sum(0)<<std::endl;
+        partitioned_graph->SyncAndLog("sync test DistGPUAggregateDst forward: 1 is passed");
+        std::cout<<dst_y.eq(dst_y_gpu.cpu()).sum(0).sum(0).eq(dst_y.size(0)*dst_y.size(1))<<std::endl;
         
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(dst_y_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(dst_y);
-        partitioned_graph->SyncAndLog("sync");
-        std::cout<<x_back.size(0)*x_back.size(1)<<" "<<x_back.eq(x_back_cuda.cpu()).sum(0).sum(0)<<std::endl; 
+        partitioned_graph->SyncAndLog("sync test DistGPUAggregateDst backward: 1 is passed");
+        std::cout<<x_back.eq(x_back_cuda.cpu()).sum(0).sum(0).eq(x_back.size(0)*x_back.size(1))<<std::endl; 
 
       }        
     }
@@ -300,27 +302,26 @@ public:
        NtsVar X_i_gpu=X[i].cuda();
         
         NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
-        partitioned_graph->SyncAndLog("sync1");
+   
         
         NtsVar m=torch::ones({edge_dst.size(0),1});
         for(VertexId val=0;val< m.size(0);val++)
             m[val][0]=(float)(1);
-        partitioned_graph->SyncAndLog("sync");
         NtsVar m_gpu=m.cuda();
         NtsVar a=ctx->runGraphOp<nts::op::DistEdgeSoftMax>(partitioned_graph,active,m);
         NtsVar a_gpu=ctx->runGraphOp<nts::op::DistGPUEdgeSoftMax>(partitioned_graph,active,m_gpu);
         NtsVar test_mirror_forward=torch::cat({a,a_gpu.cpu()},1);
      //   std::cout<<test_mirror_forward.slice(0,1119,2200,1)<<std::endl;
-        std::cout<<"forward big"<<a.size(0)<<" "<<torch::abs(a-a_gpu.cpu()).le(0.0000001).sum(0)<<std::endl;
+        partitioned_graph->SyncAndLog("sync test DistGPUEdgeSoftMax forward: 1 is passed");
+        std::cout<<torch::abs(a-a_gpu.cpu()).le(0.0000001).sum(0).eq(a.size(0))<<std::endl;
         //std::cout<<a.size(0)<<" "<<a.eq(a_gpu.cpu()).sum(0)<<std::endl;
         
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(m_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(m);
-        partitioned_graph->SyncAndLog("sync");
-        
+         partitioned_graph->SyncAndLog("sync test DistGPUEdgeSoftMax backward: 1 is passed");
        // std::cout<<(x_back-x_back_cuda.cpu()).slice(0,0,6,1)<<std::endl;
-        std::cout<<"backward big"<<x_back.size(0)<<" "<<torch::abs(x_back-x_back_cuda.cpu()).le(0.0000001).sum(0)<<std::endl;     
+        std::cout<<torch::abs(x_back-x_back_cuda.cpu()).le(0.0000001).sum(0).eq(x_back.size(0))<<std::endl;     
       }        
 
     }
@@ -332,26 +333,14 @@ public:
     }
 
     exec_time -= get_time();
-    for (int i_i = 0; i_i < iterations; i_i++) {
+    for (int i_i = 0; i_i < 1; i_i++) {
       graph->rtminfo->epoch = i_i;
-      if (i_i != 0) {
-        for (int i = 0; i < P.size(); i++) {
-          P[i]->zero_grad();
-        }
-      }
-      
-      test_softmax();
-      //test_gather_dst();
-      
-  //      printf("sizeof %d",sizeof(__m256i));
-//      printf("sizeof %d",sizeof(int));
-//      Test(0);
-//      Test(1);
-//      Test(2);
-//      Loss();
-      //ctx->self_backward();
-      //Update();
-//       ctx->debug();
+      //test_mirror();
+      //test_scatter_src();
+      //test_scatter_dst();
+      test_gather_dst();
+      //test_softmax();
+     
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
