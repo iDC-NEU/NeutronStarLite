@@ -57,6 +57,7 @@ file(GLOB_RECURSE NEUTRONSTAR_LINT_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/toolkits/*.h,"
         "${CMAKE_CURRENT_SOURCE_DIR}/toolkits/*.hpp,"
         "${CMAKE_CURRENT_SOURCE_DIR}/toolkits/*.cpp,"
+	"${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.h,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.hpp,"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/*.cpp,"
@@ -110,6 +111,13 @@ set(NEUTRONSTAR_SRC_FILES
 	"comm/network.cpp"
 )
 
+set(NEUTRONSTAR_TEST_SRC_FILES
+	"test/testcsr.cpp"
+        "core/GraphSegment.cpp"
+        "comm/network.cpp"
+)
+
+
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
 if (CUDA_ENABLE)
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)
@@ -117,10 +125,18 @@ else()
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
 endif (CUDA_ENABLE)
 
+
+add_executable(nts_test ${NEUTRONSTAR_TEST_SRC_FILES})
+if (CUDA_ENABLE)
+        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)
+else()
+        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
+endif (CUDA_ENABLE)
+
+
+
+
 # quick test for debugging purpose
 # mpiexec -np $1 ./build/nts $2
 # releated issue https://github.com/google/sanitizers/issues/629
 # we have to export those variables to prevent cuda panic while using address sanitizer
-add_custom_target(test ASAN_OPTIONS=protect_shadow_gap=0:replace_intrin=0:detect_leaks=0 mpiexec -np 1 ./nts ../test/test.cfg
-        DEPENDS nts
-)
