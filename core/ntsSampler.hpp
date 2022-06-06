@@ -17,6 +17,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #define NTSSAMPLER_HPP
 #include <mutex>
 #include <cmath>
+#include <stdlib.h>
 #include "FullyRepGraph.hpp"
 class Sampler{
 public:
@@ -100,12 +101,18 @@ public:
                         std::vector<VertexId> &row_indices,VertexId id){
                 for(VertexId src_idx=whole_graph->column_offset[dst];
                         src_idx<whole_graph->column_offset[dst+1];src_idx++){
-                    //need sample algorithm
-                    VertexId write_pos=(src_idx-whole_graph->column_offset[dst])%fanout_i;
-                    write_pos+=column_offset[id];
-                    
-                    
-                    row_indices[write_pos]=whole_graph->row_indices[src_idx];
+                    //ReservoirSampling
+                    VertexId write_pos=(src_idx-whole_graph->column_offset[dst]);
+                    if(write_pos<fanout_i){
+                        write_pos+=column_offset[id];
+                        row_indices[write_pos]=whole_graph->row_indices[src_idx];
+                    }else{
+                        VertexId random=rand()%write_pos;
+                        if(random<fanout_i){
+                          row_indices[random+column_offset[id]]=  
+                                  whole_graph->row_indices[src_idx];
+                        }
+                    }
                 }
             });
             //whole_graph->SyncAndLog("sample_processing");
