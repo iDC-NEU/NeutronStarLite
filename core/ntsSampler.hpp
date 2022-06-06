@@ -95,14 +95,16 @@ public:
             return (nbrs>fanout_[i]) ? fanout_[i] : nbrs;
             },i);
             ssg->sample_processing([&](VertexId fanout_i,
-                std::vector<VertexId> &destination,
+                    VertexId dst,
                     std::vector<VertexId> &column_offset,
                         std::vector<VertexId> &row_indices,VertexId id){
-                VertexId dst= destination[id];
                 for(VertexId src_idx=whole_graph->column_offset[dst];
                         src_idx<whole_graph->column_offset[dst+1];src_idx++){
+                    //need sample algorithm
                     VertexId write_pos=(src_idx-whole_graph->column_offset[dst])%fanout_i;
                     write_pos+=column_offset[id];
+                    
+                    
                     row_indices[write_pos]=whole_graph->row_indices[src_idx];
                 }
             });

@@ -74,7 +74,7 @@ public:
         }
     }
     void sample_processing(std::function<void(VertexId fanout_i,
-                std::vector<VertexId> &destination,
+                VertexId dst,
                     std::vector<VertexId> &column_offset,
                         std::vector<VertexId> &row_indices,VertexId id)> vertex_sample){
         {
@@ -83,7 +83,7 @@ public:
             // for every vertex, apply the sparse_slot at the partition
             // corresponding to the step
              vertex_sample(fanout[curr_layer],
-                    sampled_sgs[curr_layer]->dst(),
+                    sampled_sgs[curr_layer]->dst()[begin_v_i],
                      sampled_sgs[curr_layer]->c_o(),
                       sampled_sgs[curr_layer]->r_i(),
                         begin_v_i);
