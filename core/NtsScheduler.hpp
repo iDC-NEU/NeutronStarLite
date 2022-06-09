@@ -478,6 +478,10 @@ public:
     return torch::from_blob(data, size,
                             at::TensorOptions().dtype(torch::kLong));
   }
+  inline torch::Tensor NewLeafKLongTensor(at::IntArrayRef size) {
+    return torch::zeros(size,
+                            at::TensorOptions().dtype(torch::kLong));
+  }
   inline torch::Tensor NewLeafKIntTensor(int *data, at::IntArrayRef size) {
     return torch::from_blob(data, size,
                             at::TensorOptions().dtype(torch::kInt32));
@@ -737,7 +741,6 @@ struct Parameter : torch::nn::Module {
   }
   void learnC2C_with_decay_Adam() {
     NtsVar S = W.detach();
-    std::cout << S.dim();
     W_g = W_gradient + weight_decay * S;
     M = beta1 * M + (1 - beta1) * W_g;
     V = beta2 * V + (1 - beta2) * W_g * W_g;

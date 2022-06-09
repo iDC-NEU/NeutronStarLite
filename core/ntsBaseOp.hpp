@@ -32,6 +32,9 @@ public:
     partitioned_graph_=partitioned_graph;
     active_ = active;
   }
+  ntsGraphOp(Graph<Empty> *graph) {
+    graph_ = graph;
+  }
   virtual NtsVar forward(NtsVar &f_input)=0;
   virtual NtsVar backward(NtsVar &output_grad)=0;
 };
@@ -73,6 +76,13 @@ inline void nts_acc(ValueType *output, ValueType *input, int feat_size) {
   for (int i = 0; i < feat_size; i++) {
     // atomic add
     write_add(&output[i], input[i]);
+  }
+}
+
+inline void nts_acc(ValueType *output, ValueType *input,ValueType weight, int feat_size) {
+  for (int i = 0; i < feat_size; i++) {
+    // atomic add
+    write_add(&output[i], input[i]*weight);
   }
 }
 

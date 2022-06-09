@@ -108,6 +108,28 @@ public:
     count++;
     return f_output;
 }
+  
+  template <typename GOPT>
+  NtsVar runGraphOp(SampledSubgraph *subgraphs_,Graph<Empty> *graph_,int layer_,
+        NtsVar &f_input){//graph op
+      
+    static_assert(std::is_base_of<nts::op::ntsGraphOp,GOPT>::value,
+                "template must be a type of graph op!");
+    
+    nts::op::ntsGraphOp * curr=new GOPT(subgraphs_,graph_,layer_);
+    NtsVar f_output=curr->forward(f_input);
+    NtsVar ig;
+    op.push(GRAPHOP);
+    output.push(f_output);
+    input.push(f_input);
+    ntsOp.push(ntsOperator(curr,GRAPHOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+    // pre-alloc space to save graident
+    output_grad.push_back(ig);
+    count++;
+    return f_output;
+}  
+  
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &, NtsVar &)> vertexforward,
             NtsVar &nbr_input,NtsVar &vtx_input){//NNOP
 //     LOG_INFO("call run vertex forward");
@@ -141,7 +163,6 @@ public:
         output.pop();
         output.push(output_t);
         iot_id[iot_id.size()-1].updateOutput((long)(output_t.data_ptr()));
-        //     LOG_INFO("TRIG");
     } else {
         op.push(NNOP);
         output.push(output_t);

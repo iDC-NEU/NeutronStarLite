@@ -44,7 +44,8 @@ public:
         clear_queue();
     }
     bool has_rest(){
-        return queue_start<queue_end;
+        bool condition=queue_start<queue_end;
+        return condition;
     }
     SampledSubgraph* get_one(){
 //        while(true){
@@ -63,6 +64,7 @@ public:
         for(VertexId i=0;i<work_queue.size();i++){
             delete work_queue[i];
         }
+        work_queue.clear();
     } 
     bool sample_not_finished(){
         return work_offset<work_range[1];
@@ -70,11 +72,13 @@ public:
     void restart(){
         work_offset=work_range[0];
         sg_size=0;
+        queue_start=0;
+        queue_end=0;
     }
-    void sampled_a_new_graph(int layers_, int batch_size_,std::vector<int> fanout_){
+    void reservoir_sample(int layers_, int batch_size_,std::vector<int> fanout_){
         assert(work_offset<work_range[1]);
         int actual_batch_size=std::min((VertexId)batch_size_,work_range[1]-work_offset);
-        SampledSubgraph* ssg=new SampledSubgraph(layers_,actual_batch_size,fanout_);  
+        SampledSubgraph* ssg=new SampledSubgraph(layers_,fanout_);  
         
         for(int i=0;i<layers_;i++){
             ssg->sample_preprocessing(i);
@@ -82,7 +86,7 @@ public:
             if(i==0){
               ssg->sample_load_destination([&](std::vector<VertexId>& destination){
                   for(int j=0;j<actual_batch_size;j++){
-                      destination[j]=work_offset++;
+                      destination.push_back(work_offset++);
                   }
               },i);
               //whole_graph->SyncAndLog("sample_load_destination");

@@ -23,6 +23,8 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 class sampCSC{
 public:    
     sampCSC(){
+        v_size=0;
+        e_size=0;
         column_offset.clear();    
         row_indices.clear();
         src_index.clear();
@@ -84,6 +86,10 @@ public:
     }
     void allocate_vertex(){
         destination.resize(v_size,0);       
+        column_offset.resize(v_size+1,0);
+    }
+    void allocate_co_from_dst(){
+        v_size=destination.size();
         column_offset.resize(v_size+1,0);
     }
     void allocate_edge(){

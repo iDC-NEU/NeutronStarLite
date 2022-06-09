@@ -78,7 +78,7 @@ public:
       return hasMirrorAtPartition[p_i]->get_bit(v_i-graph_->gnnctx->p_v_s);
   }
   void GenerateAll(std::function<ValueType(VertexId, VertexId)> weight_compute,
-                            DeviceLocation dt_,bool dist=false){
+                            DeviceLocation dt_,bool dist=false,bool chunk=false){
       generatePartitionedSubgraph();
       SyncAndLog("NeutronStar::Preprocessing[Generate Partitioned Subgraph]");
       PartitionToChunks(weight_compute, dt_);
@@ -137,18 +137,6 @@ public:
          row_indices[tmp_column_offset[dst_trans]++]=src;
          column_indices[tmp_row_offset[src_trans]++]=dst;
       }
-//      printf("column_offset DEBUG:\n");
-//      for(int i=0;i<owned_vertices;i++){
-//          if (!(tmp_column_offset[i]==column_offset[i+1])){
-//              printf("%d %d %d\n",i,tmp_column_offset[i],column_offset[i+1]);
-//          }
-//      }
-//      printf("\nrow_offset DEBUG:\n");
-//      for(int i=0;i<owned_mirrors;i++){
-//          if (!(tmp_row_offset[i]==compressed_row_offset[i+1])){
-//              printf("%d %d %d\n",i,tmp_row_offset[i],compressed_row_offset[i+1]);
-//          }
-//      }printf("\n");
       delete []tmp_column_offset;
       delete []tmp_row_offset;
 
