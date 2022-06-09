@@ -51,19 +51,32 @@ int main(int argc, char **argv) {
 // sampler->work_queue[0]->sampled_sgs[1]->debug();
   int number=0;
   while(sampler->sample_not_finished()){
-      sampler->sampled_a_new_graph(2,128,{5,6});
-      printf("number %d\n",number+=128);
+      sampler->reservoir_sample(2,128,{5,10});
+   //   printf("number %d\n",number+=128);
   }
  fully_rep_graph->SyncAndLog("sample_one_finish");
  SampledSubgraph *sg;
- if(graph->partition_id==0)
- while(sampler->has_rest()){
+ //if(graph->partition_id==0)
+ //while(sampler->has_rest()){
  sg=sampler->get_one();
  sg->sampled_sgs[0]->debug();
- } 
+ sg->sampled_sgs[1]->debug();
+ //} 
+ LOG_INFO("CORRECT1");
+ nts::op::MiniBatchFuseOp* miniBatchFuseOp=new nts::op::MiniBatchFuseOp(sg,graph,0);
+ LOG_INFO("CORRECT2%d %d",sg->sampled_sgs[0]->src().size(),128);
+ NtsVar f_input=graph->Nts->NewOnesTensor({sg->sampled_sgs[0]->src().size(),4}, torch::DeviceType::CPU);
+ 
+ NtsVar f_output=miniBatchFuseOp->forward(f_input);
+ std::cout<<f_output<<std::endl;
+ NtsVar s=torch::ones_like(f_output);
+ NtsVar f_input_grad=miniBatchFuseOp->backward(s);
+  std::cout<<f_input_grad<<std::endl;
  fully_rep_graph->SyncAndLog("finish debug");
   sampler->clear_queue();
   fully_rep_graph->SyncAndLog("finish clear");
+  
+
 // sampler->work_queue[0]->sampled_sgs[2]->debug();
 // sampler->work_queue[0]->sampled_sgs[3]->debug();
  
