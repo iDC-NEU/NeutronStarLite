@@ -153,22 +153,7 @@ public:
       }
     }
   }
-  
-  NtsVar vertexForward(NtsVar &a) {
-    NtsVar y;
-    int layer = graph->rtminfo->curr_layer;
-    // nn operation. Here is just a simple matmul. i.e. y = activate(a * w)
-    if (layer == 0) {
-      y = torch::relu(P[layer]->forward(a)).set_requires_grad(true);
-    } else if (layer == 1) {
-      y = P[layer]->forward(a);
-    }
-    // save the intermediate result for backward propagation
- //   ctx->op_push(a, y, nts::ctx::NNOP);
-    return y;
-  }
-  
-  
+ 
   void Loss(NtsVar &left,NtsVar &right) {
     //  return torch::nll_loss(a,L_GT_C);
     torch::Tensor a = left.log_softmax(1);
@@ -195,8 +180,9 @@ public:
     graph->rtminfo->forward = true;
       
       while(sampler->sample_not_finished()){
-            sampler->reservoir_sample(2,128,{5,10});
+            sampler->reservoir_sample(graph->gnnctx->layer_size.size()-1,128,{5,10,10,10});
       }
+    
       SampledSubgraph *sg;
       acc=0.0;
       batch=0;
@@ -204,29 +190,29 @@ public:
            sg=sampler->get_one();
            std::vector<NtsVar> X;
            NtsVar d;
-           X.resize(3,d);
-             
-           X[0]=nts::op::get_feature(sg->sampled_sgs[1]->src(),F,graph);
-        
+           X.resize(graph->gnnctx->layer_size.size(),d);
+         
+           X[0]=nts::op::get_feature(sg->sampled_sgs[graph->gnnctx->layer_size.size()-2]->src(),F,graph);
            NtsVar target_lab=nts::op::get_label(sg->sampled_sgs[0]->dst(),L_GT_C,graph);
-           
-           for(int l=0;l<2;l++){//forward
-               int hop=1-l;
+           for(int l=0;l<(graph->gnnctx->layer_size.size()-1);l++){//forward
+               
+               int hop=(graph->gnnctx->layer_size.size()-2)-l;
                if(l!=0){
                     X[l] = drpmodel(X[l]);
                }
+            //   LOG_INFO("layer_loop WHAT1");
                NtsVar Y_i=ctx->runGraphOp<nts::op::MiniBatchFuseOp>(sg,graph,hop,X[l]);
-              
+            //   LOG_INFO("layer_loop WHAT");
                X[l + 1]=ctx->runVertexForward([&](NtsVar n_i){
-                   if (l == 0) {
-                        return torch::relu(P[l]->forward(n_i));
-                    } else if (l == 1) {
+                   if (l==(graph->gnnctx->layer_size.size()-2)) {
                         return P[l]->forward(n_i);
+                    }else{
+                       return torch::relu(P[l]->forward(n_i));
                     }
                 },
                 Y_i);
            } 
-           Loss(X[2],target_lab);
+           Loss(X[graph->gnnctx->layer_size.size()-1],target_lab);
            ctx->self_backward(false);
            Update();
            batch++;
