@@ -30,23 +30,37 @@ public:
     VertexId start_vid,end_vid;
     VertexId work_range[2];
     VertexId work_offset;
-    VertexId sg_size;
     Sampler(FullyRepGraph* whole_graph_, VertexId work_start,VertexId work_end){
         whole_graph=whole_graph_;
-        queue_start=0;
+        queue_start=-1;
         queue_end=0;
         work_range[0]=work_start;
         work_range[1]=work_end;
         work_offset=work_start;
-        sg_size=0;
     }
     ~Sampler(){
         clear_queue();
     }
     bool has_rest(){
-        bool condition=queue_start<queue_end;
+        bool condition=false;
+        int cond_start=0;
+        queue_start_lock.lock();
+        cond_start=queue_start;
+        queue_start_lock.unlock();
+        
+        int cond_end=0;
+        queue_end_lock.lock();
+        cond_end=queue_end;
+        queue_end_lock.unlock();
+       
+        condition=cond_start<cond_end&&cond_start>=0;
         return condition;
     }
+//    bool has_rest(){
+//        bool condition=false;
+//        condition=queue_start<queue_end&&queue_start>=0;
+//        return condition;
+//    }
     SampledSubgraph* get_one(){
 //        while(true){
 //            bool condition=queue_start<queue_end;
@@ -58,6 +72,7 @@ public:
         queue_start_lock.lock();
         VertexId id=queue_start++;
         queue_start_lock.unlock();
+        assert(id<work_queue.size());
         return work_queue[id];
     }
     void clear_queue(){
@@ -71,8 +86,7 @@ public:
     }
     void restart(){
         work_offset=work_range[0];
-        sg_size=0;
-        queue_start=0;
+        queue_start=-1;
         queue_end=0;
     }
     void reservoir_sample(int layers_, int batch_size_,std::vector<int> fanout_){
@@ -127,8 +141,11 @@ public:
         queue_end_lock.lock();
         queue_end++;
         queue_end_lock.unlock();
-        if(work_offset>=work_range[1])
-            sg_size=work_queue.size();
+        if(work_queue.size()==1){
+            queue_start_lock.lock();
+            queue_start=0;
+            queue_start_lock.unlock();
+        }
     }
 };
 
