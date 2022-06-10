@@ -35,7 +35,8 @@ namespace op {
 
 NtsVar get_label(std::vector<VertexId>& dst, NtsVar &whole, Graph<Empty> *graph){
     NtsVar f_output=graph->Nts->NewLeafKLongTensor({dst.size()});
-      for(int i=0;i<dst.size();i++){
+#pragma omp parallel for
+    for(int i=0;i<dst.size();i++){
           f_output[i]=whole[dst[i]];
       }
     return f_output;
@@ -48,7 +49,8 @@ NtsVar get_feature(std::vector<VertexId>& src, NtsVar &whole, Graph<Empty> *grap
     ValueType *f_input_buffer =
         graph->Nts->getWritableBuffer(whole, torch::DeviceType::CPU);
     ValueType *f_output_buffer =
-        graph->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);   
+        graph->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);
+#pragma omp parallel for
       for(int i=0;i<src.size();i++){
           memcpy(f_output_buffer+i*feature_size,
                     f_input_buffer+src[i]*feature_size,
