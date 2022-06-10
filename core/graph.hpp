@@ -289,6 +289,16 @@ public:
   }
 
   // initialize gnn context based on layer_string. e.g. 1024-128-10
+  
+  void init_gnnctx_fanout(std::string fanout_string) {
+    std::stringstream ss(fanout_string);
+    std::string number;
+    gnnctx->fanout.clear();
+    while (std::getline(ss, number, '-')) {
+      gnnctx->fanout.push_back(std::stoi(number));
+    }
+  }
+  
   void init_gnnctx(std::string layer_string) {
     gnnctx = new GNNContext();
     std::stringstream ss(layer_string);
@@ -319,9 +329,9 @@ public:
 //      message_amount[i] = new VertexId[partitions];
 //      memset(message_write_offset[i], 0, sizeof(VertexId) * vertices);
 //      memset(message_amount[i], 0, sizeof(VertexId) * partitions);
-    if(rtminfo->process_local){
-        feature_cache=new FeatureCache(0,this->partitions);
-    }
+//    if(rtminfo->process_local){
+//        feature_cache=new FeatureCache(0,this->partitions);
+//    }
 //    }
   }
 

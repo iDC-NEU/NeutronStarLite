@@ -47,6 +47,7 @@ public:
     active->fill();
 
     graph->init_gnnctx(graph->config->layer_string);
+    graph->init_gnnctx_fanout(graph->config->fanout_string);
     // rtminfo initialize
     graph->init_rtminfo();
     graph->rtminfo->process_local = graph->config->process_local;
@@ -180,9 +181,10 @@ public:
     graph->rtminfo->forward = true;
       
       while(sampler->sample_not_finished()){
-            sampler->reservoir_sample(graph->gnnctx->layer_size.size()-1,128,{5,10,10,10});
+            sampler->reservoir_sample(graph->gnnctx->layer_size.size()-1,
+                                      graph->config->batch_size,
+                                      graph->gnnctx->fanout);
       }
-    
       SampledSubgraph *sg;
       acc=0.0;
       batch=0;
@@ -200,9 +202,7 @@ public:
                if(l!=0){
                     X[l] = drpmodel(X[l]);
                }
-            //   LOG_INFO("layer_loop WHAT1");
                NtsVar Y_i=ctx->runGraphOp<nts::op::MiniBatchFuseOp>(sg,graph,hop,X[l]);
-            //   LOG_INFO("layer_loop WHAT");
                X[l + 1]=ctx->runVertexForward([&](NtsVar n_i){
                    if (l==(graph->gnnctx->layer_size.size()-2)) {
                         return P[l]->forward(n_i);

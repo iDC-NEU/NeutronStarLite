@@ -237,6 +237,8 @@ void InputInfo::readFromCfgFile(std::string config_file) {
       this->epochs = std::atoi(cfg_v.c_str());
     } else if (0 == cfg_k.compare("LAYERS")) {
       this->layer_string = cfg_v;
+    } else if (0 == cfg_k.compare("FANOUT")) {
+      this->fanout_string = cfg_v;
     } else if (0 == cfg_k.compare("EDGE_FILE")) {
       this->edge_file = cfg_v.append("\0");
     } else if (0 == cfg_k.compare("FEATURE_FILE")) {
@@ -274,6 +276,8 @@ void InputInfo::readFromCfgFile(std::string config_file) {
       this->decay_epoch = std::atof(cfg_v.c_str());
     } else if (0 == cfg_k.compare("DROP_RATE")) {
       this->drop_rate = std::atof(cfg_v.c_str());
+    } else if (0 == cfg_k.compare("BATCH_SIZE")) {
+      this->batch_size = std::atoi(cfg_v.c_str());
     } else if (0 == cfg_k.compare("OPTIM_KERNEL")) {
       this->optim_kernel_enable = true;
       if (1 == std::atoi(cfg_v.c_str()))
@@ -293,6 +297,8 @@ void InputInfo::print() {
   std::cout << "vertices\t:\t" << vertices << std::endl;
   std::cout << "epochs\t\t:\t" << epochs << std::endl;
   std::cout << "layers\t\t:\t" << layer_string << std::endl;
+  std::cout << "fanout\t\t:\t" << fanout_string << std::endl;
+  std::cout << "batch_size\t\t:\t" << batch_size << std::endl;
   std::cout << "edge_file\t:\t" << edge_file << std::endl;
   std::cout << "feature_file\t:\t" << feature_file << std::endl;
   std::cout << "label_file\t:\t" << label_file << std::endl;

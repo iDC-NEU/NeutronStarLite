@@ -159,6 +159,7 @@ public:
   bool optim_kernel_enable;
   std::string algorithm;
   std::string layer_string;
+  std::string fanout_string;
   std::string feature_file;
   std::string edge_file;
   std::string label_file;
@@ -166,6 +167,7 @@ public:
   bool with_cuda;
 
   // algorithm related:
+  VertexId batch_size;
   ValueType learn_rate;
   ValueType weight_decay;
   ValueType decay_rate;
@@ -206,6 +208,7 @@ public:
 class GNNContext {
 public:
   std::vector<int> layer_size; // feature size at each layer, 0 is input feature
+  std::vector<int> fanout; // feature size at each layer, 0 is input feature
   size_t max_layer;
   size_t label_num;
   size_t p_id;    // partition id
