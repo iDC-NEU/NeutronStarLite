@@ -35,6 +35,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include "ntsSingleGPUFusedGraphOp.hpp"
 #include "ntsSingleCPUGraphOp.hpp"
 #include "ntsMiniBatchGraphOp.hpp"
+#include "ntsSubLinearNNOP.hpp"
 
 //namespace nts {
 //namespace op {
