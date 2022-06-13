@@ -26,7 +26,7 @@ typedef uint32_t OpType;
 
 const OpType NNOP = 0;
 const OpType GRAPHOP = 1;
-const OpType SEGMENTOP = 2;
+const OpType SELFNNOP = 2;
 
 class IOTensorId{
 public:
@@ -56,6 +56,11 @@ public:
         op=op_;
         op_t=op_t_;
     }
+    ntsOperator(nts::op::ntsNNBaseOp* op_,OpType op_t_){
+        assert(SELFNNOP==op_t_);
+        opn=op_;
+        op_t=op_t_;
+    }
     ntsOperator(OpType op_t_){
         assert(NNOP==op_t_);
         op_t=op_t_;
@@ -64,7 +69,17 @@ public:
 //        assert(CATOP==op_t_);
 //        op_t=op_t_;
 //    }
+    nts::op::ntsGraphOp* get_graphop(){
+        return op;
+    }
+    nts::op::ntsNNBaseOp* get_nnop(){
+        return opn;
+    }
+    OpType get_op_T(){
+        return op_t;
+    }
     nts::op::ntsGraphOp* op;
+    nts::op::ntsNNBaseOp* opn;
     OpType op_t;
 };
 /**
@@ -108,6 +123,28 @@ public:
     count++;
     return f_output;
 }
+  
+template <typename NOPT>
+  NtsVar runSelfNNOp(std::function<NtsVar(NtsVar &, int)> vertexforward,NtsVar& f_input,int layer_){//graph op
+      
+    static_assert(std::is_base_of<nts::op::ntsNNBaseOp,NOPT>::value,
+                "template must be a type of graph op!");
+    
+    nts::op::ntsNNBaseOp * curr=new NOPT([&](NtsVar v_tensor,int layer_){
+        return vertexforward(v_tensor,layer_);
+    },layer_);
+    NtsVar f_output=curr->forward(f_input);
+    NtsVar ig;
+    op.push(SELFNNOP);
+    output.push(f_output);
+    input.push(f_input);
+    ntsOp.push(ntsOperator(curr,SELFNNOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+    // pre-alloc space to save graident
+    output_grad.push_back(ig);
+    count++;
+    return f_output;
+}  
   
   template <typename GOPT>
   NtsVar runGraphOp(SampledSubgraph *subgraphs_,Graph<Empty> *graph_,int layer_,
@@ -207,47 +244,42 @@ public:
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
          
-    if (GRAPHOP == op.top()) { // test
-        
-// test        
+    if (GRAPHOP == op.top()) {
       int preop_id=top_idx(); 
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
       }//determine o grad
-
       for(preop_id=top_idx();preop_id>=0;preop_id--){
           if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
               break;
       }// where to write i grad
-      
-      output_grad[preop_id]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
       //LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
 //stable      
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
-      
-        //LOG_INFO("FINISH GraphOP");
-
-    } else if (NNOP == op.top()) {// directly use pytorch
-//        LOG_INFO("START nn op%d",op.top());
-
-        
-//test        
-        //LOG_INFO("Start NN OP %d %d",output_grad[top_idx()].dim(),top_idx());
+    }else if (SELFNNOP == op.top()) { // test
+      int preop_id=top_idx(); 
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
       }//determine o grad
-        //LOG_INFO("Medium NN OP %d ",output_grad[top_idx()].dim());
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+      output_grad[preop_id]=ntsOp.top().get_nnop()->backward(output_grad[top_idx()]);
+//stable      
+//      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      pop_one_op();
+    }  else if (NNOP == op.top()) {// directly use pytorch
+
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
       assert(output_grad[top_idx()].size(1)==output.top().size(1));
       assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
       output.top().backward(output_grad[top_idx()], retain_graph);
 
-//stable        
-//      assert(output_grad[top_idx()].size(1)==output.top().size(1));
-//      assert(output_grad[top_idx()].size(0)==output.top().size(0));  
-//      output.top().backward(output_grad[top_idx()], retain_graph);
-//      if(count>1)
-//          output_grad[top_idx()-1] = input.top().grad();
       pop_one_op();
     //LOG_INFO("FINISH NN OP");
     } else {

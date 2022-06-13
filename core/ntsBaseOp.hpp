@@ -40,6 +40,20 @@ public:
 };
 
 
+class ntsNNBaseOp {
+public:
+  ntsNNBaseOp(){}
+  ntsNNBaseOp(int layer_){
+  layer=layer_;}
+  NtsVar *f_input;
+  NtsVar *f_output; 
+  int layer=-1;
+  virtual NtsVar forward(NtsVar &f_input)=0;
+  virtual NtsVar backward(NtsVar &output_grad)=0;
+  
+};
+
+
 inline void nts_comp_non_avx256(ValueType *output, ValueType *input, ValueType weight,
           int feat_size) {
   for (int i = 0; i < feat_size; i++) {
