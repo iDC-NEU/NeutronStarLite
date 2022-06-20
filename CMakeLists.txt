@@ -16,12 +16,12 @@ find_package(MPI REQUIRED)
 find_package(Torch REQUIRED)
 
 if (CUDA_ENABLE)
-        if (NOT TORCH_CUDA_LIBRARIES) 
+        if (NOT DEFINED TORCH_CUDA_LIBRARIES) 
                 message(FATAL_ERROR "libtorch does not support gpu, please download the gpu version of libtorch.")
-        endif (TORCH_CUDA_LIBRARIES)
+        endif()
         add_definitions(-DCUDA_ENABLE)
         add_subdirectory(cuda)
-endif (CUDA_ENABLE)
+endif()
 
 #exec_program("mpic++ -showme:compile" OUTPUT_VARIABLE MPI_COMPILE_FLAGS)
 #exec_program("mpic++ -showme:incdirs" OUTPUT_VARIABLE MPI_INCDIRS)
@@ -122,7 +122,7 @@ if (CUDA_ENABLE)
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
 else()
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
-endif (CUDA_ENABLE)
+endif()
 
 
 add_executable(nts_test ${NEUTRONSTAR_TEST_SRC_FILES})
@@ -130,7 +130,7 @@ if (CUDA_ENABLE)
         target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
 else()
         target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
-endif (CUDA_ENABLE)
+endif()
 
 
 # quick test for debugging purpose
