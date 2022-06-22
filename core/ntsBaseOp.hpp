@@ -64,18 +64,26 @@ inline void nts_comp_non_avx256(ValueType *output, ValueType *input, ValueType w
 //avx256
 inline void nts_comp(ValueType *output, ValueType *input, ValueType weight,
           int feat_size) { 
-    const int LEN=8;
+#ifdef __AVX__  // support AVX   
+  // printf("use avx version nts_comp\n");
+  const int LEN=8;
   int loop=feat_size/LEN;
   int res=feat_size%LEN;
   __m256 w=_mm256_broadcast_ss(reinterpret_cast<float const *>(&weight));
   for(int i=0;i<loop;i++){
-    __m256 source= *reinterpret_cast<__m256 *>(&(input[i*LEN]));
+    __m256 source= _mm256_loadu_ps(reinterpret_cast<float const *>(&(input[i*LEN])));
     __m256 destination= _mm256_loadu_ps(reinterpret_cast<float const *>(&(output[i*LEN])));
     _mm256_storeu_ps(&(output[i*LEN]),_mm256_add_ps(_mm256_mul_ps(source,w),destination));
   }
   for (int i = LEN*loop; i < feat_size; i++) {
     output[i] += input[i] * weight;
   }
+#else // not support AVX
+  // printf("use normal version nts_comp\n");
+  for (int i = 0; i < feat_size; i++) {
+    output[i] += input[i] * weight;
+  }
+#endif
 }
 
 
