@@ -4,11 +4,11 @@ find_package(CUDA REQUIRED)
  
 file(GLOB_RECURSE CURRENT_HEADERS &.hpp *.cuh *.h)
 file(GLOB CURRENT_SOURCES *.cu *.cpp)
- 
-set(CUDA_NVCC_FLAGS -gencode arch=compute_61,code=sm_61;-O3;-G;-g)
 
-list(APPEND CUDA_NVCC_FLAGS "-std=c++14")
- 
+cuda_select_nvcc_arch_flags(ARCH_FLAGS)
+set(CUDA_NVCC_FLAGS "${ARCH_FLAGS} -std=c++14 -O3 -G -g")
+message(STATUS "CUDA_NVCC_FLAGS: ${CUDA_NVCC_FLAGS}" )
+
 source_group("Include" FILES ${CURRENT_HEADERS})
 source_group("Source" FILES ${CURRENT_SOURCES})
  

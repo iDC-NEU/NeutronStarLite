@@ -9,16 +9,20 @@ list(APPEND CMAKE_PREFIX_PATH "./GPU_libtorch/libtorch-1-9/libtorch/")
 project(GNNmini)
 set(ENV{LANG} "C")
 option (CUDA_ENABLE "DEFAULT ENABLE CUDA" ON)
-message(STATUS "NeutronStar buid with CUDA " ${CUDA_ENABLE})
+message(STATUS "NeutronStar buid with CUDA ${CUDA_ENABLE}")
 
 find_package(PythonInterp REQUIRED)
 find_package(MPI REQUIRED)
-# because torch also depends on cuda, so we find cuda first
-if (CUDA_ENABLE)
-        add_definitions(-DCUDA_ENABLE)
-        find_package(CUDA REQUIRED)
-endif (CUDA_ENABLE)
 find_package(Torch REQUIRED)
+
+if (CUDA_ENABLE)
+        if (NOT DEFINED TORCH_CUDA_LIBRARIES) 
+                message(FATAL_ERROR "libtorch does not support gpu, please download the gpu version of libtorch.")
+        endif()
+        add_definitions(-DCUDA_ENABLE)
+        add_subdirectory(cuda)
+endif()
+
 #exec_program("mpic++ -showme:compile" OUTPUT_VARIABLE MPI_COMPILE_FLAGS)
 #exec_program("mpic++ -showme:incdirs" OUTPUT_VARIABLE MPI_INCDIRS)
 #exec_program("mpic++ -showme:link" OUTPUT_VARIABLE MPI_LINK_FLAGS)
@@ -84,11 +88,6 @@ add_custom_target(format ${NEUTRONSTAR_BUILD_SUPPORT_DIR}/run_clang_format.py
         # --quiet
         )
 
-if (CUDA_ENABLE)
-        add_subdirectory(cuda)
-        set(EXTRA_LIBS ${EXTRA_LIBS} cuda_propagate)
-endif (CUDA_ENABLE)
-
 include_directories(
 ${CMAKE_CURRENT_SOURCE_DIR}
 ./core
@@ -120,20 +119,18 @@ set(NEUTRONSTAR_TEST_SRC_FILES
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
 if (CUDA_ENABLE)
-        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)
+        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
 else()
         target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
-endif (CUDA_ENABLE)
+endif()
 
 
 add_executable(nts_test ${NEUTRONSTAR_TEST_SRC_FILES})
 if (CUDA_ENABLE)
-        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} ${CUDA_LIBRARIES} cuda_propagate numa)
+        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
 else()
         target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
-endif (CUDA_ENABLE)
-
-
+endif()
 
 
 # quick test for debugging purpose
