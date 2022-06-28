@@ -228,11 +228,6 @@ public:
   }
 
   void run() {
-      auto p_id = graph->partition_id;
-      std::printf("partition %d 顶点数量: %u\n", p_id, graph->partition_offset[p_id + 1] - graph->partition_offset[p_id]);
-      if(graph!= nullptr) {
-          exit(4);
-      }
     if (graph->partition_id == 0) {
       LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
                iterations);
