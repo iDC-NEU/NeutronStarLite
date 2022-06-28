@@ -1,5 +1,6 @@
 # no build files
 build/
+.idea/
 
 # no editor files
 .vscode/

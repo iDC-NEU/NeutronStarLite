@@ -81,10 +81,12 @@ public:
         [&](VertexId dst, CSC_segment_pinned *subgraph,
             MessageBuffer **recv_buffer, std::vector<VertexIndex> &src_index,
             VertexId recv_id) {
+            assert(dst < graph_->partition_offset[graph_->partition_id + 1]);
           VertexId dst_trans =
               dst - graph_->partition_offset[graph_->partition_id];
           // for every vertex, accumulate the incoming feature though iterating
           // column vertices
+          assert(dst_trans >= 0);
           for (long idx = subgraph->column_offset[dst_trans];
                idx < subgraph->column_offset[dst_trans + 1]; idx++) {
             VertexId src = subgraph->row_indices[idx];

@@ -81,8 +81,10 @@ public:
         for(VertexId i=0;i<curr_dst_size;i++){
             sampled_sgs[layer]->c_o()[i]=offset;
             offset+=get_nbr_size(sampled_sgs[layer]->dst()[i]);//init destination;
+
+
         }
-        sampled_sgs[layer]->c_o()[curr_dst_size]=offset;  
+        sampled_sgs[layer]->c_o()[curr_dst_size]=offset;
         sampled_sgs[layer]->allocate_edge(offset);
     }
     
@@ -131,6 +133,7 @@ public:
             }
         }
     }
+
         
     
     std::vector<sampCSC*> sampled_sgs;
@@ -139,7 +142,7 @@ public:
     std::vector<int> fanout;
     int curr_layer;
     int curr_dst_size;
-    
+
 };
 class FullyRepGraph{
 public:

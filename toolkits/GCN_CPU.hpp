@@ -218,8 +218,7 @@ public:
       if (i != 0) {
         X[i] = drpmodel(X[i]);
       }
-
-       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,X[i]);      
+       NtsVar Y_i= ctx->runGraphOp<nts::op::ForwardCPUfuseOp>(partitioned_graph,active,X[i]);
         X[i + 1]=ctx->runVertexForward([&](NtsVar n_i,NtsVar v_i){
             return vertexForward(n_i, v_i);
         },
@@ -229,11 +228,15 @@ public:
   }
 
   void run() {
+      auto p_id = graph->partition_id;
+      std::printf("partition %d 顶点数量: %u\n", p_id, graph->partition_offset[p_id + 1] - graph->partition_offset[p_id]);
+      if(graph!= nullptr) {
+          exit(4);
+      }
     if (graph->partition_id == 0) {
       LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
                iterations);
     }
-
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
@@ -242,7 +245,6 @@ public:
           P[i]->zero_grad();
         }
       }
-      
       Forward();
       Test(0);
       Test(1);
@@ -252,7 +254,7 @@ public:
       Update();
 //       ctx->debug();
       if (graph->partition_id == 0)
-        std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
+        std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss.item<float>()
                   << std::endl;
     }
     exec_time += get_time();

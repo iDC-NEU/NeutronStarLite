@@ -69,7 +69,9 @@ inline void nts_comp(ValueType *output, ValueType *input, ValueType weight,
   int res=feat_size%LEN;
   __m256 w=_mm256_broadcast_ss(reinterpret_cast<float const *>(&weight));
   for(int i=0;i<loop;i++){
-    __m256 source= *reinterpret_cast<__m256 *>(&(input[i*LEN]));
+//    __m256 source= *reinterpret_cast<__m256 *>(&(input[i*LEN]));
+    __m256 source = _mm256_loadu_ps(&input[i*LEN]);
+//      std::printf("6 avx debug 2.2\n");
     __m256 destination= _mm256_loadu_ps(reinterpret_cast<float const *>(&(output[i*LEN])));
     _mm256_storeu_ps(&(output[i*LEN]),_mm256_add_ps(_mm256_mul_ps(source,w),destination));
   }

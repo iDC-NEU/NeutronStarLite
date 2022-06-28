@@ -92,20 +92,24 @@ public:
     void reservoir_sample(int layers_, int batch_size_,std::vector<int> fanout_){
         assert(work_offset<work_range[1]);
         int actual_batch_size=std::min((VertexId)batch_size_,work_range[1]-work_offset);
-        SampledSubgraph* ssg=new SampledSubgraph(layers_,fanout_);  
-        
+        SampledSubgraph* ssg=new SampledSubgraph(layers_,fanout_);
+
+
         for(int i=0;i<layers_;i++){
+//            std::printf("\treservoir_sample debug 3\n");
             ssg->sample_preprocessing(i);
+//            std::printf("\treservoir_sample debug 4\n");
             //whole_graph->SyncAndLog("preprocessing");
             if(i==0){
               ssg->sample_load_destination([&](std::vector<VertexId>& destination){
                   for(int j=0;j<actual_batch_size;j++){
                       destination.push_back(work_offset++);
+
                   }
               },i);
               //whole_graph->SyncAndLog("sample_load_destination");
             }else{
-               ssg->sample_load_destination(i); 
+               ssg->sample_load_destination(i);
               //whole_graph->SyncAndLog("sample_load_destination2");
             }
             ssg->init_co([&](VertexId dst){

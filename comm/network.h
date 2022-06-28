@@ -199,7 +199,6 @@ public:
     MPI_Datatype f_vid_t = get_mpi_data_type<float>();
     MPI_Allreduce(MPI_IN_PLACE, buffer, weight_row * weight_col, MPI_FLOAT,
                   MPI_SUM, MPI_COMM_WORLD);
-    // printf("%d sd%f\n", weight_row * weight_col, buffer[3]);
   }
 
   // broadcast the message from root to all processes of group
