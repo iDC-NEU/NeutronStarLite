@@ -52,7 +52,7 @@ GNNDatum(GNNContext *_gnnctx, Graph<Empty> *graph_) {
   local_feature = new ValueType[gnnctx->l_v_num * gnnctx->layer_size[0]];
   local_label = new long[gnnctx->l_v_num];
   local_mask = new int[gnnctx->l_v_num];
-  memset(local_mask, 0, sizeof(int) * gnnctx->l_v_num);
+  memset(local_mask, 1, sizeof(int) * gnnctx->l_v_num);
   graph = graph_;
 }
 
@@ -219,6 +219,66 @@ void readFeature_Label_Mask(std::string inputF, std::string inputL,
   input_ftr.close();
   input_lbl.close();
 }
+
+void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
+                                      std::string inputM) {
+
+  // logic here is exactly the same as read feature and label from file
+  std::string str;
+  std::ifstream input_ftr(inputF.c_str(), std::ios::in);
+  std::ifstream input_lbl(inputL.c_str(), std::ios::in);
+  // ID    F   F   F   F   F   F   F   L
+  if (!input_ftr.is_open()) {
+    std::cout << "open feature file fail!" << std::endl;
+    return;
+  }
+  if (!input_lbl.is_open()) {
+    std::cout << "open label file fail!" << std::endl;
+    return;
+  }
+  ValueType *con_tmp = new ValueType[gnnctx->layer_size[0]];
+  std::string la;
+  for (VertexId id = 0;id<graph->vertices;id++) {
+    VertexId size_0 = gnnctx->layer_size[0];
+    VertexId id_trans = id - gnnctx->p_v_s;
+    if ((gnnctx->p_v_s <= id) && (gnnctx->p_v_e > id)) {
+      for (int i = 0; i < size_0; i++) {
+        input_ftr >> local_feature[size_0 * id_trans + i];
+      }
+      //input_lbl >> la;
+      input_lbl >> local_label[id_trans];
+
+    } else {
+      for (int i = 0; i < size_0; i++) {
+        input_ftr >> con_tmp[i];
+      }
+
+      input_lbl >> la;
+    }
+  }
+  std::string inputM_train=inputM.append("_train.csv");
+  std::string inputM_val=inputM.append("_val.csv");
+  std::string inputM_test=inputM.append("_test.csv");
+  std::ifstream input_msk_train(inputM_train.c_str(), std::ios::in);
+  std::ifstream input_msk_val(inputM_val.c_str(), std::ios::in);
+  std::ifstream input_msk_test(inputM_test.c_str(), std::ios::in);
+  VertexId vtx=0;
+  while(input_msk_train>>vtx){
+      local_mask[vtx] = 0;
+  }
+  while(input_msk_val>>vtx){
+      local_mask[vtx] = 1;
+  }
+  while(input_msk_test>>vtx){
+      local_mask[vtx] = 2;
+  }
+  
+  
+  delete[] con_tmp;
+  input_ftr.close();
+  input_lbl.close();
+}
+
 };
 
 #endif
