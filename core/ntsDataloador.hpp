@@ -228,6 +228,7 @@ void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
   std::ifstream input_ftr(inputF.c_str(), std::ios::in);
   std::ifstream input_lbl(inputL.c_str(), std::ios::in);
   // ID    F   F   F   F   F   F   F   L
+  std::cout<<inputF<<std::endl;
   if (!input_ftr.is_open()) {
     std::cout << "open feature file fail!" << std::endl;
     return;
@@ -249,6 +250,9 @@ void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
         int i=0;
         while(getline(ss,feat_u,',')){
             local_feature[size_0 * id_trans + i]=std::atof(feat_u.c_str());
+//            if(id==0){
+//                std::cout<<std::atof(feat_u.c_str())<<std::endl;
+//            }
             i++;
         }assert(i==size_0);       
       //input_lbl >> la;
@@ -260,12 +264,27 @@ void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
     }
   }
   
-  std::string inputM_train=inputM.append("_train.csv");
-  std::string inputM_val=inputM.append("_val.csv");
-  std::string inputM_test=inputM.append("_test.csv");
+  std::string inputM_train=inputM;
+  inputM_train.append("/train.csv");
+  std::string inputM_val=inputM;
+  inputM_val.append("/valid.csv");
+  std::string inputM_test=inputM;
+  inputM_test.append("/test.csv");
   std::ifstream input_msk_train(inputM_train.c_str(), std::ios::in);
+  if (!input_msk_train.is_open()) {
+    std::cout << "open input_msk_train file fail!" << std::endl;
+    return;
+  }
   std::ifstream input_msk_val(inputM_val.c_str(), std::ios::in);
+  if (!input_msk_val.is_open()) {
+    std::cout <<inputM_val<< "open input_msk_val file fail!" << std::endl;
+    return;
+  }
   std::ifstream input_msk_test(inputM_test.c_str(), std::ios::in);
+  if (!input_msk_test.is_open()) {
+    std::cout << "open input_msk_test file fail!" << std::endl;
+    return;
+  }
   VertexId vtx=0;
   while(input_msk_train>>vtx){//train
       local_mask[vtx] = 0;
