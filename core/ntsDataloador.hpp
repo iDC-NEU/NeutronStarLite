@@ -23,7 +23,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include <stdlib.h>
 #include <unistd.h>
 #include <vector>
-
+#include <sstream>
 #include "core/graph.hpp"
 
 class GNNDatum {
@@ -238,24 +238,28 @@ void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
   }
   ValueType *con_tmp = new ValueType[gnnctx->layer_size[0]];
   std::string la;
+  std::string featStr;
   for (VertexId id = 0;id<graph->vertices;id++) {
     VertexId size_0 = gnnctx->layer_size[0];
     VertexId id_trans = id - gnnctx->p_v_s;
     if ((gnnctx->p_v_s <= id) && (gnnctx->p_v_e > id)) {
-      for (int i = 0; i < size_0; i++) {
-        input_ftr >> local_feature[size_0 * id_trans + i];
-      }
+        getline(input_ftr,featStr);
+        std::stringstream ss(featStr);
+        std::string feat_u;
+        int i=0;
+        while(getline(ss,feat_u,',')){
+            local_feature[size_0 * id_trans + i]=std::atof(feat_u.c_str());
+            i++;
+        }assert(i==size_0);       
       //input_lbl >> la;
       input_lbl >> local_label[id_trans];
 
     } else {
-      for (int i = 0; i < size_0; i++) {
-        input_ftr >> con_tmp[i];
-      }
-
+      getline(input_ftr,featStr);
       input_lbl >> la;
     }
   }
+  
   std::string inputM_train=inputM.append("_train.csv");
   std::string inputM_val=inputM.append("_val.csv");
   std::string inputM_test=inputM.append("_test.csv");
@@ -263,13 +267,13 @@ void readFeature_Label_Mask_OGB(std::string inputF, std::string inputL,
   std::ifstream input_msk_val(inputM_val.c_str(), std::ios::in);
   std::ifstream input_msk_test(inputM_test.c_str(), std::ios::in);
   VertexId vtx=0;
-  while(input_msk_train>>vtx){
+  while(input_msk_train>>vtx){//train
       local_mask[vtx] = 0;
   }
-  while(input_msk_val>>vtx){
+  while(input_msk_val>>vtx){//val
       local_mask[vtx] = 1;
   }
-  while(input_msk_test>>vtx){
+  while(input_msk_test>>vtx){//test
       local_mask[vtx] = 2;
   }
   
