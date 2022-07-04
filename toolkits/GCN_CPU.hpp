@@ -93,9 +93,12 @@ public:
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
-      gnndatum->readFeature_Label_Mask_OGB(graph->config->feature_file,
+      gnndatum->readFeature_Label_Mask(graph->config->feature_file,
                                        graph->config->label_file,
                                        graph->config->mask_file);
+      // gnndatum->readFeature_Label_Mask_OGB(graph->config->feature_file,
+      //                                  graph->config->label_file,
+      //                                  graph->config->mask_file);
     }
 
     // creating tensor to save Label and Mask
