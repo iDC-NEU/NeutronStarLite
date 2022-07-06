@@ -27,6 +27,7 @@ typedef uint32_t OpType;
 const OpType NNOP = 0;
 const OpType GRAPHOP = 1;
 const OpType SELFNNOP = 2;
+const OpType BIGRAPHOP = 3;
 
 class IOTensorId{
 public:
@@ -52,7 +53,7 @@ public:
         
     }
     ntsOperator(nts::op::ntsGraphOp* op_,OpType op_t_){
-        assert(GRAPHOP==op_t_);
+        assert((GRAPHOP==op_t_)||(BIGRAPHOP==op_t_));
         op=op_;
         op_t=op_t_;
     }
@@ -123,7 +124,27 @@ public:
     count++;
     return f_output;
 }
-  
+  template <typename GOPT>
+  NtsVar runGraphOp(PartitionedGraph* partitioned_graph, VertexSubset *active,
+        NtsVar &f_input1,NtsVar &f_input2){//graph op
+      
+    static_assert(std::is_base_of<nts::op::ntsGraphOp,GOPT>::value,
+                "template must be a type of graph op!");
+    
+    nts::op::ntsGraphOp * curr=new GOPT(partitioned_graph,active);
+    NtsVar f_output=curr->forward(f_input1,f_input2);
+    NtsVar ig;
+    op.push(BIGRAPHOP);
+    output.push(f_output);
+    input.push(f_input1);
+    ntsOp.push(ntsOperator(curr,BIGRAPHOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input1.data_ptr()),(long)(f_input2.data_ptr())));
+    // pre-alloc space to save graident
+    output_grad.push_back(ig);
+    count++;
+    return f_output;
+}  
+    
 template <typename NOPT>
   NtsVar runSelfNNOp(std::function<NtsVar(NtsVar &, int)> vertexforward,NtsVar& f_input,int layer_){//graph op
       
@@ -196,15 +217,17 @@ template <typename NOPT>
 
     // we will chain the NNOP together, because torch lib will handle the backward propagation
     // when there is no graph operation
-    if (count > 0 && op.top() == NNOP) {
+    if ((count > 0 && op.top() == NNOP)&&((long)input_t.data_ptr())==iot_id[iot_id.size()-1].o_id) {
         output.pop();
         output.push(output_t);
+     //    LOG_INFO("update DATA_PTR %ld",(long)output_t.data_ptr());
         iot_id[iot_id.size()-1].updateOutput((long)(output_t.data_ptr()));
     } else {
         op.push(NNOP);
         output.push(output_t);
         input.push(input_t);
-        ntsOp.push(ntsOperator(NNOP));
+        ntsOp.push(ntsOperator(NNOP));      
+     //    LOG_INFO("inster DATA_PTR %ld",(long)output_t.data_ptr());
         iot_id.push_back(IOTensorId((long)(output_t.data_ptr()),(long)(input_t.data_ptr())));
         // pre-alloc space to save graident
         output_grad.push_back(ig);
@@ -239,12 +262,13 @@ template <typename NOPT>
     output.top().backward(torch::ones_like(output.top()), retain_graph);
     output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
-    //LOG_INFO("FINISH LOSS");
+//    LOG_INFO("FINISH LOSS");
       while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
-         
+//     LOG_INFO("FINISH %d",op.size());  
     if (GRAPHOP == op.top()) {
+//        LOG_INFO("FINISH Graph %d",op.size());  
       int preop_id=top_idx(); 
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
@@ -253,12 +277,38 @@ template <typename NOPT>
           if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
               break;
       }// where to write i grad
+  //    LOG_INFO("15 bug %d",preop_id); 
       output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
-      //LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
+   //   LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
+//stable      
+//      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      pop_one_op();
+    }else if (BIGRAPHOP == op.top()) { // test
+//          LOG_INFO("FINISH BIGRAPHOP %d",op.size());  
+      int preop_id=top_idx(); 
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+  //    LOG_INFO("15 bug %d",preop_id); 
+      output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+      
+      preop_id=top_idx();
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id2)
+              break;
+      }
+      output_grad[preop_id]=ntsOp.top().get_graphop()->get_additional_grad();
+      
+      
 //stable      
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
     }else if (SELFNNOP == op.top()) { // test
+//          LOG_INFO("FINISH SELF_NN %d",op.size());  
       int preop_id=top_idx(); 
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
@@ -272,7 +322,7 @@ template <typename NOPT>
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
     }  else if (NNOP == op.top()) {// directly use pytorch
-
+//        LOG_INFO("FINISH nn %d",op.size());  
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
       }//determine o grad
@@ -281,7 +331,7 @@ template <typename NOPT>
       output.top().backward(output_grad[top_idx()], retain_graph);
 
       pop_one_op();
-    //LOG_INFO("FINISH NN OP");
+  //  LOG_INFO("FINISH NN OP");
     } else {
       LOG_INFO("NOT SUPPORT OP");
       assert(true);

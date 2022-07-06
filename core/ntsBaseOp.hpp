@@ -36,7 +36,15 @@ public:
     graph_ = graph;
   }
   virtual NtsVar forward(NtsVar &f_input)=0;
+  virtual NtsVar forward(NtsVar &f_input,NtsVar &f_input1){
+      LOG_INFO("forward(x,w) is not implemented");
+      assert(0);
+  }
   virtual NtsVar backward(NtsVar &output_grad)=0;
+  virtual NtsVar get_additional_grad(){
+      LOG_INFO("get_additional_grad is not implemented");
+      assert(0);
+  }
 };
 
 
@@ -59,6 +67,15 @@ inline void nts_comp_non_avx256(ValueType *output, ValueType *input, ValueType w
   for (int i = 0; i < feat_size; i++) {
     output[i] += input[i] * weight;
   }
+}
+
+inline ValueType dot_product(ValueType *a, ValueType *b,
+          int feat_size) {
+    ValueType c=0.0;
+    for (int i = 0; i < feat_size; i++) {
+        c += a[i] * b[i];
+    }
+    return c;
 }
 
 //avx256

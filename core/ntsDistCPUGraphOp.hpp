@@ -496,6 +496,105 @@ public:
 
 };
 
+class DistAggregateDstFuseWeight : public ntsGraphOp{
+public:
+  //std::vector<CSC_segment_pinned *> subgraphs;
+    NtsVar e_weight_grad;
+    ValueType *input_ptr;
+    NtsVar e_weight_cache;
+  DistAggregateDstFuseWeight(PartitionedGraph *partitioned_graph,VertexSubset *active)
+      : ntsGraphOp(partitioned_graph, active) {
+    //subgraphs = partitioned_graph->graph_chunks;
+          
+  }
+   NtsVar forward(NtsVar &f_input){
+       ;
+   }
+  NtsVar forward(NtsVar &f_input, NtsVar &e_weight){// input edge  output vertex
+    int feature_size = f_input.size(1);
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+    NtsVar f_output=graph_->Nts->NewKeyTensor({partitioned_graph_->owned_vertices, 
+                feature_size},torch::DeviceType::CPU);
+    ValueType *f_input_buffer =
+      graph_->Nts->getWritableBuffer(f_input, torch::DeviceType::CPU);
+    input_ptr=f_input_buffer;
+    ValueType *e_weight_buffer =
+      graph_->Nts->getWritableBuffer(e_weight, torch::DeviceType::CPU);
+    ValueType *f_output_buffer =
+      graph_->Nts->getWritableBuffer(f_output, torch::DeviceType::CPU);  
+    //LOG_INFO("owned_mirrors (%d)",partitioned_graph_->owned_mirrors);
+     e_weight_cache=e_weight;
+      partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(long eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans+1];eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+//                    nts_acc(f_output_buffer+dst_trans*feature_size,
+//                            f_input_buffer+src_pos*feature_size,
+//                                feature_size);    
+//                nts_copy(f_output_buffer,eid,f_input_buffer,
+//                        dst_trans,feature_size,1);   
+                ValueType* local_input_buffer=f_input_buffer+src_pos*feature_size;
+                ValueType* local_output_buffer=f_output_buffer+dst_trans*feature_size;  
+                nts_comp(local_output_buffer, local_input_buffer, e_weight_buffer[eid],
+               feature_size);
+            }     
+        
+        });    
+      return f_output;
+  }
+  
+  NtsVar backward(NtsVar &f_output_grad){// input vtx grad; output edge grad
+    int feature_size=f_output_grad.size(1);
+    NtsVar f_input_grad=graph_->Nts->NewLeafTensor({partitioned_graph_->owned_mirrors, 
+                feature_size},torch::DeviceType::CPU);
+    e_weight_grad=graph_->Nts->NewLeafTensor(e_weight_cache,torch::DeviceType::CPU); 
+    //printf("131231231313131\n");
+    ValueType *f_input_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
+    ValueType *e_weight_buffer =
+      graph_->Nts->getWritableBuffer(e_weight_cache, torch::DeviceType::CPU);
+    ValueType *e_weight_grad_buffer =
+      graph_->Nts->getWritableBuffer(e_weight_grad, torch::DeviceType::CPU);
+    ValueType *f_output_grad_buffer =
+      graph_->Nts->getWritableBuffer(f_output_grad, torch::DeviceType::CPU);
+     partitioned_graph_->DistSchedulingMaster(
+        [&](VertexId dst,PartitionedGraph* pg){
+            VertexId dst_trans =dst-graph_->gnnctx->p_v_s;
+            for(int eid=pg->column_offset[dst_trans];
+                    eid<pg->column_offset[dst_trans+1];eid++){
+                VertexId src=pg->row_indices[eid];
+                VertexId src_pos=pg->MirrorIndex[src];
+//                nts_acc(f_input_grad_buffer+dst_trans*feature_size,
+//                            f_output_grad_buffer+eid*feature_size,
+//                                feature_size);
+                nts_acc(f_input_grad_buffer+src_pos*feature_size,
+                            f_output_grad_buffer+dst_trans*feature_size,
+                                feature_size);   
+                ValueType* local_input_buffer=f_output_grad_buffer+dst_trans*feature_size;
+                ValueType* local_output_buffer=f_input_grad_buffer+src_pos*feature_size;  
+                nts_comp(local_output_buffer, local_input_buffer, e_weight_buffer[eid],
+                    feature_size);
+                ValueType* i_f_buffer=input_ptr+src_pos*feature_size;
+                ValueType* i_f_g_buffer=f_output_grad_buffer+dst_trans*feature_size;
+                e_weight_grad_buffer[eid]=
+                        dot_product(i_f_buffer,i_f_g_buffer,feature_size);
+                
+            }     
+        
+        });    
+      
+      return f_input_grad;
+  }
+  NtsVar get_additional_grad(){
+      return this->e_weight_grad;
+  }
+  
+};
+
+
 } // namespace graphop
 } // namespace nts
 
