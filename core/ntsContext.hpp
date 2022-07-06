@@ -277,7 +277,6 @@ template <typename NOPT>
           if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
               break;
       }// where to write i grad
-  //    LOG_INFO("15 bug %d",preop_id); 
       output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
    //   LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
 //stable      
@@ -326,10 +325,12 @@ template <typename NOPT>
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
       }//determine o grad
-      assert(output_grad[top_idx()].size(1)==output.top().size(1));
-      assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
-      output.top().backward(output_grad[top_idx()], retain_graph);
-
+      if(output_grad[top_idx()].dim()>1){
+        assert(output_grad[top_idx()].size(1)==output.top().size(1));
+        assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
+        output.top().backward(output_grad[top_idx()], retain_graph);
+      }
+      
       pop_one_op();
   //  LOG_INFO("FINISH NN OP");
     } else {

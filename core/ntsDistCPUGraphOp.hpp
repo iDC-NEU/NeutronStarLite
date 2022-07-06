@@ -551,7 +551,6 @@ public:
     NtsVar f_input_grad=graph_->Nts->NewLeafTensor({partitioned_graph_->owned_mirrors, 
                 feature_size},torch::DeviceType::CPU);
     e_weight_grad=graph_->Nts->NewLeafTensor(e_weight_cache,torch::DeviceType::CPU); 
-    //printf("131231231313131\n");
     ValueType *f_input_grad_buffer =
       graph_->Nts->getWritableBuffer(f_input_grad, torch::DeviceType::CPU);
     ValueType *e_weight_buffer =
