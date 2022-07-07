@@ -67,10 +67,10 @@ int main(int argc, char **argv) {
   } else if (graph->config->algorithm == std::string("GCNSAMPLESINGLE")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();
-        GCN_CPU_SAMPLE_impl *ntsGIN = new GCN_CPU_SAMPLE_impl(graph, iterations);
-    ntsGIN->init_graph();
-    ntsGIN->init_nn();
-    ntsGIN->run();
+        GCN_CPU_SAMPLE_impl *ntsGCN = new GCN_CPU_SAMPLE_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
   } else if (graph->config->algorithm == std::string("GCNCPUEAGER")) {
     graph->load_directed(graph->config->edge_file, graph->config->vertices);
     graph->generate_backward_structure();

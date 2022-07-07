@@ -28,7 +28,9 @@ public:
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
   nts::ctx::NtsContext* ctx;
-  Sampler* sampler;
+  // Sampler* train_sampler;
+  // Sampler* val_sampler;
+  // Sampler* test_sampler;
   FullyRepGraph* fully_rep_graph;
   
   NtsVar F;
@@ -36,6 +38,7 @@ public:
   NtsVar tt;
   float acc;
   int batch;
+  long correct;
   torch::nn::Dropout drpmodel;
 
   GCN_CPU_SAMPLE_impl(Graph<Empty> *graph_, int iterations_,
@@ -63,7 +66,7 @@ public:
       fully_rep_graph=new FullyRepGraph(graph);
       fully_rep_graph->GenerateAll();
       fully_rep_graph->SyncAndLog("read_finish");
-      sampler=new Sampler(fully_rep_graph,0,graph->vertices);
+      // sampler=new Sampler(fully_rep_graph,0,graph->vertices);
       
     //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
     ctx=new nts::ctx::NtsContext();
@@ -79,7 +82,7 @@ public:
     beta1 = 0.9;
     beta2 = 0.999;
     epsilon = 1e-9;
-    GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
+    gnndatum = new GNNDatum(graph->gnnctx, graph);
     // gnndatum->random_generate();
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
@@ -124,6 +127,13 @@ public:
     X[0] = F.set_requires_grad(true);
   }
 
+  long getCorrect(NtsVar &input, NtsVar &target) {
+    // NtsVar predict = input.log_softmax(1).argmax(1);
+    NtsVar predict = input.argmax(1);
+    NtsVar output = predict.to(torch::kLong).eq(target).to(torch::kLong);
+    return output.sum(0).item<long>();
+  }
+
   void Test(long s) { // 0 train, //1 eval //2 test
     NtsVar mask_train = MASK.eq(s);
     NtsVar all_train =
@@ -160,11 +170,9 @@ public:
     torch::Tensor a = left.log_softmax(1);
     NtsVar loss_; 
     loss_= torch::nll_loss(a,right);
-    NtsVar local_acc=a.argmax(1).to(torch::kLong).eq(right).sum(0)/a.size(0);
-  //  std::cout<<"training_correct:"<<local_acc<<std::endl;
-    ctx->appendNNOp(left, loss_);
-    float * lacc=local_acc.data_ptr<float>();
-    acc+=(*lacc);
+    if (ctx->training == true) {
+      ctx->appendNNOp(left, loss_);
+    }
   }
 
   void Update() {
@@ -177,16 +185,17 @@ public:
     }
   }
   
-  void Forward() {
+  void Forward(Sampler* sampler, int type=0) {
     graph->rtminfo->forward = true;
       
-      while(sampler->sample_not_finished()){
-            sampler->reservoir_sample(graph->gnnctx->layer_size.size()-1,
-                                      graph->config->batch_size,
-                                      graph->gnnctx->fanout);
-      }
+    while(sampler->sample_not_finished()){
+          sampler->reservoir_sample(graph->gnnctx->layer_size.size()-1,
+                                    graph->config->batch_size,
+                                    graph->gnnctx->fanout);
+    }
       SampledSubgraph *sg;
-      acc=0.0;
+      // acc=0.0;
+      correct = 0;
       batch=0;
       while(sampler->has_rest()){
            sg=sampler->get_one();
@@ -213,14 +222,24 @@ public:
                 Y_i);
            } 
            Loss(X[graph->gnnctx->layer_size.size()-1],target_lab);
-           ctx->self_backward(false);
+          correct += getCorrect(X[graph->gnnctx->layer_size.size()-1], target_lab);
+          if (ctx->training) {
+            ctx->self_backward(false);
+          }
            Update();
            batch++;
-           
       }
-         LOG_INFO("epoch_acc:\t%f",acc/batch);
+
        sampler->clear_queue();
        sampler->restart();
+      acc = 1.0 * correct / sampler->work_range[1];
+      if (type == 0) {
+        LOG_INFO("Train Acc: %f %d %d", acc, correct, sampler->work_range[1]);
+      } else if (type == 1) {
+        LOG_INFO("Eval Acc: %f %d %d", acc, correct, sampler->work_range[1]);
+      } else if (type == 2) {
+        LOG_INFO("Test Acc: %f %d %d", acc, correct, sampler->work_range[1]);
+      }
   }
 
   void run() {
@@ -228,19 +247,41 @@ public:
       LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
                iterations);
     }
+    // get train/val/test node index. (may be move this to GNNDatum)
+    std::vector<VertexId> train_nids, val_nids, test_nids;
+    for (int i = 0; i < graph->gnnctx->l_v_num; ++i) {
+      int type = gnndatum->local_mask[i];
+      if (type == 0) {
+        train_nids.push_back(i);
+      } else if (type == 1) {
+        val_nids.push_back(i);
+      } else if (type == 2) {
+        test_nids.push_back(i);
+      }
+    }
+      
+    Sampler* train_sampler = new Sampler(fully_rep_graph, train_nids);
+    Sampler* eval_sampler = new Sampler(fully_rep_graph, val_nids);
+    Sampler* test_sampler = new Sampler(fully_rep_graph, test_nids);
 
     for (int i_i = 0; i_i < iterations; i_i++) {
       graph->rtminfo->epoch = i_i;
+      LOG_INFO("epoch %d", i_i);
       if (i_i != 0) {
         for (int i = 0; i < P.size(); i++) {
           P[i]->zero_grad();
         }
       }
       
-      Forward();
-//      if (graph->partition_id == 0)
-//        std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
-//                  << std::endl;
+      ctx->train();
+      Forward(train_sampler, 0);
+      
+      ctx->eval();
+      Forward(eval_sampler, 1);
+      Forward(test_sampler, 2);
+  //      if (graph->partition_id == 0)
+  //        std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
+  //                  << std::endl;
     }
     delete active;
   }
