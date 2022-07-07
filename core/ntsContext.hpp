@@ -103,6 +103,7 @@ public:
   output_grad.clear();
   iot_id.clear();
   count = 0;
+  training = true; // default is training mode
 }
   template <typename GOPT>
   NtsVar runGraphOp(PartitionedGraph* partitioned_graph, VertexSubset *active,
@@ -113,15 +114,17 @@ public:
     
     nts::op::ntsGraphOp * curr=new GOPT(partitioned_graph,active);
     NtsVar f_output=curr->forward(f_input);
-    NtsVar ig;
-    op.push(GRAPHOP);
-    output.push(f_output);
-    input.push(f_input);
-    ntsOp.push(ntsOperator(curr,GRAPHOP));
-    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
-    // pre-alloc space to save graident
-    output_grad.push_back(ig);
-    count++;
+    if (this->training == true) {
+      NtsVar ig;
+      op.push(GRAPHOP);
+      output.push(f_output);
+      input.push(f_input);
+      ntsOp.push(ntsOperator(curr,GRAPHOP));
+      iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+      // pre-alloc space to save graident
+      output_grad.push_back(ig);
+      count++;
+    }
     return f_output;
 }
   template <typename GOPT>
@@ -155,15 +158,17 @@ template <typename NOPT>
         return vertexforward(v_tensor,layer_);
     },layer_);
     NtsVar f_output=curr->forward(f_input);
-    NtsVar ig;
-    op.push(SELFNNOP);
-    output.push(f_output);
-    input.push(f_input);
-    ntsOp.push(ntsOperator(curr,SELFNNOP));
-    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
-    // pre-alloc space to save graident
-    output_grad.push_back(ig);
-    count++;
+    if (this->training == true) {
+      NtsVar ig;
+      op.push(SELFNNOP);
+      output.push(f_output);
+      input.push(f_input);
+      ntsOp.push(ntsOperator(curr,SELFNNOP));
+      iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+      // pre-alloc space to save graident
+      output_grad.push_back(ig);
+      count++;
+    }
     return f_output;
 }  
   
@@ -176,15 +181,17 @@ template <typename NOPT>
     
     nts::op::ntsGraphOp * curr=new GOPT(subgraphs_,graph_,layer_);
     NtsVar f_output=curr->forward(f_input);
-    NtsVar ig;
-    op.push(GRAPHOP);
-    output.push(f_output);
-    input.push(f_input);
-    ntsOp.push(ntsOperator(curr,GRAPHOP));
-    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
-    // pre-alloc space to save graident
-    output_grad.push_back(ig);
-    count++;
+    if (this->training == true) {
+      NtsVar ig;
+      op.push(GRAPHOP);
+      output.push(f_output);
+      input.push(f_input);
+      ntsOp.push(ntsOperator(curr,GRAPHOP));
+      iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+      // pre-alloc space to save graident
+      output_grad.push_back(ig);
+      count++;
+    }
     return f_output;
 }  
   
@@ -192,7 +199,9 @@ template <typename NOPT>
             NtsVar &nbr_input,NtsVar &vtx_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=vertexforward(nbr_input,vtx_input); 
-    appendNNOp(nbr_input, f_output);
+    if (this->training == true) {
+      appendNNOp(nbr_input, f_output);
+    }
 //    printf("tese %ld\n",(long)(&f_output));
     return f_output;
 }
@@ -200,7 +209,9 @@ template <typename NOPT>
             NtsVar &nbr_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=vertexforward(nbr_input); 
-    appendNNOp(nbr_input, f_output);
+    if (this->training == true) {
+      appendNNOp(nbr_input, f_output);
+    }
     return f_output;
 }
  
@@ -208,11 +219,15 @@ template <typename NOPT>
             NtsVar &edge_input){//NNOP
 //     LOG_INFO("call run vertex forward");
     NtsVar f_output=edgeforward(edge_input); 
-    appendNNOp(edge_input, f_output);
+    if (this->training == true) {
+      appendNNOp(edge_input, f_output);
+    }
     return f_output;
 } 
   
   void appendNNOp(NtsVar &input_t, NtsVar &output_t){
+    assert(this->training);
+    // if (!this->training) return;
     NtsVar ig;
 
     // we will chain the NNOP together, because torch lib will handle the backward propagation
@@ -259,6 +274,8 @@ template <typename NOPT>
     count--;
   }
   void self_backward(bool retain_graph = true){
+    assert(this->training);
+    // if (!this->training) return;
     output.top().backward(torch::ones_like(output.top()), retain_graph);
     output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
@@ -369,6 +386,14 @@ template <typename NOPT>
     return count - 1;
   }
 
+  void train() {
+    this->training = true;
+  }
+
+  void eval() {
+    this->training = false;
+  }
+
 //private:
   std::stack<OpType> op;
   std::stack<NtsVar> output;
@@ -377,6 +402,7 @@ template <typename NOPT>
   std::vector<NtsVar> output_grad;
   std::vector<IOTensorId> iot_id;
   int count;
+  bool training; // specify training or evaluation mode.
 //  GraphOperation *gt;
 //  std::vector<CSC_segment_pinned *> subgraphs;
 //  bool bi_direction;
