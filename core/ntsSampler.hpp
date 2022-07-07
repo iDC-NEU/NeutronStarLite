@@ -30,6 +30,7 @@ public:
     VertexId start_vid,end_vid;
     VertexId work_range[2];
     VertexId work_offset;
+    std::vector<VertexId> sample_nids;
     Sampler(FullyRepGraph* whole_graph_, VertexId work_start,VertexId work_end){
         whole_graph=whole_graph_;
         queue_start=-1;
@@ -37,6 +38,17 @@ public:
         work_range[0]=work_start;
         work_range[1]=work_end;
         work_offset=work_start;
+    }
+    Sampler(FullyRepGraph* whole_graph_, std::vector<VertexId>& index){
+        assert(index.size() > 0);
+        sample_nids.assign(index.begin(), index.end());
+        assert(sample_nids.size() == index.size());
+        whole_graph=whole_graph_;
+        queue_start=-1;
+        queue_end=0;
+        work_range[0]=0;
+        work_range[1]=sample_nids.size();
+        work_offset=0;
     }
     ~Sampler(){
         clear_queue();
@@ -100,7 +112,8 @@ public:
             if(i==0){
               ssg->sample_load_destination([&](std::vector<VertexId>& destination){
                   for(int j=0;j<actual_batch_size;j++){
-                      destination.push_back(work_offset++);
+                    //   destination.push_back(work_offset++);
+                    destination.push_back(sample_nids[work_offset++]);
                   }
               },i);
               //whole_graph->SyncAndLog("sample_load_destination");
