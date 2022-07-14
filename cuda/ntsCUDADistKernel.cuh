@@ -176,7 +176,7 @@ __global__ void edge_softmax_forward_block( T_v* msg_output,  T_v* msg_input,
         typedef cub::BlockReduce<T_v, CUDA_NUM_THREADS_SOFTMAX> BlockReduce;
         __shared__ typename BlockReduce::TempStorage temp_storage;
 //        __shared__ BlockScan::TempStorage temp_storage;
-        __shared__ T_v bcast_value[2];
+        __shared__ T_v bcast_value;
         for(VertexId_CUDA blkColStart=blockIdx.x*VtxPerBlock;blkColStart<batch_size_;blkColStart+=VtxPerBlock*gridDim.x){
             
             VertexId_CUDA curVtx_trans=blkColStart;
@@ -185,22 +185,25 @@ __global__ void edge_softmax_forward_block( T_v* msg_output,  T_v* msg_input,
             __syncthreads();
             T_v thread_data=0.0;
             int used=0;
-            double aggregate=0.0;
+            T_v aggregate = 0.0;
             for(VertexId_CUDA eid=rowIdxStart+threadIdx.x;eid<rowIdxEnd;eid+=CUDA_NUM_THREADS_SOFTMAX){
 
                 int valid_items=rowIdxEnd-rowIdxStart-CUDA_NUM_THREADS_SOFTMAX*used;
                 thread_data=exp(msg_input[eid]);
                 //thread_data=msg_input[eid];
-                aggregate+=BlockReduce(temp_storage).Sum(thread_data,valid_items);
+                aggregate += thread_data;
+                // aggregate+=BlockReduce(temp_storage).Sum(thread_data,valid_items);
                 used+=1;
             }
+            T_v block_sum = BlockReduce(temp_storage).Sum(aggregate);
+
             __syncthreads();
             if(threadIdx.x==0){
-                
-                bcast_value[0]=aggregate;
+                // bcast_value=aggregate;
+                bcast_value = block_sum;
             }
             __syncthreads();             
-            aggregate=bcast_value[0];
+            aggregate=bcast_value;
  
             for(VertexId_CUDA eid=rowIdxStart+threadIdx.x;eid<rowIdxEnd;eid+=CUDA_NUM_THREADS_SOFTMAX){   
                 msg_output[eid]=exp(msg_input[eid])/aggregate;//;///aggregate;
@@ -236,14 +239,17 @@ __global__ void edge_softmax_backward_block( T_v* msg_input_grad, T_v* msg_outpu
             for(VertexId_CUDA eid=rowIdxStart+threadIdx.x;eid<rowIdxEnd;eid+=CUDA_NUM_THREADS_SOFTMAX){       
                 int valid_items=rowIdxEnd-rowIdxStart-CUDA_NUM_THREADS_SOFTMAX*rest;
                 thread_data=msg_output_grad[eid]*msg_cached[eid];
-                aggregate+=BlockReduce(temp_storage).Sum(thread_data,valid_items);
+                // aggregate+=BlockReduce(temp_storage).Sum(thread_data,valid_items);
+                aggregate += thread_data;
 //                msg_output[rowIdxStart+threadIdx.x%WARP_SIZE]
 //                        =msg_input[rowIdxStart+threadIdx.x%WARP_SIZE];
                 rest+=1;
             }
+            T_v block_sum = BlockReduce(temp_storage).Sum(aggregate);
             __syncthreads();
             if(threadIdx.x==0){
-                bcast_value=aggregate;
+                // bcast_value=aggregate;
+                bcast_value=block_sum;
             } 
             __syncthreads();
             T_v aggregate_1=bcast_value;
