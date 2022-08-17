@@ -13,84 +13,87 @@ import torch
 import torch.nn.functional as F
 import dgl
 from dgl import DGLGraph
-from dgl.data import register_data_args, load_data, CoraFull, Coauthor, AmazonCoBuy
+from dgl.data import register_data_args, load_data
+from dgl.data import CoraFullDataset, CoauthorCSDataset, CoauthorPhysicsDataset
+from dgl.data import AmazonCoBuyComputerDataset, AmazonCoBuyPhotoDataset
+from ogb.nodeproppred import DglNodePropPredDataset
 
 def extract_dataset(args):
     dataset = args.dataset
-    if dataset in ['cora', 'citeseer', 'pubmed', 'reddit']:
-        # mkdir ./dataset
-        if not os.path.exists(dataset):
-            os.mkdir(dataset)
-        else:
-            print('./{0} is exist, if you want re-generate this dataset please remove ./{0} and try again.'.format(dataset))
-            sys.exit(-1)
-        os.chdir(dataset)
 
+    # change dir
+    if not os.path.exists(dataset):
+        os.mkdir(dataset)
+    os.chdir(dataset)
+
+    if dataset in ['cora', 'citeseer', 'pubmed', 'reddit']:
         # load dataset
         data = load_data(args)
-        features = data.features
-        labels = data.labels
-        assert(features.size(0) == len(labels))
-        train_mask = data.train_mask
-        val_mask = data.val_mask
-        test_mask = data.test_mask
-        graph = data.graph
-        edges_list = np.array([])
-        if dataset == 'reddit':
-            edges = graph.edges()
-            edge_src = edges[0].numpy().reshape((-1,1))
-            edge_dst = edges[1].numpy().reshape((-1,1))
-            edges_list = np.hstack((edge_src, edge_dst))
-        else:
-            edges = graph.edges
-            edges_list = np.array([[src, dst] for src, dst in edges])
+        graph = data[0]
         
-        if args.self_loop:
-          edges_list = insert_self_loop(edges_list)
+        features = graph.ndata['feat']
+        labels = graph.ndata['label']
+        # assert(features.size(0) == len(labels))
+        train_mask = graph.ndata['train_mask']
+        val_mask = graph.ndata['val_mask']
+        test_mask = graph.ndata['test_mask']
 
-        print("dataset: {} nodes: {} edges: {} feature dims: {} classess: {} label nodes: {}"
-              .format(dataset, len(labels), edges_list.shape, 
+        if args.self_loop:
+            time_stamp = time.time()
+            print('before add self loop has {} edges'.format(graph.num_edges()))
+            graph = dgl.remove_self_loop(graph)
+            graph = dgl.add_self_loop(graph)
+            # graph = dgl.to_bidirected(graph) # simple graph
+            print('after add self loop has {} edges'.format(graph.num_edges()))
+            print("insert self loop cost {:.2f}s".format(time.time() - time_stamp))
+
+        edges = graph.edges()
+        edge_src = edges[0].numpy().reshape((-1,1))
+        edge_dst = edges[1].numpy().reshape((-1,1))
+        edges_list = np.hstack((edge_src, edge_dst))
+
+        # if args.self_loop:
+        #     time_stamp = time.time()
+        #     edges_list = insert_self_loop(edges_list)
+        #     print("insert self loop cost {:.2f} s".format(time.time() - time_stamp))
+
+        print("nodes: {}, edges: {}, feature dims: {}, classess: {}, label nodes: {}"
+              .format(graph.number_of_nodes(), edges_list.shape, 
               list(features.shape), len(np.unique(labels)),
               train_mask.sum() + test_mask.sum() + val_mask.sum()))      
         return edges_list, features, labels, train_mask, val_mask, test_mask
-    else:        
-        if not os.path.exists(dataset):
-            os.mkdir(dataset)
-        else:
-            print('./{0} is exist, if you want re-generate this dataset please remove ./{0} and try again.'.format(dataset))
-            sys.exit(-1)
-        os.chdir(dataset)
 
+    elif dataset in ['CoraFull', 'Coauthor_cs', 'Coauthor_physics', 'AmazonCoBuy_computers', 'AmazonCoBuy_photo']:
         if dataset == 'CoraFull':
-            data = CoraFull()
+            data = CoraFullDataset()
         elif dataset == 'Coauthor_cs':
-            data = Coauthor('cs')
+            data = CoauthorCSDataset('cs')
         elif dataset == 'Coauthor_physics':
-            data = Coauthor('physics')
+            data = CoauthorPhysicsDataset('physics')
         elif dataset == 'AmazonCoBuy_computers':
-            data = AmazonCoBuy('computers')
+            data = AmazonCoBuyComputerDataset('computers')
         elif dataset == 'AmazonCoBuy_photo':
-            data = AmazonCoBuy('photo')
-        else:
-            raise NotImplementedError
+            data = AmazonCoBuyPhotoDataset('photo')
 
-        graph = data.data[0]
+        graph = data[0]
         features = torch.FloatTensor(graph.ndata['feat']).numpy()
         labels = torch.LongTensor(graph.ndata['label']).numpy()
-
-        features_shape = features.shape
-        labels_shape = labels.shape
-
-        num_nodes = features_shape[0]
+        num_nodes = graph.number_of_nodes()
 
         if args.self_loop:
+            time_stamp = time.time()
             print('before add self loop has {} edges'.format(len(graph.all_edges()[0])))
+            graph = dgl.remove_self_loop(graph)
             graph = dgl.add_self_loop(graph)
+            # graph = dgl.to_bidirected(graph)
             print('after add self loop has {} edges'.format(len(graph.all_edges()[0])))
+            print("insert self loop cost {:.2f}s".format(time.time() - time_stamp))
 
-        edges_u, edges_v = graph.all_edges()
-        tmp_list = [[edges_u[idx], edges_v[idx]] for idx in range(len(edges_u))]
-        edges_list = np.array(tmp_list)
+
+        edges = graph.edges()
+        edge_src = edges[0].numpy().reshape((-1,1))
+        edge_dst = edges[1].numpy().reshape((-1,1))
+        edges_list = np.hstack((edge_src, edge_dst))
 
         train_mask, val_mask, test_mask = split_dataset(num_nodes)
         print("dataset: {} nodes: {} edges: {} feature dims: {} classess: {} label nodes: {}"
@@ -98,7 +101,48 @@ def extract_dataset(args):
               list(features.shape), len(np.unique(labels)),
               train_mask.sum() + test_mask.sum() + val_mask.sum()))
         return edges_list, features, labels, train_mask, val_mask, test_mask
+    
+    elif dataset in ['ogbn-arxiv', 'ogbn-papers100M', 'ogbn-products']:
+        #load dataset
+        data = DglNodePropPredDataset(name=dataset)
         
+        graph = data.graph[0]
+        labels = data.labels
+        features = graph.ndata['feat']
+        
+        split_idx = data.get_idx_split()
+        train_nid, val_nid, test_nid = split_idx['train'], split_idx['valid'], split_idx['test']
+        # print(len(train_nid) + len(val_nid) + len(test_nid))
+        train_mask = np.zeros(graph.number_of_nodes(), dtype=bool)
+        train_mask[train_nid] = True
+        val_mask = np.zeros(graph.number_of_nodes(), dtype=bool)
+        val_mask[val_nid] = True
+        test_mask = np.zeros(graph.number_of_nodes(), dtype=bool)
+        test_mask[test_nid] = True
+
+        if args.self_loop:
+            time_stamp = time.time()
+            print('before add self loop has {} edges'.format(len(graph.all_edges()[0])))
+            graph = dgl.remove_self_loop(graph)
+            graph = dgl.add_self_loop(graph)
+            if dataset == "ogbn-arxiv":
+                graph = dgl.to_bidirected(graph)
+            print('after add self loop has {} edges'.format(len(graph.all_edges()[0])))
+            print("insert self loop cost {:.2f}s".format(time.time() - time_stamp))
+        
+        edges = graph.edges()
+        edge_src = edges[0].numpy().reshape((-1,1))
+        edge_dst = edges[1].numpy().reshape((-1,1))
+        edges_list = np.hstack((edge_src, edge_dst))
+
+        print("nodes: {}, edges: {}, feature dims: {}, classess: {}, label nodes: {}"
+              .format(graph.number_of_nodes(), edges_list.shape, 
+              list(features.shape), len(np.unique(labels)),
+              train_mask.sum() + test_mask.sum() + val_mask.sum()))     
+        return edges_list, features, labels, train_mask, val_mask, test_mask
+
+    else:
+        raise NotImplementedError
 
 def split_dataset(num_nodes):
     # TODO(Sanzo00) split dataset like 80-10-10
@@ -125,7 +169,7 @@ def generate_nts_dataset(args, edge_list, features, labels, train_mask, val_mask
     edge2bin(pre_path + '.edge', edge_list)
 
     # fetures
-    write_to_file(pre_path + '.feat', features, "%f", index=True)
+    write_to_file(pre_path + '.feat', features, "%.4f", index=True)
 
     # label
     write_to_file(pre_path + '.label', labels, "%d", index=True)
@@ -144,23 +188,12 @@ def generate_nts_dataset(args, edge_list, features, labels, train_mask, val_mask
     write_to_mask(pre_path + '.mask', mask_list)
 
 
-def insert_self_loop(edge_list):
-    G_t = nx.from_edgelist(edge_list)
-    graph = nx.Graph(G_t)
-    graph = graph.to_directed()
-    print('before insert self loop', graph)    
-    for i in graph.nodes:
-        graph.add_edge(i, i)
-    print('after insert self loop', graph)    
-    return np.array(graph.edges)
-
-
 def edge2bin(name, edges):
     time_cost = time.time()
+    edges = edges.flatten()
     with open(name, 'wb') as f:
-        for arr in edges:
-            for node in arr:
-                f.write(int(node).to_bytes(4, byteorder=sys.byteorder))
+        buf = [int(edge).to_bytes(4, byteorder=sys.byteorder) for edge in edges]
+        f.writelines(buf)
     time_cost = time.time() - time_cost
     print("write to {} is done, cost {:.2f}s throughput {:.2f}MB/s".format(name, time_cost, os.path.getsize(name)/1024/1024/time_cost))
 
@@ -192,6 +225,21 @@ def write_to_file(name, data, format, index=False):
 
     time_cost = time.time() - time_cost
     print("write to {} is done, cost: {:.2f}s Throughput:{:.2f}MB/s".format(name, time_cost, os.path.getsize(name)/1024/1024/time_cost))
+
+# def insert_self_loop(edge_list):
+#     time_stamp = time.time()
+#     graph = nx.from_edgelist(edge_list)
+#     print("graph {:.3f}".format(time.time() - time_stamp))
+
+#     time_stamp = time.time()
+#     graph = graph.to_directed()
+#     print("to directed {:.3f}".format(time.time() - time_stamp))
+
+#     print('before insert self loop', graph)    
+#     for i in graph.nodes:
+#         graph.add_edge(i, i)
+#     print('after insert self loop', graph)    
+#     return np.array(graph.edges)
 
 
 if __name__ == '__main__':
