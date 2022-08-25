@@ -30,11 +30,14 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
 #include "ntsCPUFusedGraphOp.hpp"
 #include "ntsDistCPUGraphOp.hpp"
+#include "ntsSingleCPUGraphOp.hpp"
+#include "ntsMiniBatchGraphOp.hpp"
+
+#if CUDA_ENABLE
 #include "ntsDistGPUFusedGraphOp.hpp"
 #include "ntsDistGPUGraphOp.hpp"
 #include "ntsSingleGPUFusedGraphOp.hpp"
-#include "ntsSingleCPUGraphOp.hpp"
-#include "ntsMiniBatchGraphOp.hpp"
+#endif
 //#include "ntsSubLinearNNOP.hpp"
 //#include "ntsNNOP.hpp"
 

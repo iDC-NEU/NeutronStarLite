@@ -13,7 +13,10 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
    See the License for the specific language governing permissions and
    limitations under the License.
 */
+#if CUDA_ENABLE
 #include "ntsCUDA.hpp"
+#endif
+
 #include <vector>
 #include <map>
 #include <algorithm>

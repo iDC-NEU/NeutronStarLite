@@ -6,7 +6,7 @@
  */
 
 #include "cuda_type.h"
-#define CUDA_ENABLE 1
+// #define CUDA_ENABLE 1
 #if CUDA_ENABLE
 #include "cuda_runtime.h"
 #endif
