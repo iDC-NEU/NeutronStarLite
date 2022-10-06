@@ -28,7 +28,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 class SampledSubgraph{
 public:    
     SampledSubgraph(){
-        ;
+        threads = std::max(numa_num_configured_cpus() - 1, 1);
     }
     SampledSubgraph(int layers_, int batch_size_,std::vector<int>& fanout_){
         layers=layers_;
@@ -37,6 +37,7 @@ public:
         sampled_sgs.clear();
         curr_layer=0;
         curr_dst_size=batch_size;
+        threads = std::max(numa_num_configured_cpus() - 1, 1);
     }
     
     SampledSubgraph(int layers_,std::vector<int>& fanout_){
@@ -44,6 +45,7 @@ public:
         fanout=fanout_;
         sampled_sgs.clear();
         curr_layer=0;
+        threads = std::max(numa_num_configured_cpus() - 1, 1);
     }
     
     ~SampledSubgraph(){
@@ -97,6 +99,7 @@ public:
                     std::vector<VertexId> &column_offset,
                         std::vector<VertexId> &row_indices,VertexId id)> vertex_sample){
         {
+omp_set_num_threads(threads);
 #pragma omp parallel for
             for (VertexId begin_v_i = 0;begin_v_i < curr_dst_size;begin_v_i += 1) {
             // for every vertex, apply the sparse_slot at the partition
@@ -119,9 +122,10 @@ public:
     
     void compute_one_layer(std::function<void(VertexId local_dst, 
                           std::vector<VertexId>&column_offset, 
-                              std::vector<VertexId>&row_indices)>sparse_slot,VertexId layer,VertexId threads){
-        omp_set_num_threads(threads);
+                            //   std::vector<VertexId>&row_indices)>sparse_slot,VertexId layer,VertexId threads){
+                              std::vector<VertexId>&row_indices)>sparse_slot,VertexId layer){
         {
+omp_set_num_threads(threads);
 #pragma omp parallel for
             for (VertexId begin_v_i = 0;
                 begin_v_i < sampled_sgs[layer]->dst().size();
@@ -139,7 +143,7 @@ public:
     std::vector<int> fanout;
     int curr_layer;
     int curr_dst_size;
-    
+    int threads;
 };
 class FullyRepGraph{
 public:

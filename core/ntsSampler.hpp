@@ -16,6 +16,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #ifndef NTSSAMPLER_HPP
 #define NTSSAMPLER_HPP
 #include <mutex>
+#include <random>
 #include <cmath>
 #include <stdlib.h>
 #include "FullyRepGraph.hpp"
@@ -101,6 +102,14 @@ public:
         queue_start=-1;
         queue_end=0;
     }
+    
+    int random_uniform_int(const int min = 0, const int max = 1) {
+        // thread_local std::default_random_engine generator;
+        static thread_local std::mt19937 generator;
+        std::uniform_int_distribution<int> distribution(min, max);
+        return distribution(generator);
+    }
+
     void reservoir_sample(int layers_, int batch_size_,std::vector<int> fanout_){
         assert(work_offset<work_range[1]);
         int actual_batch_size=std::min((VertexId)batch_size_,work_range[1]-work_offset);
@@ -138,7 +147,8 @@ public:
                         write_pos+=column_offset[id];
                         row_indices[write_pos]=whole_graph->row_indices[src_idx];
                     }else{
-                        VertexId random=rand()%write_pos;
+                        // VertexId random=rand()%write_pos;
+                        VertexId random=random_uniform_int(0, write_pos-1);
                         if(random<fanout_i){
                           row_indices[random+column_offset[id]]=  
                                   whole_graph->row_indices[src_idx];

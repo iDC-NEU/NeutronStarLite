@@ -93,8 +93,8 @@ public:
                     
                 }
               },
-            layer,
-            12//compute thread num;
+            layer
+            // ,12//compute thread num;
             );   
       return f_output;
    }
@@ -122,8 +122,8 @@ public:
 
                 }
               },
-            layer,
-            12//compute thread num;
+            layer
+            // ,12//compute thread num;
         );
        return f_input_grad;
    }
